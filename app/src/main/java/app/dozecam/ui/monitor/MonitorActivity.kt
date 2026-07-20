@@ -6,11 +6,21 @@ import android.os.Bundle
 import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.ComposeView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import app.dozecam.network.NetworkMonitor
+import app.dozecam.player.PlaybackWatchdog
 import app.dozecam.player.VideoPlayerController
 import app.dozecam.player.VlcVideoPlayerController
+import app.dozecam.ui.theme.DozecamTheme
+import kotlinx.coroutines.launch
 import org.videolan.libvlc.util.VLCVideoLayout
 
 class MonitorActivity : ComponentActivity() {
@@ -18,6 +28,7 @@ class MonitorActivity : ComponentActivity() {
     private var player: VideoPlayerController? = null
     private lateinit var videoLayout: VLCVideoLayout
     private lateinit var streamUrl: String
+    private lateinit var watchdog: PlaybackWatchdog
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -31,16 +42,25 @@ class MonitorActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
+        watchdog = PlaybackWatchdog(
+            scope = lifecycleScope,
+            onReconnect = { restartStream() },
+        )
+
         videoLayout = VLCVideoLayout(this)
+        val overlay = ComposeView(this).apply {
+            setContent {
+                DozecamTheme {
+                    val state by watchdog.state.collectAsStateWithLifecycle()
+                    val lastFrameAt by watchdog.lastFrameAtMs.collectAsStateWithLifecycle()
+                    StatusOverlay(state = state, lastFrameAtMs = lastFrameAt)
+                }
+            }
+        }
         setContentView(
             FrameLayout(this).apply {
-                addView(
-                    videoLayout,
-                    FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                    ),
-                )
+                addView(videoLayout, MATCH_PARENT_PARAMS)
+                addView(overlay, MATCH_PARENT_PARAMS)
             },
         )
 
@@ -49,20 +69,34 @@ class MonitorActivity : ComponentActivity() {
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             hide(WindowInsetsCompat.Type.systemBars())
         }
+
+        val networkMonitor = NetworkMonitor(applicationContext)
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                networkMonitor.isOnline.collect { online ->
+                    if (online) watchdog.onNetworkAvailable() else watchdog.onNetworkLost()
+                }
+            }
+        }
     }
 
     override fun onStart() {
         super.onStart()
         if (isFinishing) return
         val controller = player ?: VlcVideoPlayerController(applicationContext).also { player = it }
+        controller.listener = watchdog::onPlayerEvent
         controller.attach(videoLayout)
+        watchdog.start()
         controller.play(streamUrl)
     }
 
     override fun onStop() {
         super.onStop()
-        player?.stop()
-        player?.detach()
+        val controller = player ?: return
+        watchdog.stop()
+        controller.listener = null
+        controller.stop()
+        controller.detach()
     }
 
     override fun onDestroy() {
@@ -71,8 +105,20 @@ class MonitorActivity : ComponentActivity() {
         player = null
     }
 
+    private fun restartStream() {
+        val controller = player ?: return
+        controller.stop()
+        controller.play(streamUrl)
+    }
+
     companion object {
         private const val EXTRA_STREAM_URL = "stream_url"
+
+        private val MATCH_PARENT_PARAMS
+            get() = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            )
 
         fun intent(context: Context, streamUrl: String): Intent =
             Intent(context, MonitorActivity::class.java).putExtra(EXTRA_STREAM_URL, streamUrl)

@@ -4,4 +4,9 @@
     <string name="stream_url_label">Stream URL</string>
     <string name="stream_url_hint">rtsp://console-ip:7447/token</string>
     <string name="watch">Watch</string>
+    <string name="status_connecting">CONNECTING</string>
+    <string name="status_live">LIVE</string>
+    <string name="status_reconnecting">RECONNECTING (attempt %1$d)</string>
+    <string name="status_offline">OFFLINE</string>
+    <string name="status_with_last_frame">%1$s · last frame %2$s</string>
 </resources>
