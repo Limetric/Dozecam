@@ -1,6 +1,17 @@
-# UniFi Babycam — Project Design Document
+# Dozecam — Project Design Document
 
 A native Android baby monitor app built on UniFi Protect G6 Instant cameras, providing the monitor-specific features the official Protect app lacks: always-on display, wake-on-sound, auto-reconnect, and low-latency LAN streaming.
+
+**Product name:** Dozecam. The store listing must not lead with "UniFi" (Ubiquiti trademark); describe compatibility as "for UniFi Protect cameras" instead.
+
+## Product Decisions
+
+Settled 2026-07-20:
+
+- **Play Store from day one.** Dozecam is a store product, not a household sideload. Permissions, onboarding, and release plumbing are designed store-safe from the start.
+- **Protect API onboarding** (§4.4). Users sign in to their Protect console with a local account; the app discovers cameras and manages RTSP streams itself. Manual `rtsp://` URL entry remains as an escape hatch.
+- **minSdk 31, targetSdk 37.** Matches CloudMount conventions and testing surface. Accepted tradeoff: excludes pre-Android-12 tablets, a real slice of the repurposed-old-tablet audience.
+- **Free at launch.** No billing code in v1. Keep multi-camera and parent-device mode modular — they are the natural paid hooks if a paid tier ever lands.
 
 ## 1. Background & Motivation
 
@@ -17,6 +28,7 @@ The G6 Instant exposes a per-camera RTSP stream via Protect, which makes a custo
 ## 2. Goals & Non-Goals
 
 ### Goals
+- Play Store distribution: store-safe permissions and an onboarding flow that works for arbitrary Protect setups, not just the developer's.
 - Sub-second (~300–500 ms) live video on the local network.
 - Screen sleeps during quiet periods; wakes automatically on sustained sound.
 - Continuous background audio monitoring via a foreground service, even with the display off.
@@ -29,6 +41,7 @@ The G6 Instant exposes a per-camera RTSP stream via Protect, which makes a custo
 - Recording/playback — Protect already does this well.
 - Two-way audio (G6 Instant talk-back) — possible later, out of scope initially.
 - iOS support.
+- Monetization — free at launch, no billing integration in v1.
 
 ## 3. System Architecture
 
@@ -85,7 +98,16 @@ Simple, tunable, and deliberately boring:
 - While in the foreground: `FLAG_KEEP_SCREEN_ON` (always-on mode) or a dimming schedule.
 - On-screen live audio level meter — invaluable for tuning thresholds.
 
-### 4.4 Connection Watchdog
+### 4.4 Protect API Onboarding
+Store users can't be asked to copy RTSP token URLs out of the Protect UI, so camera setup goes through the console's local HTTP API:
+
+- Sign in with a **local Protect account** (console IP/hostname + username + password; document that a dedicated view-only local account is the recommended setup). Cookie + CSRF-token session handling; re-authenticate transparently when the session expires.
+- Enumerate adopted cameras via the bootstrap endpoint; let the user pick which cameras Dozecam uses.
+- Enable the RTSP stream on the chosen quality channel per camera (or read the existing token) and derive the `rtsp://<console>:7447/<token>` URL automatically.
+- **Risk:** this API is unofficial and shifts between Protect releases. Mitigations: pin against known-good behavior per Protect version range, fail with actionable errors, and keep **manual RTSP URL entry** as a permanent escape hatch.
+- Credentials and token URLs live in app-private encrypted storage (§6).
+
+### 4.5 Connection Watchdog
 - Detect stalls at the frame level: if no video/audio frames arrive within N hundred ms, tear down and reconnect with exponential backoff (capped at a few seconds).
 - Subscribe to `ConnectivityManager` network callbacks; reconnect immediately when Wi-Fi returns rather than waiting for a timeout.
 - Surface state honestly in the UI (LIVE / RECONNECTING / OFFLINE + timestamp of last frame) — a frozen frame silently pretending to be live is the worst failure mode for a baby monitor.
@@ -94,7 +116,7 @@ Simple, tunable, and deliberately boring:
 
 | Issue | Mitigation |
 |---|---|
-| Doze mode kills network during long sleeps on some OEM builds | Request `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` exemption; document per-OEM quirks (Samsung, Xiaomi are aggressive) |
+| Doze mode kills network during long sleeps on some OEM builds | Play policy restricts the direct `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` prompt; deep-link users to the battery-optimization settings screen with an in-app explanation instead (verify current policy before store submission); document per-OEM quirks (Samsung, Xiaomi are aggressive) |
 | Android 14+ foreground service restrictions | Declare `mediaPlayback` service type and request the runtime notification permission |
 | Waking the screen from background | Full-screen intent notification + `setTurnScreenOn`/`setShowWhenLocked` on the activity |
 | RTSPS (port 7441) unsupported by common players | Use plain RTSP on 7447 (LAN-only), or terminate TLS in go2rtc |
@@ -105,6 +127,7 @@ Simple, tunable, and deliberately boring:
 - Everything stays on the LAN. RTSP ports are never exposed to the internet.
 - Remote viewing, if ever needed, goes through a VPN (WireGuard/Tailscale), not port forwarding.
 - The RTSP token URLs from Protect are stored in app-private encrypted preferences.
+- Protect local-account credentials (for API onboarding, §4.4) are stored the same way and sent only to the user's own console over the LAN. Recommend a dedicated view-only local account in onboarding copy.
 
 ## 7. Roadmap
 
@@ -120,6 +143,12 @@ Simple, tunable, and deliberately boring:
 ### v0.4 — Polish
 - Multi-camera selection, settings screen (thresholds, quality, orientation lock), night-friendly dim red UI theme, chime/vibration alert options.
 
+### v0.5 — Protect API onboarding
+- Console sign-in with a local account, camera discovery, automatic RTSP enable/URL retrieval, manual-URL escape hatch. The internal milestones above can run on hardcoded/manual URLs; this gate exists because the store product can't.
+
+### v1.0 — Play Store launch
+- Store listing (Dozecam branding, "for UniFi Protect" compatibility phrasing), privacy policy, signed release pipeline, pre-launch report pass, policy check on the battery-optimization flow.
+
 ### Later / maybe
 - Parent-device mode: second phone receives alerts (local push via the service device, or MQTT).
 - go2rtc integration profile for mixed camera fleets.
@@ -133,5 +162,7 @@ Simple, tunable, and deliberately boring:
 | Reliability layer | 2–3 evenings |
 | Wake-on-sound service | ~1 week of evenings (the audio pipeline + Android wake plumbing is the bulk of the project) |
 | Polish | ongoing |
+| Protect API onboarding | ~1 week of evenings (auth/session handling + camera discovery + failure UX against an unofficial API) |
+| Store launch | 2–3 evenings (listing, policy passes, release pipeline reuse from CloudMount) |
 
 The stack is well-trodden — nothing exotic, just more scaffolding than a web app. The real engineering time goes into reconnection edge cases and tuning sound detection so it triggers on crying but not on the white noise machine.
