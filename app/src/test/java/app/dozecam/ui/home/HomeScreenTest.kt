@@ -65,6 +65,7 @@ class HomeScreenTest {
                 detector = detector,
                 onDetectorChange = onDetectorChange,
                 onOpenSettings = onOpenSettings,
+                onOpenOnboarding = {},
             )
         }
     }
@@ -143,7 +144,7 @@ class HomeScreenTest {
     fun `monitoring toggle disabled without a monitorable camera`() {
         composeRule.setContent { TestHomeScreen(canMonitor = false) }
 
-        composeRule.onNodeWithTag("monitoring-switch").assertIsNotEnabled()
+        composeRule.onNodeWithTag("monitoring-switch").performScrollTo().assertIsNotEnabled()
     }
 
     @Test
@@ -157,7 +158,7 @@ class HomeScreenTest {
             )
         }
 
-        composeRule.onNodeWithTag("monitoring-switch").performClick()
+        composeRule.onNodeWithTag("monitoring-switch").performScrollTo().performClick()
 
         assertEquals(false, toggled)
     }

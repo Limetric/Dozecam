@@ -39,6 +39,10 @@
             android:name=".ui.settings.SettingsActivity"
             android:exported="false" />
 
+        <activity
+            android:name=".ui.onboarding.OnboardingActivity"
+            android:exported="false" />
+
         <service
             android:name=".monitoring.MonitoringService"
             android:exported="false"

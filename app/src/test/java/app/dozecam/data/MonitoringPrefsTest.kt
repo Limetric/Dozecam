@@ -1,35 +1,30 @@
 package app.dozecam.data
 
-import androidx.datastore.preferences.core.PreferenceDataStoreFactory
-import java.io.File
-import kotlinx.coroutines.flow.first
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Rule
 import org.junit.Test
-import org.junit.rules.TemporaryFolder
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class MonitoringPrefsTest {
-
-    @get:Rule
-    val tmp = TemporaryFolder()
 
     @Test
     fun `active url round-trips and clears`() = runTest {
         val prefs = MonitoringPrefs(
-            PreferenceDataStoreFactory.create(
-                scope = backgroundScope,
-                produceFile = { File(tmp.root, "monitoring.preferences_pb") },
-            ),
+            ApplicationProvider.getApplicationContext<Context>()
+                .getSharedPreferences("test_monitoring", Context.MODE_PRIVATE),
         )
 
-        assertNull(prefs.activeMonitoringUrl.first())
+        assertNull(prefs.activeMonitoringUrl())
 
         prefs.setActiveMonitoringUrl("rtsp://cam:7447/a")
-        assertEquals("rtsp://cam:7447/a", prefs.activeMonitoringUrl.first())
+        assertEquals("rtsp://cam:7447/a", prefs.activeMonitoringUrl())
 
         prefs.clearActiveMonitoringUrl()
-        assertNull(prefs.activeMonitoringUrl.first())
+        assertNull(prefs.activeMonitoringUrl())
     }
 }

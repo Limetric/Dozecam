@@ -112,10 +112,14 @@ class MonitoringService : Service() {
     private suspend fun startMonitoring(urlExtra: String?) {
         val container = appContainer
         streamUrl = urlExtra?.takeIf { it.isNotBlank() }
-            // Sticky restart: resume the camera this service was watching,
-            // not whatever the user has selected in the meantime.
-            ?: container.monitoringPrefs.activeMonitoringUrl.first()
-            ?: container.cameras.selectedCamera.first()?.url.orEmpty()
+            ?: run {
+                // Ensure the legacy-storage migration has run before reading
+                // the persisted URL, then resume the camera this service was
+                // watching — not whatever the user selected in the meantime.
+                container.cameras.cameras.first()
+                container.monitoringPrefs.activeMonitoringUrl()
+                    ?: container.cameras.selectedCamera.first()?.url.orEmpty()
+            }
         if (streamUrl.isBlank()) {
             stopSelf()
             return
@@ -235,8 +239,7 @@ class MonitoringService : Service() {
         // Deliberate stop: a later sticky restart must not resurrect this URL.
         // (After a process kill onDestroy never runs, which is exactly when
         // the persisted URL should survive.)
-        val container = appContainer
-        container.appScope.launch { container.monitoringPrefs.clearActiveMonitoringUrl() }
+        appContainer.monitoringPrefs.clearActiveMonitoringUrl()
         appContainer.monitoringState.serviceRunning.value = false
         appContainer.monitoringState.audioLevel.value = 0f
         watchdog.stop()

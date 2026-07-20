@@ -73,6 +73,8 @@ dependencies {
     // integration predates ActivityResultRegistry; force a modern version.
     implementation(libs.androidx.fragment.ktx)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.okhttp)
+    implementation(libs.androidx.security.crypto)
     implementation(libs.libvlc.all)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.exoplayer.rtsp)
@@ -86,6 +88,8 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
     testImplementation(libs.junit)
+    testImplementation(libs.mockwebserver3)
+    testImplementation(libs.okhttp.tls)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.robolectric)
     testImplementation(platform(libs.androidx.compose.bom))

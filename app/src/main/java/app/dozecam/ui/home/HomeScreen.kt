@@ -47,6 +47,7 @@ fun HomeRoute(
     onWatch: (String) -> Unit,
     onToggleMonitoring: (enabled: Boolean, streamUrl: String) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenOnboarding: () -> Unit,
 ) {
     val cameras by viewModel.cameras.collectAsStateWithLifecycle()
     val selectedCamera by viewModel.selectedCamera.collectAsStateWithLifecycle()
@@ -76,6 +77,7 @@ fun HomeRoute(
         detector = detector,
         onDetectorChange = viewModel::onDetectorChange,
         onOpenSettings = onOpenSettings,
+        onOpenOnboarding = onOpenOnboarding,
     )
 }
 
@@ -99,6 +101,7 @@ fun HomeScreen(
     detector: DetectorSettings,
     onDetectorChange: ((DetectorSettings) -> DetectorSettings) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenOnboarding: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -142,6 +145,13 @@ fun HomeScreen(
                     text = stringResource(R.string.no_cameras_hint),
                     style = MaterialTheme.typography.bodyMedium,
                 )
+            }
+
+            OutlinedButton(
+                onClick = onOpenOnboarding,
+                modifier = Modifier.testTag("open-onboarding"),
+            ) {
+                Text(stringResource(R.string.connect_to_protect))
             }
 
             CameraForm(

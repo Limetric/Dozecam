@@ -8,9 +8,9 @@ import app.dozecam.data.DetectorSettingsRepository
 import app.dozecam.data.MonitoringPrefs
 import app.dozecam.data.dozecamDataStore
 import app.dozecam.monitoring.MonitoringState
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
+import app.dozecam.protect.EncryptedCredentialsStore
+import app.dozecam.protect.TofuTrustStore
+import app.dozecam.protect.securePreferences
 
 class DozecamApp : Application() {
     lateinit var container: AppContainer
@@ -25,13 +25,15 @@ class DozecamApp : Application() {
 class AppContainer(context: Context) {
     private val dataStore = context.dozecamDataStore()
 
-    /** For writes that must outlive a component's own scope (e.g. service teardown). */
-    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    val cameras = CameraRepository(dataStore)
+    /** Stream-token-bearing values live here, encrypted at rest. */
+    private val securePrefs = securePreferences(context.applicationContext, "dozecam_secure")
+    val cameras = CameraRepository(securePrefs, dataStore)
     val detectorSettings = DetectorSettingsRepository(dataStore)
     val appSettings = AppSettingsRepository(dataStore)
-    val monitoringPrefs = MonitoringPrefs(dataStore)
+    val monitoringPrefs = MonitoringPrefs(securePrefs)
     val monitoringState = MonitoringState()
+    val tofuTrustStore = TofuTrustStore(dataStore)
+    val protectCredentials by lazy { EncryptedCredentialsStore(context.applicationContext) }
 }
 
 val Context.appContainer: AppContainer

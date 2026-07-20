@@ -45,4 +45,23 @@
     <string name="orientation_auto">Follow the sensor</string>
     <string name="orientation_portrait">Lock to portrait</string>
     <string name="orientation_landscape">Lock to landscape</string>
+    <string name="connect_to_protect">Connect to UniFi Protect…</string>
+    <string name="onboarding_title">Console setup</string>
+    <string name="onboarding_intro">Sign in to your UniFi Protect console to add its cameras automatically.</string>
+    <string name="console_host_label">Console address</string>
+    <string name="console_host_hint">192.168.1.1</string>
+    <string name="console_username_label">Username</string>
+    <string name="console_password_label">Password</string>
+    <string name="onboarding_account_hint">Use a local Protect account (not an Ubiquiti cloud account). A dedicated view-only account with camera management permission is recommended.</string>
+    <string name="connect">Connect</string>
+    <string name="onboarding_connecting">Connecting to the console…</string>
+    <string name="fingerprint_title">First connection to this console</string>
+    <string name="fingerprint_explanation">The console presented a self-signed certificate. Compare this fingerprint with the one shown in your console\'s settings before trusting it. Dozecam will refuse to connect if it ever changes.</string>
+    <string name="fingerprint_trust">Trust this console</string>
+    <string name="pick_cameras_title">Choose cameras to add</string>
+    <string name="pick_cameras_empty">No cameras were found on this console.</string>
+    <string name="import_cameras">Add selected cameras</string>
+    <string name="onboarding_importing">Enabling streams and adding cameras…</string>
+    <string name="onboarding_done">Added %1$d camera(s).</string>
+    <string name="onboarding_finish">Finish</string>
 </resources>

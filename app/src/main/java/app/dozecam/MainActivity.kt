@@ -21,6 +21,7 @@ import app.dozecam.monitoring.MonitoringService
 import app.dozecam.ui.home.HomeRoute
 import app.dozecam.ui.home.HomeViewModel
 import app.dozecam.ui.monitor.MonitorActivity
+import app.dozecam.ui.onboarding.OnboardingActivity
 import app.dozecam.ui.settings.SettingsActivity
 import app.dozecam.ui.theme.DozecamTheme
 
@@ -59,6 +60,7 @@ class MainActivity : ComponentActivity() {
                     onWatch = { url -> startActivity(MonitorActivity.intent(this, url)) },
                     onToggleMonitoring = ::setMonitoring,
                     onOpenSettings = { startActivity(SettingsActivity.intent(this)) },
+                    onOpenOnboarding = { startActivity(OnboardingActivity.intent(this)) },
                 )
             }
         }
