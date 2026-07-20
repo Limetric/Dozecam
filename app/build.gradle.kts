@@ -68,7 +68,12 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.datastore.preferences)
+    // libVLC transitively pins an ancient androidx.fragment whose activity-result
+    // integration predates ActivityResultRegistry; force a modern version.
+    implementation(libs.androidx.fragment.ktx)
     implementation(libs.libvlc.all)
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.exoplayer.rtsp)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)

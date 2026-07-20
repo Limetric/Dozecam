@@ -39,6 +39,10 @@ class MonitorActivity : ComponentActivity() {
         }
         streamUrl = url
 
+        // Wake path: the sound alert's full-screen intent must be able to turn
+        // the display on and appear over the lock screen.
+        setShowWhenLocked(true)
+        setTurnScreenOn(true)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
@@ -77,6 +81,22 @@ class MonitorActivity : ComponentActivity() {
                     if (online) watchdog.onNetworkAvailable() else watchdog.onNetworkLost()
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // singleTask: a wake alert for another camera reuses this activity.
+        if (!::streamUrl.isInitialized) return // onCreate bailed; finishing
+        val url = intent.getStringExtra(EXTRA_STREAM_URL)
+        if (url.isNullOrBlank() || url == streamUrl) return
+        setIntent(intent)
+        streamUrl = url
+        player?.let { controller ->
+            watchdog.stop()
+            watchdog.start()
+            controller.stop()
+            controller.play(streamUrl)
         }
     }
 

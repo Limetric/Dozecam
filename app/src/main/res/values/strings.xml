@@ -9,4 +9,20 @@
     <string name="status_reconnecting">RECONNECTING (attempt %1$d)</string>
     <string name="status_offline">OFFLINE</string>
     <string name="status_with_last_frame">%1$s · last frame %2$s</string>
+    <string name="channel_status_name">Monitoring status</string>
+    <string name="channel_alerts_name">Sound alerts</string>
+    <string name="channel_alerts_description">Wakes the screen when sustained sound is detected</string>
+    <string name="notification_monitoring_title">Dozecam monitoring</string>
+    <string name="notification_alert_title">Sound detected</string>
+    <string name="notification_alert_text">Opening the live view…</string>
+    <string name="monitoring_status_starting">Connecting to the camera…</string>
+    <string name="monitoring_status_listening">Listening</string>
+    <string name="monitoring_status_alerting">Sound detected</string>
+    <string name="monitoring_status_reconnecting">Reconnecting…</string>
+    <string name="monitoring_status_offline">Offline — waiting for network</string>
+    <string name="monitoring_toggle">Wake on sound</string>
+    <string name="detector_threshold_label">Sound threshold: %1$d%%</string>
+    <string name="detector_sustain_label">Trigger after: %1$.1f s of sound</string>
+    <string name="detector_quiet_label">Re-arm after: %1$d s of quiet</string>
+    <string name="audio_level_label">Live audio level</string>
 </resources>
