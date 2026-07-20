@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Dozecam</string>
-    <string name="main_placeholder">Dozecam</string>
+    <string name="stream_url_label">Stream URL</string>
+    <string name="stream_url_hint">rtsp://console-ip:7447/token</string>
+    <string name="watch">Watch</string>
 </resources>

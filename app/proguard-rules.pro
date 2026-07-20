@@ -1,1 +1,2 @@
-# Project-specific ProGuard/R8 rules. Nothing needed yet.
+# libVLC uses JNI callbacks into these classes; R8 must not strip or rename them.
+-keep class org.videolan.libvlc.** { *; }
