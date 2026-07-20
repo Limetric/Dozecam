@@ -25,4 +25,24 @@
     <string name="detector_sustain_label">Trigger after: %1$.1f s of sound</string>
     <string name="detector_quiet_label">Re-arm after: %1$d s of quiet</string>
     <string name="audio_level_label">Live audio level</string>
+    <string name="settings">Settings</string>
+    <string name="back">Back</string>
+    <string name="save">Save</string>
+    <string name="cancel">Cancel</string>
+    <string name="edit">Edit</string>
+    <string name="delete">Delete</string>
+    <string name="add_camera">Add camera</string>
+    <string name="edit_camera">Edit camera</string>
+    <string name="camera_name_label">Name</string>
+    <string name="no_cameras_hint">Add a camera to get started. Enable the RTSP stream in UniFi Protect (camera → Settings → Advanced) and paste its rtsp:// URL below.</string>
+    <string name="setting_night_theme">Night theme</string>
+    <string name="setting_night_theme_description">Dim red palette that preserves night vision</string>
+    <string name="setting_alert_chime">Alert chime</string>
+    <string name="setting_alert_chime_description">Play a sound when a wake alert fires</string>
+    <string name="setting_alert_vibrate">Alert vibration</string>
+    <string name="setting_alert_vibrate_description">Vibrate when a wake alert fires</string>
+    <string name="setting_orientation">Monitor orientation</string>
+    <string name="orientation_auto">Follow the sensor</string>
+    <string name="orientation_portrait">Lock to portrait</string>
+    <string name="orientation_landscape">Lock to landscape</string>
 </resources>

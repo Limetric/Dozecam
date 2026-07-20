@@ -13,12 +13,16 @@ import app.dozecam.ui.monitor.MonitorActivity
 object MonitoringNotifications {
 
     const val STATUS_CHANNEL_ID = "monitoring_status"
-    const val ALERT_CHANNEL_ID = "sound_alerts"
+
+    // v2: silent channel — chime/vibration are app-side so the in-app toggles
+    // actually control them (channel settings are immutable once created).
+    const val ALERT_CHANNEL_ID = "sound_alerts_2"
     const val STATUS_NOTIFICATION_ID = 1
     const val ALERT_NOTIFICATION_ID = 2
 
     fun ensureChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
+        manager.deleteNotificationChannel("sound_alerts")
         manager.createNotificationChannel(
             NotificationChannel(
                 STATUS_CHANNEL_ID,
@@ -33,6 +37,8 @@ object MonitoringNotifications {
                 NotificationManager.IMPORTANCE_HIGH,
             ).apply {
                 description = context.getString(R.string.channel_alerts_description)
+                setSound(null, null)
+                enableVibration(false)
             },
         )
     }

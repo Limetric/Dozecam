@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -71,6 +72,7 @@ dependencies {
     // libVLC transitively pins an ancient androidx.fragment whose activity-result
     // integration predates ActivityResultRegistry; force a modern version.
     implementation(libs.androidx.fragment.ktx)
+    implementation(libs.kotlinx.serialization.json)
     implementation(libs.libvlc.all)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.exoplayer.rtsp)

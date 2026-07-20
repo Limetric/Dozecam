@@ -6,32 +6,44 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.dozecam.audio.SoundDetector
+import app.dozecam.data.Camera
+import app.dozecam.data.CameraStore
 import app.dozecam.data.DetectorSettings
 import app.dozecam.data.DetectorSettingsStore
-import app.dozecam.data.StreamSettings
 import app.dozecam.data.StreamUrlValidator
 import app.dozecam.monitoring.MonitoringState
 import app.dozecam.player.ConnectionState
+import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+data class CameraFormState(
+    val name: String = "",
+    val url: String = "",
+    val editingId: String? = null,
+) {
+    val canSave: Boolean
+        get() = name.isNotBlank() && StreamUrlValidator.isValid(url)
+}
+
 class HomeViewModel(
-    private val settings: StreamSettings,
+    private val cameraStore: CameraStore,
     private val detectorSettings: DetectorSettingsStore,
     monitoringState: MonitoringState,
 ) : ViewModel() {
 
-    private val _urlInput = MutableStateFlow("")
-    val urlInput: StateFlow<String> = _urlInput
+    val cameras: StateFlow<List<Camera>> = cameraStore.cameras
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    val canWatch: StateFlow<Boolean> = _urlInput
-        .map { StreamUrlValidator.isValid(it) }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val selectedCamera: StateFlow<Camera?> = cameraStore.selectedCamera
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    private val _form = MutableStateFlow(CameraFormState())
+    val form: StateFlow<CameraFormState> = _form
 
     val detector: StateFlow<DetectorSettings> = detectorSettings.settings
         .stateIn(viewModelScope, SharingStarted.Eagerly, DetectorSettings())
@@ -41,37 +53,65 @@ class HomeViewModel(
     val detectorPhase: StateFlow<SoundDetector.Phase> = monitoringState.detectorPhase
     val monitoringConnection: StateFlow<ConnectionState> = monitoringState.connection
 
-    init {
-        viewModelScope.launch {
-            val saved = settings.streamUrl.first()
-            if (_urlInput.value.isEmpty()) {
-                _urlInput.value = saved
-            }
+    val canMonitor: StateFlow<Boolean> =
+        combine(selectedCamera, monitoringRunning) { camera, running ->
+            camera != null || running
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun onFormName(name: String) {
+        _form.value = _form.value.copy(name = name)
+    }
+
+    fun onFormUrl(url: String) {
+        _form.value = _form.value.copy(url = url)
+    }
+
+    fun startEdit(camera: Camera) {
+        _form.value = CameraFormState(
+            name = camera.name,
+            url = camera.url,
+            editingId = camera.id,
+        )
+    }
+
+    fun cancelEdit() {
+        _form.value = CameraFormState()
+    }
+
+    fun saveCamera() {
+        val state = _form.value
+        if (!state.canSave) return
+        val camera = Camera(
+            id = state.editingId ?: UUID.randomUUID().toString(),
+            name = state.name.trim(),
+            url = state.url.trim(),
+        )
+        viewModelScope.launch { cameraStore.upsert(camera) }
+        _form.value = CameraFormState()
+    }
+
+    fun deleteCamera(id: String) {
+        viewModelScope.launch { cameraStore.remove(id) }
+        if (_form.value.editingId == id) {
+            _form.value = CameraFormState()
         }
     }
 
-    fun onUrlChange(value: String) {
-        _urlInput.value = value
+    fun selectCamera(id: String) {
+        viewModelScope.launch { cameraStore.select(id) }
     }
 
-    /** Persists the trimmed URL and returns it for immediate playback. */
-    fun commitUrl(): String {
-        val url = _urlInput.value.trim()
-        viewModelScope.launch { settings.setStreamUrl(url) }
-        return url
-    }
-
-    fun onDetectorChange(settings: DetectorSettings) {
-        viewModelScope.launch { detectorSettings.update(settings) }
+    fun onDetectorChange(transform: (DetectorSettings) -> DetectorSettings) {
+        viewModelScope.launch { detectorSettings.update(transform) }
     }
 
     companion object {
         fun factory(
-            settings: StreamSettings,
+            cameraStore: CameraStore,
             detectorSettings: DetectorSettingsStore,
             monitoringState: MonitoringState,
         ): ViewModelProvider.Factory = viewModelFactory {
-            initializer { HomeViewModel(settings, detectorSettings, monitoringState) }
+            initializer { HomeViewModel(cameraStore, detectorSettings, monitoringState) }
         }
     }
 }

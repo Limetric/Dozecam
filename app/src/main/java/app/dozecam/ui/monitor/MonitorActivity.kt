@@ -2,6 +2,7 @@ package app.dozecam.ui.monitor
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.view.WindowManager
 import android.widget.FrameLayout
@@ -15,6 +16,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import app.dozecam.appContainer
+import app.dozecam.data.AppSettings
+import app.dozecam.data.OrientationLock
 import app.dozecam.network.NetworkMonitor
 import app.dozecam.player.PlaybackWatchdog
 import app.dozecam.player.VideoPlayerController
@@ -54,7 +58,9 @@ class MonitorActivity : ComponentActivity() {
         videoLayout = VLCVideoLayout(this)
         val overlay = ComposeView(this).apply {
             setContent {
-                DozecamTheme {
+                val settings by appContainer.appSettings.settings
+                    .collectAsStateWithLifecycle(initialValue = AppSettings())
+                DozecamTheme(nightTheme = settings.nightTheme) {
                     val state by watchdog.state.collectAsStateWithLifecycle()
                     val lastFrameAt by watchdog.lastFrameAtMs.collectAsStateWithLifecycle()
                     StatusOverlay(state = state, lastFrameAtMs = lastFrameAt)
@@ -79,6 +85,16 @@ class MonitorActivity : ComponentActivity() {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 networkMonitor.isOnline.collect { online ->
                     if (online) watchdog.onNetworkAvailable() else watchdog.onNetworkLost()
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            appContainer.appSettings.settings.collect { settings ->
+                requestedOrientation = when (settings.orientationLock) {
+                    OrientationLock.AUTO -> ActivityInfo.SCREEN_ORIENTATION_SENSOR
+                    OrientationLock.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                    OrientationLock.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                 }
             }
         }

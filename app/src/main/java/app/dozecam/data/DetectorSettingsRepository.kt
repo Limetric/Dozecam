@@ -23,28 +23,33 @@ data class DetectorSettings(
 
 interface DetectorSettingsStore {
     val settings: Flow<DetectorSettings>
-    suspend fun update(settings: DetectorSettings)
+
+    /** Atomic read-modify-write; rapid successive updates cannot clobber each other. */
+    suspend fun update(transform: (DetectorSettings) -> DetectorSettings)
 }
 
 class DetectorSettingsRepository(
     private val dataStore: DataStore<Preferences>,
 ) : DetectorSettingsStore {
 
-    override val settings: Flow<DetectorSettings> = dataStore.data.map { prefs ->
+    override val settings: Flow<DetectorSettings> = dataStore.data.map(::settingsFrom)
+
+    override suspend fun update(transform: (DetectorSettings) -> DetectorSettings) {
+        dataStore.edit { prefs ->
+            val next = transform(settingsFrom(prefs))
+            prefs[KEY_THRESHOLD] = next.threshold
+            prefs[KEY_SUSTAIN_MS] = next.sustainMs
+            prefs[KEY_QUIET_MS] = next.quietMs
+        }
+    }
+
+    private fun settingsFrom(prefs: Preferences): DetectorSettings {
         val defaults = DetectorSettings()
-        DetectorSettings(
+        return DetectorSettings(
             threshold = prefs[KEY_THRESHOLD] ?: defaults.threshold,
             sustainMs = prefs[KEY_SUSTAIN_MS] ?: defaults.sustainMs,
             quietMs = prefs[KEY_QUIET_MS] ?: defaults.quietMs,
         )
-    }
-
-    override suspend fun update(settings: DetectorSettings) {
-        dataStore.edit { prefs ->
-            prefs[KEY_THRESHOLD] = settings.threshold
-            prefs[KEY_SUSTAIN_MS] = settings.sustainMs
-            prefs[KEY_QUIET_MS] = settings.quietMs
-        }
     }
 
     private companion object {

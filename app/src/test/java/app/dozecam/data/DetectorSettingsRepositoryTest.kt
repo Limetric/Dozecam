@@ -34,7 +34,7 @@ class DetectorSettingsRepositoryTest {
         val repository = DetectorSettingsRepository(dataStore)
         val custom = DetectorSettings(threshold = 0.25f, sustainMs = 3_000, quietMs = 20_000)
 
-        repository.update(custom)
+        repository.update { custom }
 
         assertEquals(custom, repository.settings.first())
     }

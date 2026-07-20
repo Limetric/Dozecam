@@ -13,11 +13,15 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import app.dozecam.data.AppSettings
 import app.dozecam.monitoring.MonitoringService
 import app.dozecam.ui.home.HomeRoute
 import app.dozecam.ui.home.HomeViewModel
 import app.dozecam.ui.monitor.MonitorActivity
+import app.dozecam.ui.settings.SettingsActivity
 import app.dozecam.ui.theme.DozecamTheme
 
 class MainActivity : ComponentActivity() {
@@ -39,11 +43,13 @@ class MainActivity : ComponentActivity() {
         pendingMonitoringUrl = savedInstanceState?.getString(STATE_PENDING_URL)
         enableEdgeToEdge()
         setContent {
-            DozecamTheme {
-                val container = appContainer
+            val container = appContainer
+            val appSettings by container.appSettings.settings
+                .collectAsStateWithLifecycle(initialValue = AppSettings())
+            DozecamTheme(nightTheme = appSettings.nightTheme) {
                 val viewModel: HomeViewModel = viewModel(
                     factory = HomeViewModel.factory(
-                        container.streamSettings,
+                        container.cameras,
                         container.detectorSettings,
                         container.monitoringState,
                     ),
@@ -52,6 +58,7 @@ class MainActivity : ComponentActivity() {
                     viewModel = viewModel,
                     onWatch = { url -> startActivity(MonitorActivity.intent(this, url)) },
                     onToggleMonitoring = ::setMonitoring,
+                    onOpenSettings = { startActivity(SettingsActivity.intent(this)) },
                 )
             }
         }
@@ -67,6 +74,7 @@ class MainActivity : ComponentActivity() {
             MonitoringService.stop(this)
             return
         }
+        if (streamUrl.isBlank()) return
         val needsPermission = Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED

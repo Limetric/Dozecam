@@ -24,6 +24,7 @@ import app.dozecam.R
 import app.dozecam.appContainer
 import app.dozecam.audio.PcmRms
 import app.dozecam.audio.SoundDetector
+import app.dozecam.data.AppSettings
 import app.dozecam.data.DetectorSettings
 import app.dozecam.player.ConnectionState
 import app.dozecam.player.PlayerEvent
@@ -52,6 +53,8 @@ class MonitoringService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private lateinit var watchdog: PlaybackWatchdog
     private lateinit var detector: SoundDetector
+    private lateinit var signaler: AlertSignaler
+    private var appSettings = AppSettings()
     private var streamUrl: String = ""
 
     // Audio callbacks land on the playback thread; ship (levelRms, atMs)
@@ -87,6 +90,7 @@ class MonitoringService : Service() {
             .apply { acquire() }
 
         detector = SoundDetector(DetectorSettings())
+        signaler = AlertSignaler(this)
         watchdog = PlaybackWatchdog(
             scope = scope,
             onReconnect = { restartStream() },
@@ -108,14 +112,22 @@ class MonitoringService : Service() {
     private suspend fun startMonitoring(urlExtra: String?) {
         val container = appContainer
         streamUrl = urlExtra?.takeIf { it.isNotBlank() }
-            ?: container.streamSettings.streamUrl.first()
+            // Sticky restart: resume the camera this service was watching,
+            // not whatever the user has selected in the meantime.
+            ?: container.monitoringPrefs.activeMonitoringUrl.first()
+            ?: container.cameras.selectedCamera.first()?.url.orEmpty()
         if (streamUrl.isBlank()) {
             stopSelf()
             return
         }
+        container.monitoringPrefs.setActiveMonitoringUrl(streamUrl)
 
         scope.launch {
             container.detectorSettings.settings.collect { detector.updateSettings(it) }
+        }
+
+        scope.launch {
+            container.appSettings.settings.collect { appSettings = it }
         }
 
         val networkMonitor = NetworkMonitor(applicationContext)
@@ -132,6 +144,7 @@ class MonitoringService : Service() {
                 if (detector.onLevel(rms, atMs)) {
                     container.monitoringState.lastAlertAtMs.value = System.currentTimeMillis()
                     MonitoringNotifications.postAlert(this@MonitoringService, streamUrl)
+                    signaler.signal(appSettings)
                 }
                 container.monitoringState.detectorPhase.value = detector.phase
             }
@@ -219,6 +232,11 @@ class MonitoringService : Service() {
     }
 
     override fun onDestroy() {
+        // Deliberate stop: a later sticky restart must not resurrect this URL.
+        // (After a process kill onDestroy never runs, which is exactly when
+        // the persisted URL should survive.)
+        val container = appContainer
+        container.appScope.launch { container.monitoringPrefs.clearActiveMonitoringUrl() }
         appContainer.monitoringState.serviceRunning.value = false
         appContainer.monitoringState.audioLevel.value = 0f
         watchdog.stop()

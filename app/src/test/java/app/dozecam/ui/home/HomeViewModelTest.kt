@@ -1,32 +1,56 @@
 package app.dozecam.ui.home
 
 import app.dozecam.MainDispatcherRule
+import app.dozecam.data.Camera
+import app.dozecam.data.CameraStore
 import app.dozecam.data.DetectorSettings
 import app.dozecam.data.DetectorSettingsStore
-import app.dozecam.data.StreamSettings
 import app.dozecam.monitoring.MonitoringState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
-private class FakeStreamSettings(initial: String = "") : StreamSettings {
+private class FakeCameraStore(initial: List<Camera> = emptyList()) : CameraStore {
     val stored = MutableStateFlow(initial)
-    override val streamUrl: Flow<String> = stored
-    override suspend fun setStreamUrl(url: String) {
-        stored.value = url
+    val selectedId = MutableStateFlow<String?>(null)
+
+    override val cameras: Flow<List<Camera>> = stored
+    override val selectedCamera: Flow<Camera?> =
+        combine(stored, selectedId) { list, id ->
+            list.firstOrNull { it.id == id } ?: list.firstOrNull()
+        }
+
+    override suspend fun upsert(camera: Camera) {
+        val index = stored.value.indexOfFirst { it.id == camera.id }
+        stored.value = if (index >= 0) {
+            stored.value.toMutableList().also { it[index] = camera }
+        } else {
+            stored.value + camera
+        }
+    }
+
+    override suspend fun remove(id: String) {
+        stored.value = stored.value.filterNot { it.id == id }
+        if (selectedId.value == id) selectedId.value = null
+    }
+
+    override suspend fun select(id: String) {
+        selectedId.value = id
     }
 }
 
 private class FakeDetectorSettings : DetectorSettingsStore {
     val stored = MutableStateFlow(DetectorSettings())
     override val settings: Flow<DetectorSettings> = stored
-    override suspend fun update(settings: DetectorSettings) {
-        stored.value = settings
+    override suspend fun update(transform: (DetectorSettings) -> DetectorSettings) {
+        stored.value = transform(stored.value)
     }
 }
 
@@ -36,50 +60,94 @@ class HomeViewModelTest {
     val mainDispatcherRule = MainDispatcherRule()
 
     private fun viewModel(
-        streamSettings: FakeStreamSettings = FakeStreamSettings(),
+        cameraStore: FakeCameraStore = FakeCameraStore(),
         detectorSettings: FakeDetectorSettings = FakeDetectorSettings(),
         monitoringState: MonitoringState = MonitoringState(),
-    ) = HomeViewModel(streamSettings, detectorSettings, monitoringState)
+    ) = HomeViewModel(cameraStore, detectorSettings, monitoringState)
 
     @Test
-    fun `loads the saved url into the input field`() = runTest {
-        val settings = FakeStreamSettings("rtsp://192.168.1.1:7447/token")
-        val viewModel = viewModel(settings)
+    fun `saving the form adds a camera and clears the form`() = runTest {
+        val store = FakeCameraStore()
+        val viewModel = viewModel(store)
 
-        assertEquals("rtsp://192.168.1.1:7447/token", viewModel.urlInput.value)
-        assertTrue(viewModel.canWatch.value)
+        viewModel.onFormName("Nursery")
+        viewModel.onFormUrl("rtsp://cam:7447/token")
+        assertTrue(viewModel.form.value.canSave)
+        viewModel.saveCamera()
+
+        assertEquals(1, store.stored.value.size)
+        assertEquals("Nursery", store.stored.value.first().name)
+        assertEquals(CameraFormState(), viewModel.form.value)
     }
 
     @Test
-    fun `keeps user input over a slower saved-url load`() = runTest {
-        val settings = FakeStreamSettings("rtsp://old:7447/a")
-        val viewModel = viewModel(settings)
-        viewModel.onUrlChange("rtsp://new:7447/b")
-
-        assertEquals("rtsp://new:7447/b", viewModel.urlInput.value)
-    }
-
-    @Test
-    fun `canWatch tracks input validity`() = runTest {
+    fun `form cannot save with an invalid url or blank name`() = runTest {
         val viewModel = viewModel()
 
-        assertFalse(viewModel.canWatch.value)
-        viewModel.onUrlChange("rtsp://192.168.1.1:7447/token")
-        assertTrue(viewModel.canWatch.value)
-        viewModel.onUrlChange("http://nope")
-        assertFalse(viewModel.canWatch.value)
+        viewModel.onFormName("Nursery")
+        viewModel.onFormUrl("http://nope")
+        assertFalse(viewModel.form.value.canSave)
+
+        viewModel.onFormUrl("rtsp://cam:7447/token")
+        viewModel.onFormName("  ")
+        assertFalse(viewModel.form.value.canSave)
+        viewModel.saveCamera()
+        assertTrue(viewModel.cameras.value.isEmpty())
     }
 
     @Test
-    fun `commitUrl persists the trimmed url and returns it`() = runTest {
-        val settings = FakeStreamSettings()
-        val viewModel = viewModel(settings)
-        viewModel.onUrlChange("  rtsp://192.168.1.1:7447/token ")
+    fun `editing loads the camera into the form and save updates in place`() = runTest {
+        val camera = Camera("a", "Nursery", "rtsp://cam:7447/a")
+        val store = FakeCameraStore(listOf(camera))
+        val viewModel = viewModel(store)
 
-        val committed = viewModel.commitUrl()
+        viewModel.startEdit(camera)
+        assertEquals("Nursery", viewModel.form.value.name)
+        viewModel.onFormName("Nursery 2")
+        viewModel.saveCamera()
 
-        assertEquals("rtsp://192.168.1.1:7447/token", committed)
-        assertEquals("rtsp://192.168.1.1:7447/token", settings.stored.value)
+        assertEquals(listOf("Nursery 2"), store.stored.value.map { it.name })
+        assertEquals(1, store.stored.value.size)
+    }
+
+    @Test
+    fun `deleting the camera being edited clears the form`() = runTest {
+        val camera = Camera("a", "Nursery", "rtsp://cam:7447/a")
+        val store = FakeCameraStore(listOf(camera))
+        val viewModel = viewModel(store)
+
+        viewModel.startEdit(camera)
+        viewModel.deleteCamera("a")
+
+        assertEquals(CameraFormState(), viewModel.form.value)
+        assertTrue(store.stored.value.isEmpty())
+    }
+
+    @Test
+    fun `selection follows the store`() = runTest {
+        val store = FakeCameraStore(
+            listOf(
+                Camera("a", "Nursery", "rtsp://cam:7447/a"),
+                Camera("b", "Play room", "rtsp://cam:7447/b"),
+            ),
+        )
+        val viewModel = viewModel(store)
+
+        assertEquals("a", viewModel.selectedCamera.value?.id)
+        viewModel.selectCamera("b")
+        assertEquals("b", viewModel.selectedCamera.value?.id)
+    }
+
+    @Test
+    fun `canMonitor requires a selected camera or a running service`() = runTest {
+        val monitoringState = MonitoringState()
+        val viewModel = viewModel(monitoringState = monitoringState)
+
+        assertNull(viewModel.selectedCamera.value)
+        assertFalse(viewModel.canMonitor.value)
+
+        monitoringState.serviceRunning.value = true
+        assertTrue(viewModel.canMonitor.value)
     }
 
     @Test
@@ -90,22 +158,9 @@ class HomeViewModelTest {
         assertEquals(DetectorSettings(), viewModel.detector.value)
 
         val custom = DetectorSettings(threshold = 0.3f, sustainMs = 2_000, quietMs = 15_000)
-        viewModel.onDetectorChange(custom)
+        viewModel.onDetectorChange { custom }
 
         assertEquals(custom, detectorSettings.stored.value)
         assertEquals(custom, viewModel.detector.value)
-    }
-
-    @Test
-    fun `monitoring state flows straight through`() = runTest {
-        val monitoringState = MonitoringState()
-        val viewModel = viewModel(monitoringState = monitoringState)
-
-        assertFalse(viewModel.monitoringRunning.value)
-        monitoringState.serviceRunning.value = true
-        monitoringState.audioLevel.value = 0.42f
-
-        assertTrue(viewModel.monitoringRunning.value)
-        assertEquals(0.42f, viewModel.audioLevel.value)
     }
 }

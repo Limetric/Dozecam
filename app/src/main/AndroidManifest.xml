@@ -6,6 +6,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
@@ -33,6 +34,10 @@
             android:launchMode="singleTask"
             android:showWhenLocked="true"
             android:turnScreenOn="true" />
+
+        <activity
+            android:name=".ui.settings.SettingsActivity"
+            android:exported="false" />
 
         <service
             android:name=".monitoring.MonitoringService"
