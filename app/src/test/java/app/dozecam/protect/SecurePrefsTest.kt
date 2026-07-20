@@ -39,4 +39,23 @@ class SecurePrefsTest {
 
         assertEquals("existing", target.getString("cameras", null))
     }
+
+    @Test
+    fun `fallback entries written during a degraded run win conflicts`() {
+        // Fallback data is strictly newer: it can only be written while
+        // encryption is down, and every healthy startup empties the file.
+        val target = context.getSharedPreferences("target3", Context.MODE_PRIVATE)
+        target.edit().putString("cameras", "old-encrypted-list").commit()
+        val fallback = context.getSharedPreferences("fallback3", Context.MODE_PRIVATE)
+        fallback.edit()
+            .putString("cameras", "degraded-run-list")
+            .putString("other", "value")
+            .commit()
+
+        reconcileFallback(target, fallback)
+
+        assertEquals("degraded-run-list", target.getString("cameras", null))
+        assertEquals("value", target.getString("other", null))
+        assertTrue(fallback.all.isEmpty())
+    }
 }

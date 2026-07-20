@@ -115,6 +115,12 @@ class CameraRepository(
             ?: prefs[KEY_LEGACY_STREAM_URL]?.takeIf { it.isNotBlank() }
                 ?.let { listOf(Camera(LEGACY_ID, "Camera 1", it)) }
             ?: emptyList()
+        // Nothing to migrate → write nothing. An empty marker written while
+        // running on the degraded plain fallback must never later masquerade
+        // as "the user has zero cameras" and clobber healthy encrypted data.
+        if (migrated.isEmpty() && prefs[KEY_LEGACY_ACTIVE_URL] == null) {
+            return emptyList()
+        }
         // Synchronous commit: the destination must be durable before the only
         // other copy is scrubbed, or a crash in between loses every camera.
         // The commit (encryption + fsync) runs on IO — first collection may

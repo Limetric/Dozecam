@@ -35,6 +35,13 @@ fun securePreferences(context: Context, name: String): SharedPreferences =
 
 private fun fallbackName(name: String) = "${name}_plain"
 
+/**
+ * Fallback entries win conflicts: the fallback file only receives writes
+ * while encryption is down, and it is emptied on every healthy startup, so
+ * anything found in it is strictly newer than its encrypted counterpart.
+ * Copy-then-clear is idempotent — if the clear fails, the next startup
+ * re-copies identical values and retries, so plaintext never lingers.
+ */
 internal fun reconcileFallback(target: SharedPreferences, fallback: SharedPreferences) {
     val entries = fallback.all
     if (entries.isEmpty()) return
