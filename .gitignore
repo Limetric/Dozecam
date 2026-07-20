@@ -24,9 +24,10 @@ misc.xml
 deploymentTargetDropDown.xml
 render.experimental.xml
 
-# Keystore files
+# Keystore files and signing secrets
 *.jks
 *.keystore
+keystore_dozecam_upload.properties
 
 # Android Profiling
 *.hprof

@@ -30,7 +30,21 @@ class StreamUrlValidatorTest {
     @Test
     fun `rejects non-rtsp schemes`() {
         assertFalse(StreamUrlValidator.isValid("http://192.168.1.1:7447/token"))
-        assertFalse(StreamUrlValidator.isValid("rtsps://192.168.1.1:7441/token"))
+    }
+
+    @Test
+    fun `accepts rtsps urls, including secure-RTSP query params`() {
+        assertTrue(StreamUrlValidator.isValid("rtsps://192.168.1.1:7441/token"))
+        assertTrue(StreamUrlValidator.isValid("rtsps://192.168.1.1:7441/EwjjtVc000xWicJ?enableSrtp"))
+    }
+
+    @Test
+    fun `only plain rtsp urls are monitorable`() {
+        assertTrue(StreamUrlValidator.isMonitorable("rtsp://192.168.1.1:7447/token"))
+        // Media3's RTSP stack has no TLS; rtsps is watch-only.
+        assertFalse(StreamUrlValidator.isMonitorable("rtsps://192.168.1.1:7441/token"))
+        assertFalse(StreamUrlValidator.isMonitorable(""))
+        assertFalse(StreamUrlValidator.isMonitorable("http://192.168.1.1/x"))
     }
 
     @Test

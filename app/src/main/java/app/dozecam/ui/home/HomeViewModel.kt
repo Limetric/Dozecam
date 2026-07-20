@@ -55,7 +55,9 @@ class HomeViewModel(
 
     val canMonitor: StateFlow<Boolean> =
         combine(selectedCamera, monitoringRunning) { camera, running ->
-            camera != null || running
+            // rtsps cameras can be watched but not monitored (Media3's RTSP
+            // stack has no TLS); a running service can always be switched off.
+            (camera != null && StreamUrlValidator.isMonitorable(camera.url)) || running
         }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     fun onFormName(name: String) {

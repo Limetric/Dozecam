@@ -26,6 +26,7 @@ import app.dozecam.audio.PcmRms
 import app.dozecam.audio.SoundDetector
 import app.dozecam.data.AppSettings
 import app.dozecam.data.DetectorSettings
+import app.dozecam.data.StreamUrlValidator
 import app.dozecam.player.ConnectionState
 import app.dozecam.player.PlayerEvent
 import app.dozecam.network.NetworkMonitor
@@ -120,7 +121,8 @@ class MonitoringService : Service() {
                 container.monitoringPrefs.activeMonitoringUrl()
                     ?: container.cameras.selectedCamera.first()?.url.orEmpty()
             }
-        if (streamUrl.isBlank()) {
+        if (!StreamUrlValidator.isMonitorable(streamUrl)) {
+            // Blank, or an rtsps camera: Media3's RTSP stack cannot do TLS.
             stopSelf()
             return
         }

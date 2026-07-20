@@ -151,6 +151,17 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun `an rtsps camera can be watched but not monitored`() = runTest {
+        val store = FakeCameraStore(
+            listOf(Camera("a", "Nursery", "rtsps://cam:7441/token?enableSrtp")),
+        )
+        val viewModel = viewModel(store)
+
+        assertEquals("a", viewModel.selectedCamera.value?.id)
+        assertFalse(viewModel.canMonitor.value)
+    }
+
+    @Test
     fun `detector settings load and persist through the view model`() = runTest {
         val detectorSettings = FakeDetectorSettings()
         val viewModel = viewModel(detectorSettings = detectorSettings)

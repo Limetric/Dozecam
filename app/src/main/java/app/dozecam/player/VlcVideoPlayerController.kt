@@ -2,6 +2,7 @@ package app.dozecam.player
 
 import android.content.Context
 import android.net.Uri
+import org.videolan.libvlc.Dialog
 import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
@@ -27,6 +28,36 @@ class VlcVideoPlayerController(context: Context) : VideoPlayerController {
     override var listener: ((PlayerEvent) -> Unit)? = null
 
     init {
+        // rtsps consoles present self-signed certificates, which libVLC's
+        // gnutls module raises as question dialogs ("View certificate" then
+        // "Accept permanently"). Answering the affirmative chain mirrors the
+        // trusted-LAN posture of the primary plain-RTSP path — which has no
+        // transport security at all — so accepting the console cert is
+        // strictly stronger, never weaker.
+        Dialog.setCallbacks(
+            libVlc,
+            object : Dialog.Callbacks {
+                override fun onDisplay(dialog: Dialog.ErrorMessage) = Unit
+
+                override fun onDisplay(dialog: Dialog.LoginDialog) {
+                    dialog.dismiss() // credentials ride the stream URL, never a dialog
+                }
+
+                override fun onDisplay(dialog: Dialog.QuestionDialog) {
+                    if (dialog.action2Text.isNullOrEmpty()) {
+                        dialog.postAction(1)
+                    } else {
+                        dialog.postAction(2)
+                    }
+                }
+
+                override fun onDisplay(dialog: Dialog.ProgressDialog) = Unit
+
+                override fun onCanceled(dialog: org.videolan.libvlc.Dialog) = Unit
+
+                override fun onProgressUpdate(dialog: Dialog.ProgressDialog) = Unit
+            },
+        )
         mediaPlayer.setEventListener { event ->
             val mapped = when (event.type) {
                 MediaPlayer.Event.Playing -> PlayerEvent.Playing

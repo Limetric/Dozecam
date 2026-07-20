@@ -1,8 +1,24 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }
+
+// Play upload signing activates only when the keystore properties exist;
+// checkouts without them keep building unsigned artifacts.
+val signingPropertiesFile = rootProject.file("keystore_dozecam_upload.properties")
+val hasSigningProperties = signingPropertiesFile.isFile
+val signingProperties = Properties().apply {
+    if (hasSigningProperties) {
+        signingPropertiesFile.inputStream().use { load(it) }
+    }
+}
+
+fun signingValue(name: String): String =
+    signingProperties.getProperty(name)
+        ?: error("Missing $name in ${signingPropertiesFile.name}")
 
 android {
     namespace = "app.dozecam"
@@ -12,19 +28,33 @@ android {
         applicationId = "app.dozecam"
         minSdk = 31
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        if (hasSigningProperties) {
+            create("upload") {
+                storeFile = rootProject.file(signingValue("storeFile"))
+                storePassword = signingValue("storePassword")
+                keyAlias = signingValue("keyAlias")
+                keyPassword = signingValue("keyPassword")
+            }
+        }
     }
 
     buildTypes {
         debug {
-            // Installs alongside a future Play build, mirroring CloudMount's dev-flavor convention.
+            // Installs alongside the Play build, mirroring CloudMount's dev-flavor convention.
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"
         }
         release {
             isMinifyEnabled = true
+            if (hasSigningProperties) {
+                signingConfig = signingConfigs.getByName("upload")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
