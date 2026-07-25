@@ -9,12 +9,38 @@ object StreamUrlValidator {
     }
 
     /**
-     * Wake-on-sound uses Media3's RTSP module, which opens a plain socket for
-     * every scheme (no TLS in 1.10.1) — rtsps cameras can be watched (libVLC)
-     * but not monitored.
+     * Only a legacy safety net: [normalize] rewrites every rtsps:// entry to
+     * a plain rtsp:// one before it's saved, so this should only ever see a
+     * stale pre-normalization camera. Such an entry can't be monitored
+     * (Media3 has no TLS) — and, per Ubiquiti's own community reports,
+     * Protect's rtsps:// link isn't a real RTSP stream at all, so it can't
+     * be watched via libVLC either.
      */
     fun isMonitorable(raw: String): Boolean =
         schemeOf(raw)?.equals("rtsp", ignoreCase = true) == true
+
+    /**
+     * Protect's console only ever shows a camera's rtsps:// link (port 7441),
+     * but that link isn't a real RTSP stream — no player, including libVLC,
+     * can open it (community-confirmed: community.ui.com and AlexxIT/go2rtc#2071).
+     * The same alias is playable on the plain rtsp:// port (7447); rewrite to
+     * that before a URL is ever persisted.
+     */
+    fun normalize(raw: String): String {
+        val candidate = raw.trim()
+        val uri = try {
+            URI(candidate)
+        } catch (_: Exception) {
+            return candidate
+        }
+        if (!uri.scheme.equals("rtsps", ignoreCase = true)) return candidate
+        val port = if (uri.port == PROTECT_SECURE_PORT) PROTECT_PLAIN_PORT else uri.port
+        return try {
+            URI("rtsp", uri.userInfo, uri.host, port, uri.path, null, null).toString()
+        } catch (_: Exception) {
+            candidate
+        }
+    }
 
     private fun schemeOf(raw: String): String? {
         val candidate = raw.trim()
@@ -27,4 +53,7 @@ object StreamUrlValidator {
         if (uri.host.isNullOrBlank()) return null
         return uri.scheme
     }
+
+    private const val PROTECT_SECURE_PORT = 7441
+    private const val PROTECT_PLAIN_PORT = 7447
 }

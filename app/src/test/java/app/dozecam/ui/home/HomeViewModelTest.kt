@@ -151,7 +151,7 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun `an rtsps camera can be watched but not monitored`() = runTest {
+    fun `a stale pre-normalization rtsps camera cannot be monitored`() = runTest {
         val store = FakeCameraStore(
             listOf(Camera("a", "Nursery", "rtsps://cam:7441/token?enableSrtp")),
         )
@@ -159,6 +159,19 @@ class HomeViewModelTest {
 
         assertEquals("a", viewModel.selectedCamera.value?.id)
         assertFalse(viewModel.canMonitor.value)
+    }
+
+    @Test
+    fun `saving a pasted rtsps console link normalizes it to the playable rtsp alias`() = runTest {
+        val store = FakeCameraStore()
+        val viewModel = viewModel(store)
+
+        viewModel.onFormName("Nursery")
+        viewModel.onFormUrl("rtsps://cam:7441/token?enableSrtp")
+        assertTrue(viewModel.form.value.canSave)
+        viewModel.saveCamera()
+
+        assertEquals("rtsp://cam:7447/token", store.stored.value.single().url)
     }
 
     @Test
