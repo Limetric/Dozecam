@@ -14,9 +14,10 @@ Everything stays on your local network — no cloud, no accounts, no analytics.
   backoff and always shows LIVE / RECONNECTING / OFFLINE with the last-frame
   time; a frozen frame never pretends to be live.
 - **Protect onboarding** — sign in to the console with a local account to
-  discover cameras and enable their streams automatically (trust-on-first-use
-  certificate pinning, credentials encrypted at rest), or paste an `rtsp://`
-  (or `rtsps://`) URL manually.
+  discover cameras and enable their streams automatically, over UniFi's public
+  Integration API where the console supports it and the legacy private API
+  otherwise (trust-on-first-use certificate pinning, credentials encrypted at
+  rest), or paste an `rtsp://` (or `rtsps://`) URL manually.
 - **Multi-camera** — name and manage several cameras; pick which one the
   wake-on-sound monitor watches.
 

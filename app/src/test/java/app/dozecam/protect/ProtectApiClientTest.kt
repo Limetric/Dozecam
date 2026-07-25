@@ -155,6 +155,46 @@ class ProtectApiClientTest {
     }
 
     @Test
+    fun `createApiKey posts the key name and unwraps the minted key`() = runTest {
+        server.enqueue(loginResponse())
+        server.enqueue(
+            MockResponse.Builder()
+                .code(200)
+                .body("""{"data": {"full_api_key": "abcdef123456", "id": "k1"}}""")
+                .build(),
+        )
+
+        val api = client()
+        val session = api.login("babycam", "secret")
+        val key = api.createApiKey(session, "Dozecam")
+
+        server.takeRequest() // login
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertEquals("/proxy/users/api/v2/user/self/keys", request.url.encodedPath)
+        assertEquals("TOKEN=abc123", request.headers["Cookie"])
+        assertTrue(request.body!!.utf8().contains("\"name\":\"Dozecam\""))
+        assertEquals("abcdef123456", key)
+    }
+
+    /** Pre-5.3 consoles have no such endpoint; non-owner accounts are refused. */
+    @Test
+    fun `createApiKey surfaces a console that will not issue one`() = runTest {
+        server.enqueue(loginResponse())
+        server.enqueue(MockResponse.Builder().code(403).body("{}").build())
+
+        val api = client()
+        val session = api.login("babycam", "secret")
+
+        try {
+            api.createApiKey(session, "Dozecam")
+            throw AssertionError("expected ProtectApiException")
+        } catch (e: ProtectApiException) {
+            assertEquals(403, e.statusCode)
+        }
+    }
+
+    @Test
     fun `rtsp urls target the console host on port 7447`() {
         assertEquals(
             "rtsp://127.0.0.1:7447/aliasM",

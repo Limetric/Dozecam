@@ -12,7 +12,9 @@ import app.dozecam.protect.ProtectApiClient
 import app.dozecam.protect.ProtectApiException
 import app.dozecam.protect.ProtectCamera
 import app.dozecam.protect.ProtectCredentials
+import app.dozecam.protect.ProtectPublicApiClient
 import app.dozecam.protect.ProtectSession
+import app.dozecam.protect.PublicCamera
 import app.dozecam.protect.TofuTrustStore
 import app.dozecam.protect.UntrustedCertificateException
 import app.dozecam.protect.protectHttpClient
@@ -25,11 +27,18 @@ import kotlinx.coroutines.launch
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 
+/** A camera offered in the picker, from whichever API discovered it. */
+data class DiscoveredCamera(
+    val id: String,
+    val name: String,
+    val detail: String,
+)
+
 sealed interface OnboardingStep {
     data object Form : OnboardingStep
     data object Connecting : OnboardingStep
     data class ConfirmFingerprint(val fingerprint: String) : OnboardingStep
-    data class PickCameras(val cameras: List<ProtectCamera>) : OnboardingStep
+    data class PickCameras(val cameras: List<DiscoveredCamera>) : OnboardingStep
     data object Importing : OnboardingStep
     data class Done(val importedCount: Int) : OnboardingStep
 }
@@ -54,11 +63,29 @@ class OnboardingViewModel(
     private val clientFactory: (fingerprint: String?) -> OkHttpClient = ::protectHttpClient,
 ) : ViewModel() {
 
+    /**
+     * What the picker's selection resolves to at import time. Cameras come from
+     * the documented public Integration API when the console can issue an API
+     * key, and from the legacy private API otherwise.
+     */
+    private sealed interface Discovery {
+        data class Public(
+            val api: ProtectPublicApiClient,
+            val apiKey: String,
+            val cameras: List<PublicCamera>,
+        ) : Discovery
+
+        data class Private(
+            val api: ProtectApiClient,
+            val cameras: List<ProtectCamera>,
+        ) : Discovery
+    }
+
     private val _state = MutableStateFlow(OnboardingUiState())
     val state: StateFlow<OnboardingUiState> = _state
 
     private var session: ProtectSession? = null
-    private var api: ProtectApiClient? = null
+    private var discovery: Discovery? = null
 
     init {
         credentialsStore.load()?.let { saved ->
@@ -117,36 +144,14 @@ class OnboardingViewModel(
     fun import() {
         val current = _state.value
         val picking = current.step as? OnboardingStep.PickCameras ?: return
-        val api = api ?: return
-        if (session == null) return
+        val source = discovery ?: return
         _state.value = current.copy(step = OnboardingStep.Importing, error = null)
         viewModelScope.launch {
             runCatching {
-                var imported = 0
-                for (camera in picking.cameras) {
-                    if (camera.id !in current.selectedCameraIds) continue
-                    val channel = camera.preferredChannel ?: continue
-                    val alias = if (channel.isRtspEnabled && channel.rtspAlias != null) {
-                        channel.rtspAlias
-                    } else {
-                        val updated = withFreshSessionOn401(api) { activeSession ->
-                            api.enableRtsp(activeSession, camera.id, channel.id)
-                        }
-                        updated.channels.firstOrNull { it.id == channel.id }?.rtspAlias
-                            ?: throw IllegalStateException(
-                                "Console did not return an RTSP alias for ${camera.name}",
-                            )
-                    }
-                    cameraStore.upsert(
-                        Camera(
-                            id = "protect-${camera.id}-${channel.id}",
-                            name = camera.name.ifBlank { "Camera" },
-                            url = api.rtspUrlFor(alias),
-                        ),
-                    )
-                    imported++
+                when (source) {
+                    is Discovery.Public -> importPublic(source, current.selectedCameraIds)
+                    is Discovery.Private -> importPrivate(source, current.selectedCameraIds)
                 }
-                imported
             }.onSuccess { imported ->
                 _state.value = _state.value.copy(step = OnboardingStep.Done(imported))
             }.onFailure { failure ->
@@ -156,6 +161,64 @@ class OnboardingViewModel(
                 )
             }
         }
+    }
+
+    private suspend fun importPublic(source: Discovery.Public, selected: Set<String>): Int {
+        var imported = 0
+        for (camera in source.cameras) {
+            if (camera.id !in selected) continue
+            val quality = ProtectPublicApiClient.QUALITY_MEDIUM
+            // Reuse a stream the console already serves; only enable one when
+            // the camera has none, so onboarding does not churn the console's
+            // stream settings on every re-run.
+            val existing = source.api.rtspsStreams(source.apiKey, camera.id)[quality]
+            val rtsps = existing
+                ?: source.api.createRtspsStreams(source.apiKey, camera.id, listOf(quality))[quality]
+                ?: throw IllegalStateException(
+                    "Console did not return a $quality stream for ${camera.displayName}",
+                )
+            val url = source.api.streamUrlFor(rtsps)
+                ?: throw IllegalStateException(
+                    "Could not read the stream alias for ${camera.displayName}",
+                )
+            cameraStore.upsert(
+                Camera(
+                    id = "protect-${camera.id}-$MEDIUM_CHANNEL_ID",
+                    name = camera.displayName,
+                    url = url,
+                ),
+            )
+            imported++
+        }
+        return imported
+    }
+
+    private suspend fun importPrivate(source: Discovery.Private, selected: Set<String>): Int {
+        var imported = 0
+        for (camera in source.cameras) {
+            if (camera.id !in selected) continue
+            val channel = camera.preferredChannel ?: continue
+            val alias = if (channel.isRtspEnabled && channel.rtspAlias != null) {
+                channel.rtspAlias
+            } else {
+                val updated = withFreshSessionOn401(source.api) { activeSession ->
+                    source.api.enableRtsp(activeSession, camera.id, channel.id)
+                }
+                updated.channels.firstOrNull { it.id == channel.id }?.rtspAlias
+                    ?: throw IllegalStateException(
+                        "Console did not return an RTSP alias for ${camera.name}",
+                    )
+            }
+            cameraStore.upsert(
+                Camera(
+                    id = "protect-${camera.id}-${channel.id}",
+                    name = camera.name.ifBlank { "Camera" },
+                    url = source.api.rtspUrlFor(alias),
+                ),
+            )
+            imported++
+        }
+        return imported
     }
 
     /**
@@ -177,18 +240,78 @@ class OnboardingViewModel(
     }
 
     private suspend fun signInAndDiscover(baseUrl: HttpUrl, fingerprint: String?) {
-        val client = ProtectApiClient(baseUrl, clientFactory(fingerprint))
+        val http = clientFactory(fingerprint)
+        val api = ProtectApiClient(baseUrl, http)
         val current = _state.value
-        val newSession = client.login(current.username, current.password)
-        credentialsStore.save(
-            ProtectCredentials(current.host.trim(), current.username, current.password),
-        )
-        val bootstrap = client.bootstrap(newSession)
-        api = client
+        val newSession = api.login(current.username, current.password)
         session = newSession
+
+        val found = discoverPublicly(baseUrl, http, api, newSession)
+            ?: Discovery.Private(api, api.bootstrap(newSession).cameras)
+        discovery = found
+        val cameras = when (found) {
+            is Discovery.Public -> found.cameras.map {
+                DiscoveredCamera(it.id, it.displayName, MEDIUM_LABEL)
+            }
+            is Discovery.Private -> found.cameras.map {
+                DiscoveredCamera(
+                    id = it.id,
+                    name = it.name.ifBlank { "Camera" },
+                    detail = it.preferredChannel?.name.orEmpty(),
+                )
+            }
+        }
         _state.value = _state.value.copy(
-            step = OnboardingStep.PickCameras(bootstrap.cameras),
-            selectedCameraIds = bootstrap.cameras.map { it.id }.toSet(),
+            step = OnboardingStep.PickCameras(cameras),
+            selectedCameraIds = cameras.map { it.id }.toSet(),
+        )
+    }
+
+    /**
+     * Discovery over the public Integration API, or null when this console
+     * cannot serve it — pre-5.3 firmware has no such endpoints, and minting a
+     * key needs owner rights. Neither is fatal: the caller falls back to the
+     * private API, which every Protect version still answers.
+     */
+    private suspend fun discoverPublicly(
+        baseUrl: HttpUrl,
+        http: OkHttpClient,
+        api: ProtectApiClient,
+        session: ProtectSession,
+    ): Discovery.Public? {
+        val public = ProtectPublicApiClient(baseUrl, http)
+        val host = _state.value.host.trim()
+        val stored = credentialsStore.load()
+            ?.takeIf { it.host == host && it.username == _state.value.username }
+            ?.apiKey
+        // Try the stored key first, and only ask for a new one if there is none
+        // or the console has since revoked it — minting unconditionally would
+        // leave a dead key behind on every run.
+        stored?.let { key -> discoverWith(public, key)?.let { return it } }
+        val minted = mintApiKey(api, session)
+        if (minted != null && minted != stored) {
+            discoverWith(public, minted)?.let { return it }
+        }
+        saveCredentials(apiKey = null)
+        return null
+    }
+
+    private suspend fun discoverWith(
+        public: ProtectPublicApiClient,
+        apiKey: String,
+    ): Discovery.Public? {
+        val cameras = runCatching { public.cameras(apiKey) }.getOrNull() ?: return null
+        saveCredentials(apiKey)
+        return Discovery.Public(public, apiKey, cameras)
+    }
+
+    private suspend fun mintApiKey(api: ProtectApiClient, session: ProtectSession): String? =
+        runCatching { api.createApiKey(session, API_KEY_NAME) }.getOrNull()
+
+    private fun saveCredentials(apiKey: String?) {
+        val current = _state.value
+        credentialsStore.save(
+            ProtectCredentials(current.host.trim(), current.username, current.password, apiKey),
         )
     }
 
@@ -212,7 +335,21 @@ class OnboardingViewModel(
         }
     }
 
+    private val PublicCamera.displayName: String
+        get() = name.orEmpty().ifBlank { "Camera" }
+
     companion object {
+        private const val API_KEY_NAME = "Dozecam"
+        private const val MEDIUM_LABEL = "Medium"
+
+        /**
+         * Protect numbers a camera's channels High/Medium/Low, so the medium
+         * quality the public API names is channel 1 on the private one. Keeping
+         * that in the camera id means a console that switches APIs between runs
+         * updates its existing entry instead of adding a duplicate.
+         */
+        private const val MEDIUM_CHANNEL_ID = 1
+
         fun factory(
             cameraStore: CameraStore,
             trustStore: TofuTrustStore,

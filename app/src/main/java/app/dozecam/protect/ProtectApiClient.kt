@@ -1,8 +1,7 @@
 package app.dozecam.protect
 
 import java.io.IOException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runInterruptible
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl
@@ -123,32 +122,59 @@ class ProtectApiClient(
         }
     }
 
-    /** Plain RTSP on the console's 7447 port; RTSPS (7441) is unsupported by common players. */
-    fun rtspUrlFor(alias: String): String {
-        // IPv6 literals need brackets in a URI authority.
-        val host = baseUrl.host.let { if (it.contains(':')) "[$it]" else it }
-        return "rtsp://$host:7447/$alias"
+    /**
+     * Mints a console API key for the public Integration API — the same call
+     * Home Assistant makes. This lives on the *private* API because the public
+     * one cannot bootstrap its own credential. Consoles older than Protect 5.3
+     * have no such endpoint, and accounts without owner rights are refused;
+     * both surface as [ProtectApiException] so the caller can fall back.
+     */
+    suspend fun createApiKey(session: ProtectSession, name: String): String {
+        val body = json.encodeToString(ApiKeyRequest(name))
+        val request = authorized(session)
+            .url(baseUrl.newBuilder().encodedPath("/proxy/users/api/v2/user/self/keys").build())
+            .post(body.toRequestBody(JSON_TYPE))
+            .build()
+        return client.exchange(request) { response, payload ->
+            if (!response.isSuccessful) {
+                throw ProtectApiException(
+                    "Creating an API key failed (${response.code}); " +
+                        "the account may not own this console",
+                    response.code,
+                )
+            }
+            json.decodeFromString<ApiKeyEnvelope>(payload).data?.fullApiKey
+                ?: throw ProtectApiException("Console accepted the request but returned no API key")
+        }
     }
+
+    /** Plain RTSP on the console's 7447 port; RTSPS (7441) is unsupported by common players. */
+    fun rtspUrlFor(alias: String): String = rtspUrl(baseUrl.host, alias)
 
     private fun authorized(session: ProtectSession): Request.Builder =
         Request.Builder()
             .header("Cookie", session.cookie)
             .apply { session.csrfToken?.let { header("X-CSRF-Token", it) } }
 
-    // The whole exchange — including the body read, which can still touch the
-    // socket after headers arrive — stays on the IO dispatcher.
     private suspend fun <T> execute(request: Request, handler: (Response, String) -> T): T =
-        runInterruptible(Dispatchers.IO) {
-            client.newCall(request).execute().use { response ->
-                handler(response, response.body.string())
-            }
-        }
+        client.exchange(request, handler)
 
     @Serializable
     private data class LoginRequest(
         val username: String,
         val password: String,
         val rememberMe: Boolean = true,
+    )
+
+    @Serializable
+    private data class ApiKeyRequest(val name: String)
+
+    @Serializable
+    private data class ApiKeyEnvelope(val data: ApiKeyData? = null)
+
+    @Serializable
+    private data class ApiKeyData(
+        @SerialName("full_api_key") val fullApiKey: String? = null,
     )
 
     companion object {

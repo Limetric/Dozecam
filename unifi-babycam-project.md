@@ -102,9 +102,10 @@ Simple, tunable, and deliberately boring:
 Store users can't be asked to copy RTSP token URLs out of the Protect UI, so camera setup goes through the console's local HTTP API:
 
 - Sign in with a **local Protect account** (console IP/hostname + username + password; document that a dedicated view-only local account is the recommended setup). Cookie + CSRF-token session handling; re-authenticate transparently when the session expires.
-- Enumerate adopted cameras via the bootstrap endpoint; let the user pick which cameras Dozecam uses.
-- Enable the RTSP stream on the chosen quality channel per camera (or read the existing token) and derive the `rtsp://<console>:7447/<token>` URL automatically.
-- **Risk:** this API is unofficial and shifts between Protect releases. Mitigations: pin against known-good behavior per Protect version range, fail with actionable errors, and keep **manual RTSP URL entry** as a permanent escape hatch.
+- **Prefer the public Integration API** (`/proxy/protect/integration/v1`, Protect 5.3+) — the one Ubiquiti documents and Home Assistant migrated its stream URLs to. The sign-in above mints a console API key (`POST /proxy/users/api/v2/user/self/keys`), which is stored and reused; cameras come from `GET /v1/cameras` and streams from `GET`/`POST /v1/cameras/{id}/rtsps-stream`.
+- **Fall back to the private API** (bootstrap + `PATCH /cameras/{id}`) when the console cannot serve the public one: pre-5.3 firmware has no such endpoints, and minting a key needs owner rights. Both paths produce the same camera ids, so a console that changes API between runs updates its entries rather than duplicating them.
+- Either way, derive the `rtsp://<console>:7447/<alias>` URL automatically. The public API returns `rtsps://<console>:7441/<alias>?enableSrtp`; only the alias is portable — the host it advertises need not be the address the user reached (Home Assistant core#176487), and the RTSPS port is not a stream the players here can open.
+- **Risk:** the private fallback is unofficial and shifts between Protect releases; the public API is versioned but lags in coverage. Mitigations: fail with actionable errors, and keep **manual RTSP URL entry** as a permanent escape hatch.
 - Credentials and token URLs live in app-private encrypted storage (§6).
 
 ### 4.5 Connection Watchdog

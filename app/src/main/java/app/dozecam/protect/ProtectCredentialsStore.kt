@@ -7,6 +7,12 @@ data class ProtectCredentials(
     val host: String,
     val username: String,
     val password: String,
+    /**
+     * Console API key for the public Integration API, minted during onboarding
+     * and reused on the next run so each setup does not litter the console
+     * with keys. Null on consoles that cannot issue one.
+     */
+    val apiKey: String? = null,
 )
 
 interface CredentialsStore {
@@ -30,6 +36,7 @@ class EncryptedCredentialsStore(context: Context) : CredentialsStore {
             .putString(KEY_HOST, credentials.host)
             .putString(KEY_USERNAME, credentials.username)
             .putString(KEY_PASSWORD, credentials.password)
+            .putString(KEY_API_KEY, credentials.apiKey)
             .apply()
     }
 
@@ -37,7 +44,7 @@ class EncryptedCredentialsStore(context: Context) : CredentialsStore {
         val host = prefs.getString(KEY_HOST, null) ?: return null
         val username = prefs.getString(KEY_USERNAME, null) ?: return null
         val password = prefs.getString(KEY_PASSWORD, null) ?: return null
-        return ProtectCredentials(host, username, password)
+        return ProtectCredentials(host, username, password, prefs.getString(KEY_API_KEY, null))
     }
 
     override fun clear() {
@@ -48,5 +55,6 @@ class EncryptedCredentialsStore(context: Context) : CredentialsStore {
         const val KEY_HOST = "host"
         const val KEY_USERNAME = "username"
         const val KEY_PASSWORD = "password"
+        const val KEY_API_KEY = "api_key"
     }
 }

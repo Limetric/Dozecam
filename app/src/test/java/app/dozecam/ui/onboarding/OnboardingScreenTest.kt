@@ -6,8 +6,6 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
-import app.dozecam.protect.ProtectCamera
-import app.dozecam.protect.ProtectChannel
 import app.dozecam.ui.theme.DozecamTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -81,11 +79,7 @@ class OnboardingScreenTest {
 
     @Test
     fun `camera picker toggles and imports`() {
-        val camera = ProtectCamera(
-            id = "cam1",
-            name = "Nursery",
-            channels = listOf(ProtectChannel(id = 1, name = "Medium")),
-        )
+        val camera = DiscoveredCamera(id = "cam1", name = "Nursery", detail = "Medium")
         var toggled: String? = null
         setScreen(
             OnboardingUiState(
@@ -103,7 +97,7 @@ class OnboardingScreenTest {
 
     @Test
     fun `import is disabled with nothing selected`() {
-        val camera = ProtectCamera(id = "cam1", name = "Nursery")
+        val camera = DiscoveredCamera(id = "cam1", name = "Nursery", detail = "Medium")
         setScreen(
             OnboardingUiState(
                 step = OnboardingStep.PickCameras(listOf(camera)),

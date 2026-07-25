@@ -16,12 +16,15 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
+import mockwebserver3.Dispatcher
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
+import mockwebserver3.RecordedRequest
 import okhttp3.tls.HandshakeCertificates
 import okhttp3.tls.HeldCertificate
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -50,8 +53,7 @@ private class FakeCameraStore : CameraStore {
     }
 }
 
-private class FakeCredentialsStore : CredentialsStore {
-    var saved: ProtectCredentials? = null
+private class FakeCredentialsStore(var saved: ProtectCredentials? = null) : CredentialsStore {
     override fun save(credentials: ProtectCredentials) {
         saved = credentials
     }
@@ -60,6 +62,29 @@ private class FakeCredentialsStore : CredentialsStore {
     override fun clear() {
         saved = null
     }
+}
+
+/**
+ * Routes by path rather than by enqueue order: onboarding's call sequence
+ * depends on what the console supports, and a queue would couple every test to
+ * one particular path through it.
+ */
+private class ConsoleDispatcher : Dispatcher() {
+    /** Path → handler; the first matching prefix wins. */
+    val routes = linkedMapOf<String, (RecordedRequest) -> MockResponse>()
+    val requests = mutableListOf<RecordedRequest>()
+
+    override fun dispatch(request: RecordedRequest): MockResponse {
+        requests += request
+        val path = request.url.encodedPath
+        val handler = routes.entries.firstOrNull { path == it.key }?.value
+        return handler?.invoke(request) ?: notFound
+    }
+
+    fun pathsFor(method: String): List<String> =
+        requests.filter { it.method == method }.map { it.url.encodedPath }
+
+    private val notFound = MockResponse.Builder().code(404).body("{}").build()
 }
 
 class OnboardingViewModelTest {
@@ -72,6 +97,7 @@ class OnboardingViewModelTest {
 
     private lateinit var server: MockWebServer
     private lateinit var heldCertificate: HeldCertificate
+    private lateinit var console: ConsoleDispatcher
 
     @Before
     fun setUp() {
@@ -87,6 +113,9 @@ class OnboardingViewModelTest {
                 .build()
                 .sslSocketFactory(),
         )
+        console = ConsoleDispatcher()
+        console.routes[LOGIN] = { loginResponse() }
+        server.dispatcher = console
         server.start()
     }
 
@@ -109,27 +138,49 @@ class OnboardingViewModelTest {
         .body("{}")
         .build()
 
-    private fun bootstrapResponse(): MockResponse = MockResponse.Builder()
+    private fun json(body: String): MockResponse = MockResponse.Builder()
         .code(200)
-        .body(
-            """
-            {"cameras":[{"id":"cam1","name":"Nursery","channels":[
-              {"id":1,"name":"Medium","isRtspEnabled":false,"rtspAlias":null}
-            ]}]}
-            """.trimIndent(),
-        )
+        .body(body.trimIndent())
         .build()
 
-    private fun enableRtspResponse(): MockResponse = MockResponse.Builder()
-        .code(200)
-        .body(
-            """
-            {"id":"cam1","name":"Nursery","channels":[
-              {"id":1,"name":"Medium","isRtspEnabled":true,"rtspAlias":"aliasM"}
-            ]}
-            """.trimIndent(),
-        )
-        .build()
+    private fun status(code: Int): MockResponse =
+        MockResponse.Builder().code(code).body("{}").build()
+
+    /** A console that issues API keys and serves the public Integration API. */
+    private fun publicConsole(streams: String = """{"low": null}""") {
+        console.routes[API_KEYS] = { json("""{"data": {"full_api_key": "key-1"}}""") }
+        console.routes[PUBLIC_CAMERAS] = { json("""[{"id": "cam1", "name": "Nursery"}]""") }
+        console.routes[PUBLIC_STREAM] = { request ->
+            if (request.method == "POST") {
+                json("""{"medium": "rtsps://10.9.9.9:7441/aliasM?enableSrtp"}""")
+            } else {
+                json(streams)
+            }
+        }
+    }
+
+    /** A console too old (or an account too limited) to issue an API key. */
+    private fun legacyConsole() {
+        console.routes[API_KEYS] = { status(403) }
+        console.routes[BOOTSTRAP] = {
+            json(
+                """
+                {"cameras":[{"id":"cam1","name":"Nursery","channels":[
+                  {"id":1,"name":"Medium","isRtspEnabled":false,"rtspAlias":null}
+                ]}]}
+                """,
+            )
+        }
+        console.routes[PRIVATE_CAMERA] = {
+            json(
+                """
+                {"id":"cam1","name":"Nursery","channels":[
+                  {"id":1,"name":"Medium","isRtspEnabled":true,"rtspAlias":"aliasM"}
+                ]}
+                """,
+            )
+        }
+    }
 
     private fun viewModel(
         cameraStore: FakeCameraStore,
@@ -148,6 +199,10 @@ class OnboardingViewModelTest {
         return viewModel
     }
 
+    private suspend fun TestScope.pinnedTrustStore(): TofuTrustStore = trustStore().also {
+        it.pin("127.0.0.1", heldCertificate.certificate.sha256Fingerprint())
+    }
+
     @Test
     fun `first connect prompts for the certificate fingerprint`() = runTest {
         val viewModel = viewModel(FakeCameraStore(), trustStore())
@@ -162,8 +217,7 @@ class OnboardingViewModelTest {
 
     @Test
     fun `confirming the fingerprint pins it and discovers cameras`() = runTest {
-        server.enqueue(loginResponse())
-        server.enqueue(bootstrapResponse())
+        publicConsole()
         val trustStore = trustStore()
         val credentials = FakeCredentialsStore()
         val viewModel = viewModel(FakeCameraStore(), trustStore, credentials)
@@ -185,14 +239,27 @@ class OnboardingViewModelTest {
     }
 
     @Test
-    fun `import enables rtsp and adds the camera with the derived url`() = runTest {
-        server.enqueue(loginResponse())
-        server.enqueue(bootstrapResponse())
-        server.enqueue(enableRtspResponse())
-        val trustStore = trustStore()
-        trustStore.pin("127.0.0.1", heldCertificate.certificate.sha256Fingerprint())
+    fun `discovery mints an api key and reads the public integration api`() = runTest {
+        publicConsole()
+        val credentials = FakeCredentialsStore()
+        val viewModel = viewModel(FakeCameraStore(), pinnedTrustStore(), credentials)
+
+        viewModel.connect()
+        viewModel.state.first { it.step is OnboardingStep.PickCameras }
+
+        assertTrue(API_KEYS in console.pathsFor("POST"))
+        assertTrue(PUBLIC_CAMERAS in console.pathsFor("GET"))
+        // The private bootstrap is not touched when the public API answers.
+        assertTrue(BOOTSTRAP !in console.pathsFor("GET"))
+        // The minted key is kept so the next run does not create another.
+        assertEquals("key-1", credentials.saved?.apiKey)
+    }
+
+    @Test
+    fun `import enables a stream and stores the alias on the reachable host`() = runTest {
+        publicConsole()
         val cameraStore = FakeCameraStore()
-        val viewModel = viewModel(cameraStore, trustStore)
+        val viewModel = viewModel(cameraStore, pinnedTrustStore())
 
         viewModel.connect()
         viewModel.state.first { it.step is OnboardingStep.PickCameras }
@@ -204,16 +271,95 @@ class OnboardingViewModelTest {
         assertEquals(1, done.importedCount)
         val imported = cameraStore.stored.value.single()
         assertEquals("Nursery", imported.name)
+        // The console advertised 10.9.9.9 over RTSPS; only the alias survives.
         assertEquals("rtsp://127.0.0.1:7447/aliasM", imported.url)
+        // Same id the private path produces, so re-onboarding updates in place.
         assertEquals("protect-cam1-1", imported.id)
     }
 
     @Test
+    fun `an already-active stream is reused instead of re-enabled`() = runTest {
+        publicConsole(streams = """{"medium": "rtsps://10.9.9.9:7441/existingAlias?enableSrtp"}""")
+        val cameraStore = FakeCameraStore()
+        val viewModel = viewModel(cameraStore, pinnedTrustStore())
+
+        viewModel.connect()
+        viewModel.state.first { it.step is OnboardingStep.PickCameras }
+        viewModel.import()
+
+        viewModel.state.first { it.step is OnboardingStep.Done }
+        assertEquals(
+            "rtsp://127.0.0.1:7447/existingAlias",
+            cameraStore.stored.value.single().url,
+        )
+        assertTrue(PUBLIC_STREAM !in console.pathsFor("POST"))
+    }
+
+    @Test
+    fun `a stored api key is reused without minting another`() = runTest {
+        publicConsole()
+        val credentials = FakeCredentialsStore(
+            ProtectCredentials("127.0.0.1:${server.port}", "babycam", "secret", "stored-key"),
+        )
+        val viewModel = viewModel(FakeCameraStore(), pinnedTrustStore(), credentials)
+
+        viewModel.connect()
+        viewModel.state.first { it.step is OnboardingStep.PickCameras }
+
+        assertTrue(API_KEYS !in console.pathsFor("POST"))
+        assertEquals("stored-key", credentials.saved?.apiKey)
+    }
+
+    @Test
+    fun `a revoked stored api key is replaced by a fresh one`() = runTest {
+        publicConsole()
+        console.routes[PUBLIC_CAMERAS] = { request ->
+            if (request.headers["X-API-KEY"] == "key-1") {
+                json("""[{"id": "cam1", "name": "Nursery"}]""")
+            } else {
+                status(401)
+            }
+        }
+        val credentials = FakeCredentialsStore(
+            ProtectCredentials("127.0.0.1:${server.port}", "babycam", "secret", "revoked-key"),
+        )
+        val viewModel = viewModel(FakeCameraStore(), pinnedTrustStore(), credentials)
+
+        viewModel.connect()
+        val picking = viewModel.state
+            .first { it.step is OnboardingStep.PickCameras }
+            .step as OnboardingStep.PickCameras
+
+        assertEquals(listOf("Nursery"), picking.cameras.map { it.name })
+        assertEquals("key-1", credentials.saved?.apiKey)
+    }
+
+    /** Pre-5.3 consoles, and accounts that cannot mint a key, still onboard. */
+    @Test
+    fun `a console without the public api falls back to the private one`() = runTest {
+        legacyConsole()
+        val credentials = FakeCredentialsStore()
+        val cameraStore = FakeCameraStore()
+        val viewModel = viewModel(cameraStore, pinnedTrustStore(), credentials)
+
+        viewModel.connect()
+        viewModel.state.first { it.step is OnboardingStep.PickCameras }
+        viewModel.import()
+
+        val done = viewModel.state
+            .first { it.step is OnboardingStep.Done }
+            .step as OnboardingStep.Done
+        assertEquals(1, done.importedCount)
+        val imported = cameraStore.stored.value.single()
+        assertEquals("rtsp://127.0.0.1:7447/aliasM", imported.url)
+        assertEquals("protect-cam1-1", imported.id)
+        assertNull(credentials.saved?.apiKey)
+    }
+
+    @Test
     fun `bad credentials return to the form with an error`() = runTest {
-        server.enqueue(MockResponse.Builder().code(401).body("{}").build())
-        val trustStore = trustStore()
-        trustStore.pin("127.0.0.1", heldCertificate.certificate.sha256Fingerprint())
-        val viewModel = viewModel(FakeCameraStore(), trustStore)
+        console.routes[LOGIN] = { status(401) }
+        val viewModel = viewModel(FakeCameraStore(), pinnedTrustStore())
 
         viewModel.connect()
 
@@ -224,16 +370,15 @@ class OnboardingViewModelTest {
     }
 
     @Test
-    fun `an expired session during import re-authenticates once and succeeds`() = runTest {
-        server.enqueue(loginResponse())
-        server.enqueue(bootstrapResponse())
-        server.enqueue(MockResponse.Builder().code(401).body("{}").build()) // expired PATCH
-        server.enqueue(loginResponse()) // re-auth
-        server.enqueue(enableRtspResponse()) // retried PATCH
-        val trustStore = trustStore()
-        trustStore.pin("127.0.0.1", heldCertificate.certificate.sha256Fingerprint())
+    fun `an expired session during a private import re-authenticates once`() = runTest {
+        legacyConsole()
+        var patches = 0
+        val enabled = console.routes.getValue(PRIVATE_CAMERA)
+        console.routes[PRIVATE_CAMERA] = { request ->
+            if (patches++ == 0) status(401) else enabled(request)
+        }
         val cameraStore = FakeCameraStore()
-        val viewModel = viewModel(cameraStore, trustStore)
+        val viewModel = viewModel(cameraStore, pinnedTrustStore())
 
         viewModel.connect()
         viewModel.state.first { it.step is OnboardingStep.PickCameras }
@@ -244,16 +389,14 @@ class OnboardingViewModelTest {
             .step as OnboardingStep.Done
         assertEquals(1, done.importedCount)
         assertEquals("rtsp://127.0.0.1:7447/aliasM", cameraStore.stored.value.single().url)
+        assertEquals(2, console.pathsFor("POST").count { it == LOGIN })
     }
 
     @Test
     fun `deselected cameras are not imported`() = runTest {
-        server.enqueue(loginResponse())
-        server.enqueue(bootstrapResponse())
-        val trustStore = trustStore()
-        trustStore.pin("127.0.0.1", heldCertificate.certificate.sha256Fingerprint())
+        publicConsole()
         val cameraStore = FakeCameraStore()
-        val viewModel = viewModel(cameraStore, trustStore)
+        val viewModel = viewModel(cameraStore, pinnedTrustStore())
 
         viewModel.connect()
         viewModel.state.first { it.step is OnboardingStep.PickCameras }
@@ -265,5 +408,14 @@ class OnboardingViewModelTest {
             .step as OnboardingStep.Done
         assertEquals(0, done.importedCount)
         assertTrue(cameraStore.stored.value.isEmpty())
+    }
+
+    private companion object {
+        const val LOGIN = "/api/auth/login"
+        const val API_KEYS = "/proxy/users/api/v2/user/self/keys"
+        const val PUBLIC_CAMERAS = "/proxy/protect/integration/v1/cameras"
+        const val PUBLIC_STREAM = "/proxy/protect/integration/v1/cameras/cam1/rtsps-stream"
+        const val BOOTSTRAP = "/proxy/protect/api/bootstrap"
+        const val PRIVATE_CAMERA = "/proxy/protect/api/cameras/cam1"
     }
 }

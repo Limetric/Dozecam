@@ -27,7 +27,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import app.dozecam.R
-import app.dozecam.protect.ProtectCamera
 
 @Composable
 fun OnboardingScreen(
@@ -213,7 +212,7 @@ private fun FingerprintPrompt(
 
 @Composable
 private fun CameraPicker(
-    cameras: List<ProtectCamera>,
+    cameras: List<DiscoveredCamera>,
     selectedIds: Set<String>,
     onToggle: (String) -> Unit,
     onImport: () -> Unit,
@@ -239,7 +238,7 @@ private fun CameraPicker(
                 Column {
                     Text(camera.name, style = MaterialTheme.typography.titleSmall)
                     Text(
-                        text = camera.preferredChannel?.name.orEmpty(),
+                        text = camera.detail,
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
