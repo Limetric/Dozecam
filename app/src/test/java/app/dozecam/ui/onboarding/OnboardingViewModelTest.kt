@@ -186,12 +186,14 @@ class OnboardingViewModelTest {
         cameraStore: FakeCameraStore,
         trustStore: TofuTrustStore,
         credentials: FakeCredentialsStore = FakeCredentialsStore(),
+        localNetworkGranted: Boolean = true,
     ): OnboardingViewModel {
         val viewModel = OnboardingViewModel(
             cameraStore = cameraStore,
             trustStore = trustStore,
             credentialsStore = credentials,
             clientFactory = { fingerprint -> protectHttpClient(fingerprint) },
+            localNetworkGranted = { localNetworkGranted },
         )
         viewModel.onHost("127.0.0.1:${server.port}")
         viewModel.onUsername("babycam")
@@ -367,6 +369,27 @@ class OnboardingViewModelTest {
             it.step == OnboardingStep.Form && it.error != null
         }
         assertTrue(state.error!!.contains("401"))
+    }
+
+    /**
+     * Android 17 drops LAN traffic from an app without the permission, so the
+     * failure arrives as a bare socket timeout. Name the real cause instead.
+     */
+    @Test
+    fun `a missing local network permission is named rather than shown as a timeout`() = runTest {
+        console.routes[LOGIN] = { status(500) }
+        val viewModel = viewModel(
+            FakeCameraStore(),
+            pinnedTrustStore(),
+            localNetworkGranted = false,
+        )
+
+        viewModel.connect()
+
+        val state = viewModel.state.first {
+            it.step == OnboardingStep.Form && it.error != null
+        }
+        assertTrue(state.error!!.contains("local network access"))
     }
 
     @Test

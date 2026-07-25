@@ -18,6 +18,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.dozecam.data.AppSettings
 import app.dozecam.monitoring.MonitoringService
+import app.dozecam.permissions.LocalNetworkPermission
 import app.dozecam.ui.home.HomeRoute
 import app.dozecam.ui.home.HomeViewModel
 import app.dozecam.ui.monitor.MonitorActivity
@@ -38,10 +39,19 @@ class MainActivity : ComponentActivity() {
         pendingMonitoringUrl = null
     }
 
+    // Nothing in the app can reach the LAN without this, so ask up front rather
+    // than letting the first console or stream connection time out.
+    private val localNetworkPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { /* Denial is surfaced where the connection fails, not here. */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Survive recreation (e.g. rotation) while the permission dialog is up.
         pendingMonitoringUrl = savedInstanceState?.getString(STATE_PENDING_URL)
+        if (savedInstanceState == null && !LocalNetworkPermission.isGranted(this)) {
+            localNetworkPermission.launch(LocalNetworkPermission.name)
+        }
         enableEdgeToEdge()
         setContent {
             val container = appContainer

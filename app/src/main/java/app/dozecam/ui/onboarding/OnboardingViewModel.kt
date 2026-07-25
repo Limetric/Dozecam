@@ -61,6 +61,7 @@ class OnboardingViewModel(
     private val trustStore: TofuTrustStore,
     private val credentialsStore: CredentialsStore,
     private val clientFactory: (fingerprint: String?) -> OkHttpClient = ::protectHttpClient,
+    private val localNetworkGranted: () -> Boolean = { true },
 ) : ViewModel() {
 
     /**
@@ -320,6 +321,14 @@ class OnboardingViewModel(
             .filterIsInstance<UntrustedCertificateException>()
             .firstOrNull()
         _state.value = when {
+            // Checked first: without the permission the connection is dropped
+            // before any TLS happens, and the socket timeout that surfaces
+            // says nothing about the real cause.
+            !localNetworkGranted() -> _state.value.copy(
+                step = OnboardingStep.Form,
+                error = "Dozecam needs local network access to reach the console. " +
+                    "Grant it under Permissions → Nearby devices in the app's system settings.",
+            )
             untrusted != null -> _state.value.copy(
                 step = OnboardingStep.ConfirmFingerprint(untrusted.fingerprint),
             )
@@ -354,8 +363,16 @@ class OnboardingViewModel(
             cameraStore: CameraStore,
             trustStore: TofuTrustStore,
             credentialsStore: CredentialsStore,
+            localNetworkGranted: () -> Boolean = { true },
         ): ViewModelProvider.Factory = viewModelFactory {
-            initializer { OnboardingViewModel(cameraStore, trustStore, credentialsStore) }
+            initializer {
+                OnboardingViewModel(
+                    cameraStore = cameraStore,
+                    trustStore = trustStore,
+                    credentialsStore = credentialsStore,
+                    localNetworkGranted = localNetworkGranted,
+                )
+            }
         }
     }
 }
