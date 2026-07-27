@@ -2,6 +2,8 @@ package app.dozecam.player
 
 import android.content.Context
 import android.net.Uri
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import org.videolan.libvlc.Dialog
 import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
@@ -24,6 +26,7 @@ class VlcVideoPlayerController(context: Context) : VideoPlayerController {
         ),
     )
     private val mediaPlayer = MediaPlayer(libVlc)
+    private var videoLayout: VLCVideoLayout? = null
 
     override var listener: ((PlayerEvent) -> Unit)? = null
 
@@ -71,15 +74,30 @@ class VlcVideoPlayerController(context: Context) : VideoPlayerController {
         }
     }
 
-    override fun attach(layout: VLCVideoLayout) {
+    override fun attach(container: ViewGroup) {
+        val layout = VLCVideoLayout(container.context).also { videoLayout = it }
+        container.addView(
+            layout,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ),
+        )
         mediaPlayer.attachViews(layout, null, false, false)
     }
 
     override fun detach() {
         mediaPlayer.detachViews()
+        videoLayout?.let { (it.parent as? ViewGroup)?.removeView(it) }
+        videoLayout = null
     }
 
-    override fun play(url: String) {
+    /**
+     * Only [StreamSource.Rtsp] reaches here: a livestream camera is routed to
+     * the Media3 player, which is the transport that can carry AV1.
+     */
+    override fun play(source: StreamSource) {
+        val url = (source as? StreamSource.Rtsp)?.url ?: return
         val media = Media(libVlc, Uri.parse(url)).apply {
             setHWDecoderEnabled(true, false)
         }

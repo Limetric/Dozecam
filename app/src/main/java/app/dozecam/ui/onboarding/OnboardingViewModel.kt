@@ -7,6 +7,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.dozecam.data.Camera
 import app.dozecam.data.CameraStore
+import app.dozecam.data.ProtectStream
 import app.dozecam.protect.CredentialsStore
 import app.dozecam.protect.ProtectApiClient
 import app.dozecam.protect.ProtectApiException
@@ -187,6 +188,7 @@ class OnboardingViewModel(
                     id = "protect-${camera.id}-$MEDIUM_CHANNEL_ID",
                     name = camera.displayName,
                     url = url,
+                    protect = ProtectStream(camera.id, MEDIUM_CHANNEL_ID),
                 ),
             )
             imported++
@@ -215,6 +217,7 @@ class OnboardingViewModel(
                     id = "protect-${camera.id}-${channel.id}",
                     name = camera.name.ifBlank { "Camera" },
                     url = source.api.rtspUrlFor(alias),
+                    protect = ProtectStream(camera.id, channel.id),
                 ),
             )
             imported++

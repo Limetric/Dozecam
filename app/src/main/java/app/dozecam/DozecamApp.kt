@@ -9,6 +9,7 @@ import app.dozecam.data.MonitoringPrefs
 import app.dozecam.data.dozecamDataStore
 import app.dozecam.monitoring.MonitoringState
 import app.dozecam.protect.EncryptedCredentialsStore
+import app.dozecam.protect.ProtectLivestreamProvider
 import app.dozecam.protect.TofuTrustStore
 import app.dozecam.protect.securePreferences
 
@@ -34,6 +35,9 @@ class AppContainer(context: Context) {
     val monitoringState = MonitoringState()
     val tofuTrustStore = TofuTrustStore(dataStore)
     val protectCredentials by lazy { EncryptedCredentialsStore(context.applicationContext) }
+    val protectLivestream by lazy {
+        ProtectLivestreamProvider(protectCredentials, tofuTrustStore)
+    }
 }
 
 val Context.appContainer: AppContainer

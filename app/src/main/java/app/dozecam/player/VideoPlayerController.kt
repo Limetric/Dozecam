@@ -1,6 +1,7 @@
 package app.dozecam.player
 
-import org.videolan.libvlc.util.VLCVideoLayout
+import android.view.ViewGroup
+import app.dozecam.data.Camera
 
 sealed interface PlayerEvent {
     data object Playing : PlayerEvent
@@ -10,12 +11,51 @@ sealed interface PlayerEvent {
     data class TimeChanged(val timeMs: Long) : PlayerEvent
 }
 
+/**
+ * Where a camera's live video comes from. The two transports are not
+ * interchangeable: RTSP hands out raw RTP, which no Android player can
+ * depayload for AV1, while Protect's livestream wraps whatever the camera
+ * encodes in fMP4 and so carries any codec. A camera the user typed a URL for
+ * has no console behind it, so it can only ever be RTSP.
+ */
+sealed interface StreamSource {
+
+    data class Rtsp(val url: String) : StreamSource
+
+    data class Livestream(val cameraId: String, val channel: Int) : StreamSource
+
+    companion object {
+
+        /** Onboarding's id shape for a Protect camera: `protect-<cameraId>-<channel>`. */
+        private val LEGACY_PROTECT_ID = Regex("""^protect-([^-]+)-(\d+)$""")
+
+        fun of(camera: Camera): StreamSource =
+            camera.protect?.let { Livestream(it.cameraId, it.channel) }
+                ?: legacyProtectIdentity(camera)
+                ?: Rtsp(camera.url)
+
+        /**
+         * Cameras onboarded before the livestream existed carry no [Camera.protect],
+         * but onboarding has always encoded the console identity into their id.
+         * Recovering it there means an upgrade fixes an AV1 camera on its own
+         * instead of leaving every existing install on a black screen until the
+         * user happens to re-run onboarding.
+         */
+        private fun legacyProtectIdentity(camera: Camera): Livestream? =
+            LEGACY_PROTECT_ID.matchEntire(camera.id)?.let { match ->
+                val (cameraId, channel) = match.destructured
+                channel.toIntOrNull()?.let { Livestream(cameraId, it) }
+            }
+    }
+}
+
 interface VideoPlayerController {
     var listener: ((PlayerEvent) -> Unit)?
 
-    fun attach(layout: VLCVideoLayout)
+    /** Adds this player's video view to [container]; [detach] removes it again. */
+    fun attach(container: ViewGroup)
     fun detach()
-    fun play(url: String)
+    fun play(source: StreamSource)
     fun stop()
     fun release()
 }

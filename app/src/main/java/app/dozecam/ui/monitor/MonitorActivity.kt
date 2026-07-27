@@ -20,19 +20,30 @@ import app.dozecam.appContainer
 import app.dozecam.data.AppSettings
 import app.dozecam.data.OrientationLock
 import app.dozecam.network.NetworkMonitor
+import app.dozecam.player.LivestreamVideoPlayerController
 import app.dozecam.player.PlaybackWatchdog
+import app.dozecam.player.StreamSource
 import app.dozecam.player.VideoPlayerController
 import app.dozecam.player.VlcVideoPlayerController
 import app.dozecam.ui.theme.DozecamTheme
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import org.videolan.libvlc.util.VLCVideoLayout
 
 class MonitorActivity : ComponentActivity() {
 
-    private var player: VideoPlayerController? = null
-    private lateinit var videoLayout: VLCVideoLayout
-    private lateinit var streamUrl: String
+    private lateinit var videoContainer: FrameLayout
     private lateinit var watchdog: PlaybackWatchdog
+
+    private val streamUrl = MutableStateFlow("")
+
+    // Cached per transport rather than per camera: building either player is
+    // expensive, and switching cameras only ever needs one of the two.
+    private var vlcPlayer: VlcVideoPlayerController? = null
+    private var livestreamPlayer: LivestreamVideoPlayerController? = null
+    private var active: VideoPlayerController? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,7 +52,7 @@ class MonitorActivity : ComponentActivity() {
             finish()
             return
         }
-        streamUrl = url
+        streamUrl.value = url
 
         // Wake path: the sound alert's full-screen intent must be able to turn
         // the display on and appear over the lock screen.
@@ -52,10 +63,10 @@ class MonitorActivity : ComponentActivity() {
 
         watchdog = PlaybackWatchdog(
             scope = lifecycleScope,
-            onReconnect = { restartStream() },
+            onReconnect = { active?.let { it.play(currentSource()) } },
         )
 
-        videoLayout = VLCVideoLayout(this)
+        videoContainer = FrameLayout(this)
         val overlay = ComposeView(this).apply {
             setContent {
                 val settings by appContainer.appSettings.settings
@@ -69,7 +80,7 @@ class MonitorActivity : ComponentActivity() {
         }
         setContentView(
             FrameLayout(this).apply {
-                addView(videoLayout, MATCH_PARENT_PARAMS)
+                addView(videoContainer, MATCH_PARENT_PARAMS)
                 addView(overlay, MATCH_PARENT_PARAMS)
             },
         )
@@ -98,53 +109,83 @@ class MonitorActivity : ComponentActivity() {
                 }
             }
         }
+
+        // One playback session per (foreground window × camera). collectLatest
+        // tears the previous one down before starting the next, so a wake alert
+        // for another camera reuses this activity without leaking a player.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                streamUrl.collectLatest { current ->
+                    val source = sourceFor(current)
+                    val controller = controllerFor(source).also { active = it }
+                    controller.listener = watchdog::onPlayerEvent
+                    controller.attach(videoContainer)
+                    watchdog.start()
+                    controller.play(source)
+                    try {
+                        awaitCancellation()
+                    } finally {
+                        watchdog.stop()
+                        controller.listener = null
+                        controller.stop()
+                        controller.detach()
+                    }
+                }
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         // singleTask: a wake alert for another camera reuses this activity.
-        if (!::streamUrl.isInitialized) return // onCreate bailed; finishing
         val url = intent.getStringExtra(EXTRA_STREAM_URL)
-        if (url.isNullOrBlank() || url == streamUrl) return
+        if (url.isNullOrBlank() || url == streamUrl.value) return
         setIntent(intent)
-        streamUrl = url
-        player?.let { controller ->
-            watchdog.stop()
-            watchdog.start()
-            controller.stop()
-            controller.play(streamUrl)
-        }
-    }
-
-    override fun onStart() {
-        super.onStart()
-        if (isFinishing) return
-        val controller = player ?: VlcVideoPlayerController(applicationContext).also { player = it }
-        controller.listener = watchdog::onPlayerEvent
-        controller.attach(videoLayout)
-        watchdog.start()
-        controller.play(streamUrl)
-    }
-
-    override fun onStop() {
-        super.onStop()
-        val controller = player ?: return
-        watchdog.stop()
-        controller.listener = null
-        controller.stop()
-        controller.detach()
+        streamUrl.value = url
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        player?.release()
-        player = null
+        vlcPlayer?.release()
+        vlcPlayer = null
+        livestreamPlayer?.release()
+        livestreamPlayer = null
+        active = null
     }
 
-    private fun restartStream() {
-        val controller = player ?: return
-        controller.stop()
-        controller.play(streamUrl)
+    /**
+     * A camera onboarded through Protect plays over the console's livestream,
+     * the only transport that carries an AV1 encode. A URL the user typed has
+     * no console behind it, so it stays on RTSP.
+     */
+    private suspend fun sourceFor(url: String): StreamSource =
+        appContainer.cameras.cameras.first()
+            .firstOrNull { it.url == url }
+            ?.let { StreamSource.of(it) }
+            ?: StreamSource.Rtsp(url)
+
+    /**
+     * The transport chosen for the running session. A reconnect must reuse it:
+     * the camera cannot change without the session being torn down first, and
+     * re-deriving it would mean another store read on the reconnect path.
+     */
+    private fun currentSource(): StreamSource =
+        resolvedSource ?: StreamSource.Rtsp(streamUrl.value)
+
+    private var resolvedSource: StreamSource? = null
+
+    private fun controllerFor(source: StreamSource): VideoPlayerController {
+        resolvedSource = source
+        return when (source) {
+            is StreamSource.Livestream -> livestreamPlayer ?: LivestreamVideoPlayerController(
+                context = applicationContext,
+                scope = lifecycleScope,
+                provider = appContainer.protectLivestream,
+            ).also { livestreamPlayer = it }
+
+            is StreamSource.Rtsp -> vlcPlayer
+                ?: VlcVideoPlayerController(applicationContext).also { vlcPlayer = it }
+        }
     }
 
     companion object {

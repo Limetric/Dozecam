@@ -4,13 +4,17 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import java.net.InetSocketAddress
 import java.security.MessageDigest
 import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
 import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLSocket
 import javax.net.ssl.X509TrustManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.runInterruptible
 import okhttp3.OkHttpClient
 
 /**
@@ -51,17 +55,60 @@ class TofuTrustManager(private val pinnedFingerprint: String?) : X509TrustManage
     override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
 }
 
-/** Stores the confirmed certificate fingerprint per console host. */
+/**
+ * Stores the confirmed certificate fingerprint per endpoint.
+ *
+ * The key is an endpoint, not a host, because a UniFi console is not one TLS
+ * server: the UniFi OS UI on 443 and the Protect media ports (7441/7443)
+ * present *different* self-signed certificates. Pinning per host would judge
+ * the media endpoint against the UI's certificate and reject every stream.
+ */
 class TofuTrustStore(private val dataStore: DataStore<Preferences>) {
 
-    fun fingerprintFor(host: String): Flow<String?> =
-        dataStore.data.map { it[keyFor(host)] }
+    fun fingerprintFor(endpoint: String): Flow<String?> =
+        dataStore.data.map { it[keyFor(endpoint)] }
 
-    suspend fun pin(host: String, fingerprint: String) {
-        dataStore.edit { it[keyFor(host)] = fingerprint }
+    suspend fun pin(endpoint: String, fingerprint: String) {
+        dataStore.edit { it[keyFor(endpoint)] = fingerprint }
     }
 
-    private fun keyFor(host: String) = stringPreferencesKey("tofu_fingerprint_$host")
+    private fun keyFor(endpoint: String) = stringPreferencesKey("tofu_fingerprint_$endpoint")
+}
+
+/** `host:port`, the key identifying one TLS endpoint on a console. */
+internal fun endpointKey(host: String, port: Int): String = "$host:$port"
+
+/**
+ * Reads the certificate a console endpoint presents, trusting nothing.
+ *
+ * Used to learn a media port's certificate the first time a stream is opened.
+ * That first sight is only reached by way of a URL the *already-pinned*
+ * console minted over its own verified connection, so the console we trust is
+ * what vouches for the endpoint; every later connection is pinned to the
+ * fingerprint learned here and a change is refused like any other.
+ */
+internal suspend fun probeCertificateFingerprint(host: String, port: Int): String =
+    runInterruptible(Dispatchers.IO) {
+        val context = SSLContext.getInstance("TLS").apply {
+            init(null, arrayOf(ProbeTrustManager()), null)
+        }
+        (context.socketFactory.createSocket() as SSLSocket).use { socket ->
+            socket.connect(InetSocketAddress(host, port), PROBE_TIMEOUT_MS)
+            socket.soTimeout = PROBE_TIMEOUT_MS
+            socket.startHandshake()
+            val certificate = socket.session.peerCertificates.firstOrNull() as? X509Certificate
+                ?: throw CertificateException("Endpoint $host:$port presented no certificate")
+            certificate.sha256Fingerprint()
+        }
+    }
+
+private const val PROBE_TIMEOUT_MS = 10_000
+
+/** Accepts any certificate; only ever used to *read* one, never to exchange data. */
+private class ProbeTrustManager : X509TrustManager {
+    override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) = Unit
+    override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) = Unit
+    override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
 }
 
 /**

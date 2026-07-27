@@ -1,0 +1,170 @@
+package app.dozecam.player
+
+import android.content.Context
+import android.view.SurfaceView
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.extractor.ExtractorsFactory
+import androidx.media3.extractor.mp4.FragmentedMp4Extractor
+import androidx.media3.extractor.text.DefaultSubtitleParserFactory
+import app.dozecam.protect.ProtectLivestreamProvider
+import app.dozecam.protect.ProtectLivestreamSocket
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+
+/**
+ * Plays a Protect camera over the console's livestream WebSocket: fMP4 in,
+ * ExoPlayer out. Unlike RTSP this carries whatever the camera encodes, which
+ * is the only way an AV1 camera reaches the screen — Android has no AV1 RTP
+ * depayloader, in libVLC, Media3, or anywhere else.
+ *
+ * Must be constructed and driven from the main thread, which [scope] is
+ * expected to dispatch on; only the WebSocket's byte handoff crosses threads.
+ */
+class LivestreamVideoPlayerController(
+    context: Context,
+    private val scope: CoroutineScope,
+    private val provider: ProtectLivestreamProvider,
+) : VideoPlayerController {
+
+    private val player = ExoPlayer.Builder(context).build()
+    private val surfaceView = SurfaceView(context)
+
+    private var socket: ProtectLivestreamSocket? = null
+    private var connection: Job? = null
+    private var frameWatch: Job? = null
+    private var renderedFrames = 0
+
+    override var listener: ((PlayerEvent) -> Unit)? = null
+
+    init {
+        player.addListener(object : Player.Listener {
+            override fun onRenderedFirstFrame() {
+                listener?.invoke(PlayerEvent.Playing)
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                listener?.invoke(PlayerEvent.Error)
+            }
+
+            override fun onPlaybackStateChanged(state: Int) {
+                when (state) {
+                    Player.STATE_BUFFERING -> listener?.invoke(PlayerEvent.Buffering)
+                    Player.STATE_ENDED -> listener?.invoke(PlayerEvent.Stopped)
+                    else -> Unit
+                }
+            }
+        })
+    }
+
+    override fun attach(container: ViewGroup) {
+        container.addView(
+            surfaceView,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ),
+        )
+        player.setVideoSurfaceView(surfaceView)
+    }
+
+    override fun detach() {
+        player.clearVideoSurface()
+        (surfaceView.parent as? ViewGroup)?.removeView(surfaceView)
+    }
+
+    override fun play(source: StreamSource) {
+        val livestream = source as? StreamSource.Livestream ?: return
+        stop()
+        connection = scope.launch {
+            val pipe = LivestreamPipe()
+            val negotiated = try {
+                provider.connect(livestream.cameraId, livestream.channel)
+            } catch (e: Exception) {
+                ensureActive() // a cancelled attempt is not a stream failure
+                listener?.invoke(PlayerEvent.Error)
+                return@launch
+            }
+
+            socket = ProtectLivestreamSocket(
+                httpClient = negotiated.client,
+                onBytes = pipe::offer,
+                onFailure = { cause ->
+                    pipe.fail(cause)
+                    // The pipe only surfaces this once ExoPlayer next reads;
+                    // tell the watchdog straight away so a socket that dies
+                    // while the player is idle still triggers a reconnect.
+                    scope.launch { listener?.invoke(PlayerEvent.Error) }
+                },
+            ).also { it.open(negotiated.url) }
+
+            player.setMediaSource(
+                ProgressiveMediaSource.Factory(
+                    LivestreamDataSource.Factory(pipe),
+                    ExtractorsFactory {
+                        arrayOf(FragmentedMp4Extractor(DefaultSubtitleParserFactory()))
+                    },
+                ).createMediaSource(MediaItem.fromUri(LIVESTREAM_URI)),
+            )
+            player.prepare()
+            player.play()
+            watchFrames()
+        }
+    }
+
+    override fun stop() {
+        connection?.cancel()
+        connection = null
+        frameWatch?.cancel()
+        frameWatch = null
+        socket?.close()
+        socket = null
+        player.stop()
+        player.clearMediaItems()
+        renderedFrames = 0
+    }
+
+    override fun release() {
+        stop()
+        player.release()
+    }
+
+    /**
+     * Reports liveness from frames the decoder actually rendered, not from the
+     * playback clock. The clock advances on audio alone, which is exactly how
+     * a video-less stream came to display a confident "LIVE" over a black
+     * screen; a frame counter cannot tell that lie.
+     */
+    private fun watchFrames() {
+        frameWatch = scope.launch {
+            // Baseline from the live counter rather than zero: if ExoPlayer
+            // carries counters across a re-prepare, starting at zero would read
+            // the previous session's frames as proof this one is rendering —
+            // reinstating the very lie this watch exists to prevent.
+            renderedFrames = player.videoDecoderCounters?.renderedOutputBufferCount ?: 0
+            while (isActive) {
+                delay(FRAME_POLL_MS)
+                val rendered = player.videoDecoderCounters?.renderedOutputBufferCount ?: 0
+                if (rendered > renderedFrames) {
+                    renderedFrames = rendered
+                    listener?.invoke(PlayerEvent.TimeChanged(player.currentPosition))
+                }
+            }
+        }
+    }
+
+    private companion object {
+        /** The pipe is the real source; ExoPlayer only needs a stable identity. */
+        const val LIVESTREAM_URI = "dozecam://livestream"
+        const val FRAME_POLL_MS = 500L
+    }
+}

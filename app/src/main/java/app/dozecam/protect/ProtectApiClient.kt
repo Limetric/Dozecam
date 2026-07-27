@@ -151,6 +151,52 @@ class ProtectApiClient(
     /** Plain RTSP on the console's 7447 port; RTSPS (7441) is unsupported by common players. */
     fun rtspUrlFor(alias: String): String = rtspUrl(baseUrl.host, alias)
 
+    /**
+     * Negotiates a livestream WebSocket for one camera channel and returns the
+     * `wss://` URL to open.
+     *
+     * This is the only transport that carries video off a camera encoding AV1:
+     * the controller wraps whatever the camera produces in fMP4, so it needs no
+     * per-codec support at either end, whereas RTSP hands out raw RTP that no
+     * Android player can depayload for AV1. The token in the returned URL is
+     * single-use, so a reconnect must negotiate again rather than replay it.
+     */
+    suspend fun livestreamUrl(
+        session: ProtectSession,
+        cameraId: String,
+        channel: Int,
+    ): String {
+        val url = baseUrl.newBuilder()
+            .encodedPath("/proxy/protect/api/ws/livestream")
+            // Empty-valued flags are how the controller reads these as set.
+            .addQueryParameter("allowPartialGOP", "")
+            .addQueryParameter("camera", cameraId)
+            .addQueryParameter("channel", channel.toString())
+            .addQueryParameter("chunkSize", CHUNK_SIZE.toString())
+            .addQueryParameter("fragmentDurationMillis", SEGMENT_LENGTH_MS.toString())
+            .addQueryParameter("lens", "0")
+            .addQueryParameter("progressive", "")
+            .addQueryParameter("rebaseTimestampsToZero", "true")
+            .addQueryParameter("requestId", "$cameraId-$channel")
+            .addQueryParameter("type", "fmp4")
+            .addQueryParameter("useWallClock", "false")
+            .build()
+        val request = authorized(session).url(url).get().build()
+        return client.exchange(request) { response, body ->
+            if (!response.isSuccessful) {
+                throw ProtectApiException(
+                    "Opening the livestream failed (${response.code}); " +
+                        "this console may predate the livestream API",
+                    response.code,
+                )
+            }
+            val minted = json.decodeFromString<LivestreamEnvelope>(body).url
+                ?: throw ProtectApiException("Console returned no livestream URL")
+            rehostWebSocketUrl(minted, baseUrl.host)
+                ?: throw ProtectApiException("Console returned an unusable livestream URL")
+        }
+    }
+
     private fun authorized(session: ProtectSession): Request.Builder =
         Request.Builder()
             .header("Cookie", session.cookie)
@@ -170,6 +216,9 @@ class ProtectApiClient(
     private data class ApiKeyRequest(val name: String)
 
     @Serializable
+    private data class LivestreamEnvelope(val url: String? = null)
+
+    @Serializable
     private data class ApiKeyEnvelope(val data: ApiKeyData? = null)
 
     @Serializable
@@ -179,6 +228,10 @@ class ProtectApiClient(
 
     companion object {
         private val JSON_TYPE = "application/json; charset=utf-8".toMediaType()
+
+        /** The controller's own defaults; shorter segments only add console load. */
+        private const val CHUNK_SIZE = 4096
+        private const val SEGMENT_LENGTH_MS = 100
 
         /**
          * "192.168.1.1", "console.local:8443" → https base URL; null if

@@ -146,4 +146,40 @@ class CameraRepositoryTest {
         assertEquals(listOf("Nursery"), repository.cameras.first().map { it.name })
         assertNull(store.data.first()[stringPreferencesKey("cameras")])
     }
+
+    @Test
+    fun `the protect identity survives a reload`() = runTest {
+        val prefs = securePrefs()
+        val store = dataStore()
+        repository(prefs, store).upsert(
+            Camera(
+                id = "protect-cam1-1",
+                name = "Nursery",
+                url = "rtsp://cam:7447/a",
+                protect = ProtectStream(cameraId = "cam1", channel = 1),
+            ),
+        )
+
+        val reloaded = repository(prefs, store).cameras.first().single()
+
+        assertEquals(ProtectStream("cam1", 1), reloaded.protect)
+    }
+
+    @Test
+    fun `cameras stored before livestream support still load`() = runTest {
+        val prefs = securePrefs()
+        // Exactly what v1.0 wrote: no protect field at all. Failing to decode
+        // this would empty every existing user's camera list on upgrade.
+        prefs.edit()
+            .putString(
+                "cameras",
+                """[{"id":"a","name":"Nursery","url":"rtsp://cam:7447/a"}]""",
+            )
+            .commit()
+
+        val cameras = repository(prefs).cameras.first()
+
+        assertEquals(listOf("Nursery"), cameras.map { it.name })
+        assertNull(cameras.single().protect)
+    }
 }

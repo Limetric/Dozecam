@@ -55,6 +55,57 @@ class ProtectApiClientTest {
         .build()
 
     @Test
+    fun `livestream url is negotiated and re-pointed at the console address`() = runTest {
+        server.enqueue(loginResponse())
+        server.enqueue(
+            MockResponse.Builder()
+                .code(200)
+                .body("""{"url":"wss://unifi.internal:7443/ws/livestream?token=abc123"}""")
+                .build(),
+        )
+        val api = client()
+        val session = api.login("user", "pass")
+
+        val url = api.livestreamUrl(session, "cam-1", channel = 1)
+
+        assertEquals("wss://127.0.0.1:7443/ws/livestream?token=abc123", url)
+        server.takeRequest()
+        val request = server.takeRequest()
+        val target = request.target
+        assertTrue(target.startsWith("/proxy/protect/api/ws/livestream?"))
+        assertTrue(target.contains("camera=cam-1"))
+        assertTrue(target.contains("channel=1"))
+        assertTrue(target.contains("type=fmp4"))
+        assertEquals("TOKEN=abc123", request.headers["Cookie"])
+    }
+
+    @Test
+    fun `livestream negotiation failure names the console`() = runTest {
+        server.enqueue(loginResponse())
+        server.enqueue(MockResponse.Builder().code(404).body("nope").build())
+        val api = client()
+        val session = api.login("user", "pass")
+
+        val failure = runCatching { api.livestreamUrl(session, "cam-1", channel = 1) }
+            .exceptionOrNull()
+
+        assertEquals(404, (failure as ProtectApiException).statusCode)
+    }
+
+    @Test
+    fun `livestream response without a url is rejected`() = runTest {
+        server.enqueue(loginResponse())
+        server.enqueue(MockResponse.Builder().code(200).body("{}").build())
+        val api = client()
+        val session = api.login("user", "pass")
+
+        val failure = runCatching { api.livestreamUrl(session, "cam-1", channel = 1) }
+            .exceptionOrNull()
+
+        assertTrue(failure is ProtectApiException)
+    }
+
+    @Test
     fun `login extracts the session cookie and csrf token`() = runTest {
         server.enqueue(loginResponse())
 

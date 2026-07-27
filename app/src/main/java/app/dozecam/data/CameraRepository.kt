@@ -18,11 +18,28 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
+/**
+ * The console-side identity of a camera onboarded through Protect. Present
+ * only for cameras Protect discovered: a manually entered stream URL has no
+ * console behind it, so it can only ever be played over RTSP.
+ */
+@Serializable
+data class ProtectStream(
+    val cameraId: String,
+    /** Quality channel on the console; 1 is Medium, the nursery default. */
+    val channel: Int,
+)
+
 @Serializable
 data class Camera(
     val id: String,
     val name: String,
     val url: String,
+    /**
+     * Absent for manually added cameras, and for anything onboarded before
+     * livestream support existed — both correctly fall back to RTSP.
+     */
+    val protect: ProtectStream? = null,
 )
 
 interface CameraStore {
