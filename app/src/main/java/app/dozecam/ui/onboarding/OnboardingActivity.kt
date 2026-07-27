@@ -56,6 +56,7 @@ class OnboardingActivity : ComponentActivity() {
                     localNetworkGranted = {
                         LocalNetworkPermission.isGranted(applicationContext)
                     },
+                    onConsoleChanged = { container.monitoringState.consoleGeneration.value++ },
                 ),
             )
             val state by onboardingViewModel.state.collectAsStateWithLifecycle()

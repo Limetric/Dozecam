@@ -10,6 +10,8 @@ import app.dozecam.data.DetectorSettingsStore
 import app.dozecam.data.ProtectStream
 import app.dozecam.monitoring.CameraMonitorState
 import app.dozecam.monitoring.MonitoringState
+import app.dozecam.protect.CredentialsStore
+import app.dozecam.protect.ProtectCredentials
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
@@ -68,11 +70,37 @@ class SettingsViewModelTest {
         }
     }
 
+    /** No console signed in: every camera is judged on its own RTSP URL. */
+    private class NoCredentials : CredentialsStore {
+        override fun save(credentials: ProtectCredentials) = Unit
+        override fun load(): ProtectCredentials? = null
+        override fun clear() = Unit
+    }
+
+    private class MutableCredentials(var stored: ProtectCredentials? = null) : CredentialsStore {
+        override fun save(credentials: ProtectCredentials) {
+            stored = credentials
+        }
+
+        override fun load(): ProtectCredentials? = stored
+        override fun clear() {
+            stored = null
+        }
+    }
+
     private fun viewModel(
         cameras: FakeCameraStore = FakeCameraStore(),
         detector: FakeDetectorSettings = FakeDetectorSettings(),
         monitoring: MonitoringState = MonitoringState(),
-    ) = SettingsViewModel(FakeAppSettings(), cameras, detector, monitoring)
+        credentials: CredentialsStore = NoCredentials(),
+    ) = SettingsViewModel(
+        FakeAppSettings(),
+        cameras,
+        detector,
+        monitoring,
+        credentials,
+        ioDispatcher = mainDispatcher.dispatcher,
+    )
 
     @Test
     fun `saving a new camera normalizes its url and enables it`() = runTest {
@@ -200,6 +228,39 @@ class SettingsViewModelTest {
         // Offering to start a service that would immediately stop itself is
         // worse than showing the switch as unavailable.
         assertFalse(model.canMonitor.value)
+    }
+
+    @Test
+    fun `signing in to a console brings the switch to life`() = runTest {
+        val credentials = MutableCredentials()
+        val monitoring = MonitoringState()
+        val model = viewModel(
+            cameras = FakeCameraStore(
+                listOf(
+                    Camera(
+                        id = "a",
+                        name = "Nursery",
+                        url = "rtsps://c:7441/a",
+                        protect = ProtectStream("cam1", 1, "console.lan"),
+                    ),
+                ),
+            ),
+            monitoring = monitoring,
+            credentials = credentials,
+        )
+        runCurrent()
+        // Nothing signed in yet, so the livestream is not a transport at all.
+        assertFalse(model.canMonitor.value)
+
+        credentials.save(ProtectCredentials("console.lan", "user", "pass"))
+        monitoring.consoleGeneration.value++
+        runCurrent()
+
+        // Onboarding can be reached from this very screen and left without
+        // importing anything, so neither the camera list nor the service state
+        // moves; a switch that waited for one of those would stay dead over a
+        // camera the monitor could now listen to perfectly well.
+        assertTrue(model.canMonitor.value)
     }
 
     @Test

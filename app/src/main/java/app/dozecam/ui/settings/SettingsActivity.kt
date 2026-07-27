@@ -73,6 +73,7 @@ class SettingsActivity : ComponentActivity() {
                     container.cameras,
                     container.detectorSettings,
                     container.monitoringState,
+                    container.protectCredentials,
                 ),
             )
             val settings by settingsViewModel.settings.collectAsStateWithLifecycle()

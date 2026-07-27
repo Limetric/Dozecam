@@ -14,9 +14,9 @@ import app.dozecam.audio.SoundDetector
 import app.dozecam.data.AppSettings
 import app.dozecam.data.Camera
 import app.dozecam.data.DetectorSettings
-import app.dozecam.data.StreamUrlValidator
 import app.dozecam.network.NetworkMonitor
 import app.dozecam.player.ConnectionState
+import app.dozecam.player.StreamSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -25,12 +25,16 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Continuous audio monitoring with the display off. Every enabled camera gets
- * its own [CameraAudioMonitor]: an audio-only RTSP session whose decoded PCM
- * levels feed a per-camera [SoundDetector], firing a full-screen wake alert
- * naming whichever camera got loud.
+ * its own [CameraAudioMonitor]: an audio-only session whose decoded PCM levels
+ * feed a per-camera [SoundDetector], firing a full-screen wake alert naming
+ * whichever camera got loud.
+ *
+ * A camera is monitored if there is any way at all to hear it — see
+ * [MonitorTransports] — and skipped, visibly, if there is not.
  *
  * The set of monitors follows [app.dozecam.data.CameraStore.enabledCameras]
  * live, so switching a camera on or off in settings takes effect without
@@ -46,6 +50,9 @@ class MonitoringService : Service() {
     private var networkOnline = true
 
     private val monitors = mutableMapOf<String, CameraAudioMonitor>()
+
+    /** What each running monitor was built with, to notice when that stops being true. */
+    private val monitorTransports = mutableMapOf<String, List<StreamSource>>()
 
     override fun onCreate() {
         super.onCreate()
@@ -101,9 +108,18 @@ class MonitoringService : Service() {
         }
 
         scope.launch {
-            container.cameras.enabledCameras
-                .map { cameras -> cameras.filter { StreamUrlValidator.isMonitorable(it.url) } }
-                .collect(::reconcile)
+            combine(
+                container.cameras.enabledCameras,
+                container.monitoringState.consoleGeneration,
+            ) { cameras, _ -> cameras }
+                .map { cameras ->
+                    // Resolved per emission rather than once: signing in to a
+                    // different console while the service runs changes which
+                    // cameras have a livestream to fall back on.
+                    val usable = transportsFor(cameras, container.protectCredentials)
+                    cameras.filter { it.id in usable } to usable
+                }
+                .collect { (cameras, usable) -> reconcile(cameras, usable) }
         }
 
         scope.launch {
@@ -123,8 +139,19 @@ class MonitoringService : Service() {
      * Brings the running monitors in line with [wanted]. The decision itself
      * lives in [MonitorPlan]; this only carries it out.
      */
-    private fun reconcile(wanted: List<Camera>) {
+    private fun reconcile(wanted: List<Camera>, transports: Map<String, List<StreamSource>>) {
         val state = appContainer.monitoringState
+
+        // A camera can keep every field it has and still need a new monitor:
+        // signing in to another console takes the livestream away from it, and
+        // a monitor holding the old list would go on negotiating a camera id
+        // that console has never heard of. Retired here so the plan below sees
+        // them as absent and builds them again with what is true now.
+        monitors.keys
+            .filter { transports[it] != monitorTransports[it] }
+            .toList()
+            .forEach { stopMonitor(it) }
+
         val plan = MonitorPlan.of(monitors.mapValues { it.value.camera }, wanted)
 
         plan.stop.forEach { stopMonitor(it) }
@@ -134,6 +161,8 @@ class MonitoringService : Service() {
             val monitor = CameraAudioMonitor(
                 context = this,
                 camera = camera,
+                transports = transports[camera.id].orEmpty(),
+                livestreamProvider = appContainer.protectLivestream,
                 scope = scope,
                 detectorSettings = detectorSettings,
                 onLevel = { rms -> state.update(camera.id) { it.copy(level = rms) } },
@@ -144,6 +173,7 @@ class MonitoringService : Service() {
                 onTrigger = { onTrigger(camera) },
             )
             monitors[camera.id] = monitor
+            monitorTransports[camera.id] = transports[camera.id].orEmpty()
             monitor.start()
             if (!networkOnline) monitor.onNetworkLost()
         }
@@ -171,6 +201,7 @@ class MonitoringService : Service() {
     }
 
     private fun stopMonitor(cameraId: String) {
+        monitorTransports.remove(cameraId)
         monitors.remove(cameraId)?.stop()
         appContainer.monitoringState.remove(cameraId)
     }
@@ -242,6 +273,7 @@ class MonitoringService : Service() {
         state.serviceRunning.value = false
         monitors.values.forEach { it.stop() }
         monitors.clear()
+        monitorTransports.clear()
         state.clear()
         wakeLock?.takeIf { it.isHeld }?.release()
         wakeLock = null

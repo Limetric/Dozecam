@@ -181,6 +181,9 @@ class OnboardingViewModelTest {
         }
     }
 
+    /** How many times sign-in announced that the console changed. */
+    private var consoleChanges = 0
+
     private fun viewModel(
         cameraStore: FakeCameraStore,
         trustStore: TofuTrustStore,
@@ -193,6 +196,7 @@ class OnboardingViewModelTest {
             credentialsStore = credentials,
             clientFactory = { fingerprint -> protectHttpClient(fingerprint) },
             localNetworkGranted = { localNetworkGranted },
+            onConsoleChanged = { consoleChanges++ },
         )
         viewModel.onHost("127.0.0.1:${server.port}")
         viewModel.onUsername("babycam")
@@ -235,6 +239,10 @@ class OnboardingViewModelTest {
         assertEquals(listOf("Nursery"), picking.cameras.map { it.name })
         assertEquals(prompt.fingerprint, trustStore.fingerprintFor("127.0.0.1").first())
         assertEquals("babycam", credentials.saved?.username)
+        // Announced at sign-in rather than at import: which cameras the monitor
+        // can listen to changes here, and onboarding can be left at the picker
+        // without a single camera being imported.
+        assertEquals(1, consoleChanges)
         // All discovered cameras are pre-selected.
         assertEquals(setOf("cam1"), viewModel.state.value.selectedCameraIds)
     }

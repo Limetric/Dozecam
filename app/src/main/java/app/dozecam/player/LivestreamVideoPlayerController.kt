@@ -7,19 +7,13 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
-import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.exoplayer.DecoderCounters
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.ProgressiveMediaSource
-import androidx.media3.extractor.ExtractorsFactory
-import androidx.media3.extractor.mp4.FragmentedMp4Extractor
-import androidx.media3.extractor.text.DefaultSubtitleParserFactory
 import app.dozecam.protect.ProtectLivestreamProvider
-import app.dozecam.protect.ProtectLivestreamSocket
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -73,7 +67,7 @@ class LivestreamVideoPlayerController(
         )
     }
 
-    private var socket: ProtectLivestreamSocket? = null
+    private var stream: LivestreamConnection? = null
     private var connection: Job? = null
     private var frameWatch: Job? = null
     private var renderedFrames = 0
@@ -163,40 +157,21 @@ class LivestreamVideoPlayerController(
         val livestream = source as? StreamSource.Livestream ?: return
         stop()
         connection = scope.launch {
-            val pipe = LivestreamPipe()
-            val negotiated = try {
-                provider.connect(livestream.cameraId, livestream.channel)
+            val opened = try {
+                LivestreamConnection.open(provider, livestream) {
+                    // The pipe only surfaces this once ExoPlayer next reads;
+                    // tell the watchdog straight away so a socket that dies
+                    // while the player is idle still triggers a reconnect.
+                    scope.launch { listener?.invoke(PlayerEvent.Error) }
+                }
             } catch (e: Exception) {
                 ensureActive() // a cancelled attempt is not a stream failure
                 listener?.invoke(PlayerEvent.Error)
                 return@launch
             }
 
-            socket = ProtectLivestreamSocket(
-                httpClient = negotiated.client,
-                onBytes = pipe::offer,
-                // The console names the codecs it is about to send, and until
-                // now that was read and thrown away. Logged, it is the other
-                // half of the audio picture: what was offered, against what
-                // the extractor and decoder made of it.
-                onCodec = { Log.i(TAG, "console codec string: $it") },
-                onFailure = { cause ->
-                    pipe.fail(cause)
-                    // The pipe only surfaces this once ExoPlayer next reads;
-                    // tell the watchdog straight away so a socket that dies
-                    // while the player is idle still triggers a reconnect.
-                    scope.launch { listener?.invoke(PlayerEvent.Error) }
-                },
-            ).also { it.open(negotiated.url) }
-
-            player.setMediaSource(
-                ProgressiveMediaSource.Factory(
-                    LivestreamDataSource.Factory(pipe),
-                    ExtractorsFactory {
-                        arrayOf(FragmentedMp4Extractor(DefaultSubtitleParserFactory()))
-                    },
-                ).createMediaSource(MediaItem.fromUri(LIVESTREAM_URI)),
-            )
+            stream = opened
+            player.setMediaSource(opened.mediaSource)
             player.prepare()
             player.play()
             watchFrames()
@@ -208,8 +183,8 @@ class LivestreamVideoPlayerController(
         connection = null
         frameWatch?.cancel()
         frameWatch = null
-        socket?.close()
-        socket = null
+        stream?.close()
+        stream = null
         player.stop()
         player.clearMediaItems()
         renderedFrames = 0
@@ -256,8 +231,6 @@ class LivestreamVideoPlayerController(
     }
 
     private companion object {
-        /** The pipe is the real source; ExoPlayer only needs a stable identity. */
-        const val LIVESTREAM_URI = "dozecam://livestream"
         const val FRAME_POLL_MS = 500L
         const val TAG = "Dozecam"
     }

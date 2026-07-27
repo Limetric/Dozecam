@@ -2,7 +2,6 @@ package app.dozecam.monitoring
 
 import android.content.Context
 import app.dozecam.AppContainer
-import app.dozecam.data.StreamUrlValidator
 import app.dozecam.permissions.LocalNetworkPermission
 import kotlinx.coroutines.flow.first
 
@@ -13,8 +12,10 @@ import kotlinx.coroutines.flow.first
  * itself when it has nothing to listen to, and only these know when that
  * stopped being true.
  *
- * Counts monitorable cameras rather than merely enabled ones: a watch-only
- * camera would otherwise start a service that immediately stops again.
+ * Counts cameras there is some way to listen to rather than merely enabled
+ * ones: a watch-only camera would otherwise start a service that immediately
+ * stops again. That question is [monitorable]'s to answer, so this gate and the
+ * service cannot disagree about which cameras count.
  */
 suspend fun AppContainer.shouldArmMonitoring(
     context: Context,
@@ -25,8 +26,7 @@ suspend fun AppContainer.shouldArmMonitoring(
     // wake lock while it reconnects all night. The viewer asks for the grant on
     // launch; arming resumes on the next resume after it is given.
     if (!localNetworkGranted) return false
-    val armable = cameras.enabledCameras.first()
-        .count { StreamUrlValidator.isMonitorable(it.url) }
+    val armable = monitorable(cameras.enabledCameras.first(), protectCredentials).size
     return monitoringState.shouldAutoArm(armable)
 }
 
@@ -38,6 +38,5 @@ suspend fun AppContainer.shouldArmMonitoring(
  */
 suspend fun AppContainer.shouldStopMonitoring(): Boolean {
     if (!monitoringState.serviceRunning.value) return false
-    return cameras.enabledCameras.first()
-        .none { StreamUrlValidator.isMonitorable(it.url) }
+    return monitorable(cameras.enabledCameras.first(), protectCredentials).isEmpty()
 }

@@ -13,7 +13,11 @@ import app.dozecam.data.DetectorSettings
 import app.dozecam.data.DetectorSettingsStore
 import app.dozecam.data.StreamUrlValidator
 import app.dozecam.monitoring.MonitoringState
+import app.dozecam.monitoring.monitorable
+import app.dozecam.protect.CredentialsStore
 import java.util.UUID
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
@@ -42,6 +46,9 @@ class SettingsViewModel(
     private val cameraStore: CameraStore,
     private val detectorSettings: DetectorSettingsStore,
     private val monitoringState: MonitoringState,
+    private val credentials: CredentialsStore,
+    /** Where the credentials read happens; injectable so tests stay deterministic. */
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
     val monitoringRunning: StateFlow<Boolean> = monitoringState.serviceRunning
@@ -56,10 +63,18 @@ class SettingsViewModel(
      * service which immediately stops itself is worse than a disabled one; a
      * running service can always be switched off.
      */
-    val canMonitor: StateFlow<Boolean> =
-        combine(cameraStore.enabledCameras, monitoringRunning) { enabled, running ->
-            running || enabled.any { StreamUrlValidator.isMonitorable(it.url) }
-        }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val canMonitor: StateFlow<Boolean> = combine(
+        cameraStore.enabledCameras,
+        monitoringRunning,
+        // Signing in to a console from here changes the answer without touching
+        // either of the others, and leaves the switch stuck on what was true
+        // for the console before it.
+        monitoringState.consoleGeneration,
+    ) { enabled, running, _ ->
+        // Asked of the same rule the service uses, so the switch is never
+        // greyed out over a camera the service would happily listen to.
+        running || monitorable(enabled, credentials, ioDispatcher).isNotEmpty()
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     /**
      * Records the user's intent alongside the service call: a deliberate stop
@@ -142,9 +157,16 @@ class SettingsViewModel(
             cameraStore: CameraStore,
             detectorSettings: DetectorSettingsStore,
             monitoringState: MonitoringState,
+            credentials: CredentialsStore,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
-                SettingsViewModel(store, cameraStore, detectorSettings, monitoringState)
+                SettingsViewModel(
+                    store,
+                    cameraStore,
+                    detectorSettings,
+                    monitoringState,
+                    credentials,
+                )
             }
         }
     }

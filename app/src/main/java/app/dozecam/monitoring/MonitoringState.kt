@@ -45,6 +45,15 @@ class MonitoringState {
     val userStopped = MutableStateFlow(false)
 
     /**
+     * Bumped whenever the signed-in console changes, which rewrites which
+     * cameras have a livestream to listen over — and can happen without the
+     * camera list moving at all: sign in, then leave onboarding without
+     * importing anything. Everything that decides what can be monitored reads
+     * this, because nothing else would tell them.
+     */
+    val consoleGeneration = MutableStateFlow(0)
+
+    /**
      * The "always armed" rule, in one place: the viewer arms monitoring when it
      * comes to the front unless there is nothing to listen to, it is already
      * running, or the user switched it off during this process's lifetime.

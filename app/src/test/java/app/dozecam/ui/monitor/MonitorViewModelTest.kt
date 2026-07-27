@@ -169,6 +169,26 @@ class MonitorViewModelTest {
         assertEquals(listOf("b"), model.unmonitorable.value.map { it.id })
     }
 
+    @Test
+    fun `an rtsps camera Protect can carry is no longer called out`() = runTest {
+        val model = viewModel(
+            listOf(
+                Camera(
+                    id = "a",
+                    name = "Nursery",
+                    url = "rtsps://cam:7441/a",
+                    protect = ProtectStream("cam1", 1, "console.lan"),
+                ),
+            ),
+        )
+        runCurrent()
+
+        // The URL alone still says "cannot be monitored" — Media3 has no RTSP
+        // TLS — but the livestream carries this camera's audio perfectly well,
+        // so warning about it would now be the lie.
+        assertEquals(emptyList<String>(), model.unmonitorable.value.map { it.id })
+    }
+
 
 
 

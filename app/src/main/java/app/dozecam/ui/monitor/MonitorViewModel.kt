@@ -7,7 +7,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.dozecam.data.Camera
 import app.dozecam.data.CameraStore
-import app.dozecam.data.StreamUrlValidator
+import app.dozecam.monitoring.MonitorTransports
 import app.dozecam.player.StreamSource
 import app.dozecam.protect.CredentialsStore
 import kotlinx.coroutines.CoroutineDispatcher
@@ -42,15 +42,6 @@ class MonitorViewModel(
 
 
 
-    /**
-     * Enabled cameras that the monitor cannot actually listen to. Only a stale
-     * pre-normalization rtsps entry qualifies, but a viewer that showed such a
-     * camera while silently not monitoring it would be lying by omission.
-     */
-    val unmonitorable: StateFlow<List<Camera>> = cameras
-        .map { list -> list.filterNot { StreamUrlValidator.isMonitorable(it.url) } }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-
 
     /**
      * How each camera's video is fetched. Resolving needs the signed-in console
@@ -59,6 +50,20 @@ class MonitorViewModel(
      */
     private val _sources = MutableStateFlow<Map<String, StreamSource>>(emptyMap())
     val sources: StateFlow<Map<String, StreamSource>> = _sources
+
+    /**
+     * Enabled cameras that the monitor cannot actually listen to — a viewer
+     * that showed such a camera while silently not monitoring it would be lying
+     * by omission.
+     *
+     * Asked of [MonitorTransports] rather than of the URL alone, because a
+     * stale rtsps entry is no longer the end of the story: a Protect camera can
+     * be listened to over the livestream whatever its RTSP URL says. Resolved
+     * alongside [sources], from the one console read they share.
+     */
+    private val _unmonitorable = MutableStateFlow<List<Camera>>(emptyList())
+    val unmonitorable: StateFlow<List<Camera>> = _unmonitorable
+
 
     /**
      * Bumped to re-resolve against credentials that may have changed while the
@@ -73,7 +78,11 @@ class MonitorViewModel(
         viewModelScope.launch {
             combine(cameras, refreshes) { list, _ -> list }.collect { list ->
                 val host = withContext(ioDispatcher) { credentials.load()?.host }
-                _sources.value = list.associate { it.id to StreamSource.of(it, host) }
+                val sources = list.associate { it.id to StreamSource.of(it, host) }
+                _sources.value = sources
+                _unmonitorable.value = list.filter { camera ->
+                    MonitorTransports.of(camera, sources.getValue(camera.id), host).isEmpty()
+                }
             }
         }
     }

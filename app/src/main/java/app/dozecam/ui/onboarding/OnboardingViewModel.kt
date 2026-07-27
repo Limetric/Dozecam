@@ -63,6 +63,8 @@ class OnboardingViewModel(
     private val credentialsStore: CredentialsStore,
     private val clientFactory: (fingerprint: String?) -> OkHttpClient = ::protectHttpClient,
     private val localNetworkGranted: () -> Boolean = { true },
+    /** Announces that the console we are signed in to has changed. */
+    private val onConsoleChanged: () -> Unit = {},
 ) : ViewModel() {
 
     /**
@@ -338,6 +340,11 @@ class OnboardingViewModel(
         credentialsStore.save(
             ProtectCredentials(current.host.trim(), current.username, current.password, apiKey),
         )
+        // Said here rather than left for a screen to notice on resume: signing
+        // in is the moment the answer changes, onboarding can be reached from
+        // either the viewer or settings, and it can be left at this point
+        // without importing a single camera.
+        onConsoleChanged()
     }
 
     private fun handleConnectFailure(failure: Throwable) {
@@ -388,6 +395,7 @@ class OnboardingViewModel(
             trustStore: TofuTrustStore,
             credentialsStore: CredentialsStore,
             localNetworkGranted: () -> Boolean = { true },
+            onConsoleChanged: () -> Unit = {},
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 OnboardingViewModel(
@@ -395,6 +403,7 @@ class OnboardingViewModel(
                     trustStore = trustStore,
                     credentialsStore = credentialsStore,
                     localNetworkGranted = localNetworkGranted,
+                    onConsoleChanged = onConsoleChanged,
                 )
             }
         }
