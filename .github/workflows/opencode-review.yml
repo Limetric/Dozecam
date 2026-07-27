@@ -10,8 +10,12 @@ concurrency:
 
 jobs:
   opencode-review:
+    # Dependabot PRs run with the Dependabot secret store, so they cannot read
+    # OPENCODE_ACCESS_JSON; they also get a read-only token that cannot post the
+    # review comment. Skipping is clearer than failing on every bump.
     if: >
-      (github.event.pull_request.draft == false)
+      github.event.pull_request.draft == false &&
+      github.actor != 'dependabot[bot]'
     runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     timeout-minutes: 15
     permissions:
@@ -51,38 +55,38 @@ jobs:
           CLOUD_ENVIRONMENT: true
         run: ./copyExampleEnvFiles.sh
 
-      # ChatGPT OAuth tokens rotate on refresh, so the auth file is persisted
-      # via the actions cache (unique key per run, prefix restore) and only
-      # seeded from the secret when no cached copy exists. PR-scoped caches
-      # can only read default-branch caches, so the keepalive workflow on
-      # main (opencode-auth-keepalive.yml) is what keeps the lineage fresh.
-      - name: Restore opencode auth
-        uses: actions/cache/restore@v6
-        with:
-          path: ~/.local/share/opencode/auth.json
-          key: opencode-auth-${{ github.run_id }}
-          restore-keys: |
-            opencode-auth-
-
-      - name: Seed opencode auth if missing
+      # OPENCODE_ACCESS_JSON carries an access token only -- no refresh token --
+      # so this job cannot rotate the shared ChatGPT credential no matter how
+      # many reviews run at once. Limetric/Limetric owns the refresh token and
+      # republishes this secret daily (.github/workflows/opencode-auth-refresh.yml).
+      - name: Check opencode credential
         env:
-          OPENCODE_AUTH_JSON: ${{ secrets.OPENCODE_AUTH_JSON }}
+          OPENCODE_AUTH_CONTENT: ${{ secrets.OPENCODE_ACCESS_JSON }}
         run: |
-          if [ ! -s "$HOME/.local/share/opencode/auth.json" ]; then
-            if [ -z "$OPENCODE_AUTH_JSON" ]; then
-              echo "No cached opencode auth and OPENCODE_AUTH_JSON secret is empty" >&2
-              exit 1
-            fi
-            mkdir -p "$HOME/.local/share/opencode"
-            printf '%s' "$OPENCODE_AUTH_JSON" > "$HOME/.local/share/opencode/auth.json"
-            chmod 600 "$HOME/.local/share/opencode/auth.json"
+          set -euo pipefail
+
+          if [ -z "$OPENCODE_AUTH_CONTENT" ]; then
+            echo "::error::Secret OPENCODE_ACCESS_JSON is empty. It is published by the OpenCode Auth Refresh workflow in Limetric/Limetric."
+            exit 1
           fi
+
+          python3 - <<'PY'
+          import json, os, sys, time
+
+          entry = json.loads(os.environ["OPENCODE_AUTH_CONTENT"]).get("openai", {})
+          days_left = (entry.get("expires", 0) / 1000 - time.time()) / 86400
+          if days_left <= 0:
+              print("::error::The published access token has expired. Run the OpenCode Auth Refresh workflow in Limetric/Limetric.")
+              sys.exit(1)
+          print(f"::notice::opencode access token valid for {days_left:.1f} more days")
+          PY
 
       - name: Run OpenCode review
         uses: anomalyco/opencode/github@latest
         id: review
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENCODE_AUTH_CONTENT: ${{ secrets.OPENCODE_ACCESS_JSON }}
         with:
           model: openai/gpt-5.6-sol
           variant: medium
@@ -129,10 +133,3 @@ jobs:
 
             Do not post to GitHub yourself (no `gh pr comment`, no review or issue APIs): this workflow publishes your final message as the PR comment. Put the full review in your last reply only.
 
-      # Runs even when the review fails so a token refreshed mid-run is never lost
-      - name: Save opencode auth
-        if: always()
-        uses: actions/cache/save@v6
-        with:
-          path: ~/.local/share/opencode/auth.json
-          key: opencode-auth-${{ github.run_id }}
