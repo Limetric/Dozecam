@@ -1,9 +1,13 @@
 package app.dozecam
 
 import android.media.AudioManager
+import android.view.WindowInsets
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -35,5 +39,17 @@ class MainActivityTest {
         // the default routing follows whatever happens to be playing — so the
         // rocker would silently adjust the ringer between turns.
         assertEquals(AudioManager.STREAM_MUSIC, composeRule.activity.volumeControlStream)
+    }
+
+    @Test
+    fun `the viewer hides Android system bars with transient swipe access`() {
+        val window = composeRule.activity.window
+        val insets = window.decorView.rootWindowInsets
+
+        assertFalse(insets.isVisible(WindowInsets.Type.systemBars()))
+        assertEquals(
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE,
+            WindowCompat.getInsetsController(window, window.decorView).systemBarsBehavior,
+        )
     }
 }
