@@ -1,11 +1,8 @@
 package app.dozecam.player
 
-import android.content.Context
 import android.net.Uri
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import org.videolan.libvlc.Dialog
-import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
 import org.videolan.libvlc.util.VLCVideoLayout
@@ -13,54 +10,25 @@ import org.videolan.libvlc.util.VLCVideoLayout
 /**
  * libVLC-backed player tuned for low-latency LAN RTSP.
  * RTSP-over-TCP avoids UDP packet-reorder artifacts on busy Wi-Fi.
+ *
+ * One instance per camera on screen; they share [runtime]'s LibVLC. Aspect
+ * ratio needs no handling here: [VLCVideoLayout] recomputes a best-fit surface
+ * on every layout pass, which letterboxes inside whatever box the tile gives
+ * it rather than stretching to fill it.
  */
-class VlcVideoPlayerController(context: Context) : VideoPlayerController {
+class VlcVideoPlayerController(runtime: VlcRuntime) : VideoPlayerController {
 
-    private val libVlc = LibVLC(
-        context.applicationContext,
-        arrayListOf(
-            "--network-caching=$NETWORK_CACHING_MS",
-            "--rtsp-tcp",
-            "--drop-late-frames",
-            "--skip-frames",
-        ),
-    )
+    private val libVlc = runtime.libVlc
     private val mediaPlayer = MediaPlayer(libVlc)
     private var videoLayout: VLCVideoLayout? = null
 
     override var listener: ((PlayerEvent) -> Unit)? = null
 
     init {
-        // rtsps consoles present self-signed certificates, which libVLC's
-        // gnutls module raises as question dialogs ("View certificate" then
-        // "Accept permanently"). Answering the affirmative chain mirrors the
-        // trusted-LAN posture of the primary plain-RTSP path — which has no
-        // transport security at all — so accepting the console cert is
-        // strictly stronger, never weaker.
-        Dialog.setCallbacks(
-            libVlc,
-            object : Dialog.Callbacks {
-                override fun onDisplay(dialog: Dialog.ErrorMessage) = Unit
-
-                override fun onDisplay(dialog: Dialog.LoginDialog) {
-                    dialog.dismiss() // credentials ride the stream URL, never a dialog
-                }
-
-                override fun onDisplay(dialog: Dialog.QuestionDialog) {
-                    if (dialog.action2Text.isNullOrEmpty()) {
-                        dialog.postAction(1)
-                    } else {
-                        dialog.postAction(2)
-                    }
-                }
-
-                override fun onDisplay(dialog: Dialog.ProgressDialog) = Unit
-
-                override fun onCanceled(dialog: org.videolan.libvlc.Dialog) = Unit
-
-                override fun onProgressUpdate(dialog: Dialog.ProgressDialog) = Unit
-            },
-        )
+        // libVLC already defaults to this, but the picture never stretching is a
+        // requirement rather than a happy default — state it here so a library
+        // change cannot quietly squeeze the nursery into a portrait tile.
+        mediaPlayer.videoScale = MediaPlayer.ScaleType.SURFACE_BEST_FIT
         mediaPlayer.setEventListener { event ->
             val mapped = when (event.type) {
                 MediaPlayer.Event.Playing -> PlayerEvent.Playing
@@ -106,16 +74,25 @@ class VlcVideoPlayerController(context: Context) : VideoPlayerController {
         mediaPlayer.play()
     }
 
+    /**
+     * Applied to the media player rather than the media, so it survives the
+     * next [play] — a reconnect must not bring a muted tile back audible.
+     */
+    override fun setMuted(muted: Boolean) {
+        mediaPlayer.volume = if (muted) 0 else FULL_VOLUME
+    }
+
     override fun stop() {
         mediaPlayer.stop()
     }
 
+    /** Releases this player only; the shared LibVLC outlives it. */
     override fun release() {
         mediaPlayer.release()
-        libVlc.release()
     }
 
     private companion object {
-        const val NETWORK_CACHING_MS = 150
+        /** libVLC's scale is 0..100, unlike Media3's 0..1. */
+        const val FULL_VOLUME = 100
     }
 }

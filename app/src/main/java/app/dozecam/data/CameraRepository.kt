@@ -8,7 +8,6 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
@@ -48,16 +47,24 @@ data class Camera(
      * livestream support existed — both correctly fall back to RTSP.
      */
     val protect: ProtectStream? = null,
+    /**
+     * Whether this camera takes part at all: enabled cameras are the ones the
+     * viewer shows and the ones [app.dozecam.monitoring.MonitoringService]
+     * listens to. Defaults true so cameras stored before the flag existed —
+     * and every fresh Protect import — stay live across the upgrade.
+     */
+    val enabled: Boolean = true,
 )
 
 interface CameraStore {
     val cameras: Flow<List<Camera>>
 
-    /** Falls back to the first camera when nothing (or a removed id) is selected. */
-    val selectedCamera: Flow<Camera?>
+    /** The enabled subset, in list order: what the viewer shows and the monitor listens to. */
+    val enabledCameras: Flow<List<Camera>>
+
     suspend fun upsert(camera: Camera)
     suspend fun remove(id: String)
-    suspend fun select(id: String)
+    suspend fun setEnabled(id: String, enabled: Boolean)
 }
 
 /**
@@ -77,12 +84,9 @@ class CameraRepository(
 
     override val cameras: Flow<List<Camera>> = state.onStart { ensureLoaded() }
 
-    override val selectedCamera: Flow<Camera?> = combine(
-        cameras,
-        dataStore.data.map { it[KEY_SELECTED_ID] },
-    ) { list, selectedId ->
-        list.firstOrNull { it.id == selectedId } ?: list.firstOrNull()
-    }
+    override val enabledCameras: Flow<List<Camera>> =
+        cameras.map { list -> list.filter { it.enabled } }
+
 
     override suspend fun upsert(camera: Camera) {
         mutate { current ->
@@ -97,13 +101,12 @@ class CameraRepository(
 
     override suspend fun remove(id: String) {
         mutate { current -> current.filterNot { it.id == id } }
-        dataStore.edit { prefs ->
-            if (prefs[KEY_SELECTED_ID] == id) prefs.remove(KEY_SELECTED_ID)
-        }
     }
 
-    override suspend fun select(id: String) {
-        dataStore.edit { it[KEY_SELECTED_ID] = id }
+    override suspend fun setEnabled(id: String, enabled: Boolean) {
+        mutate { current ->
+            current.map { if (it.id == id) it.copy(enabled = enabled) else it }
+        }
     }
 
     private suspend fun mutate(transform: (List<Camera>) -> List<Camera>) {
@@ -152,8 +155,10 @@ class CameraRepository(
         // come from the main dispatcher.
         val editor = securePrefs.edit()
             .putString(PREF_CAMERAS, Json.encodeToString(migrated))
-        // The active monitoring URL carries the same stream token and moved
-        // out of the plain DataStore at the same time; migrate it together.
+        // The legacy active monitoring URL carries the same stream token, so it
+        // is lifted out of the plain DataStore rather than left behind. Nothing
+        // reads it any more — which camera is monitored is now Camera.enabled —
+        // but scrubbing the plaintext copy still matters.
         prefs[KEY_LEGACY_ACTIVE_URL]?.let { editor.putString(PREF_ACTIVE_URL, it) }
         if (withContext(Dispatchers.IO) { editor.commit() }) {
             dataStore.edit {
@@ -175,6 +180,5 @@ class CameraRepository(
         private val KEY_LEGACY_CAMERAS = stringPreferencesKey("cameras")
         private val KEY_LEGACY_STREAM_URL = stringPreferencesKey("stream_url")
         private val KEY_LEGACY_ACTIVE_URL = stringPreferencesKey("active_monitoring_url")
-        private val KEY_SELECTED_ID = stringPreferencesKey("selected_camera_id")
     }
 }

@@ -173,7 +173,17 @@ class OnboardingViewModel(
     private val consoleHost: String
         get() = _state.value.host.trim()
 
+    /**
+     * Whether a camera should come back switched on. Re-running onboarding over
+     * a camera the user had switched off must not switch it back on: enabled is
+     * the user's decision, not the console's. Unknown ids are new, so they
+     * arrive enabled.
+     */
+    private suspend fun enabledStates(): Map<String, Boolean> =
+        cameraStore.cameras.first().associate { it.id to it.enabled }
+
     private suspend fun importPublic(source: Discovery.Public, selected: Set<String>): Int {
+        val wasEnabled = enabledStates()
         var imported = 0
         for (camera in source.cameras) {
             if (camera.id !in selected) continue
@@ -197,6 +207,7 @@ class OnboardingViewModel(
                     name = camera.displayName,
                     url = url,
                     protect = ProtectStream(camera.id, MEDIUM_CHANNEL_ID, consoleHost),
+                    enabled = wasEnabled["protect-${camera.id}-$MEDIUM_CHANNEL_ID"] ?: true,
                 ),
             )
             imported++
@@ -205,6 +216,7 @@ class OnboardingViewModel(
     }
 
     private suspend fun importPrivate(source: Discovery.Private, selected: Set<String>): Int {
+        val wasEnabled = enabledStates()
         var imported = 0
         for (camera in source.cameras) {
             if (camera.id !in selected) continue
@@ -226,6 +238,7 @@ class OnboardingViewModel(
                     name = camera.name.ifBlank { "Camera" },
                     url = source.api.rtspUrlFor(alias),
                     protect = ProtectStream(camera.id, channel.id, consoleHost),
+                    enabled = wasEnabled["protect-${camera.id}-${channel.id}"] ?: true,
                 ),
             )
             imported++

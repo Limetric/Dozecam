@@ -68,6 +68,13 @@ interface VideoPlayerController {
     fun attach(container: ViewGroup)
     fun detach()
     fun play(source: StreamSource)
+
+    /**
+     * Silences this player's audio track. A grid plays several cameras at once,
+     * and several rooms talking over each other is unusable, so only a camera
+     * the user has singled out is ever audible.
+     */
+    fun setMuted(muted: Boolean)
     fun stop()
     fun release()
 }

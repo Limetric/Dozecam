@@ -57,6 +57,11 @@ fun OnboardingScreen(
     onToggleCamera: (String) -> Unit,
     onImport: () -> Unit,
     onClose: () -> Unit,
+    /**
+     * Completing the flow, as opposed to backing out of it. Distinct from
+     * [onClose] because finishing arms monitoring and abandoning must not.
+     */
+    onFinish: () -> Unit = onClose,
     modifier: Modifier = Modifier,
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -146,7 +151,11 @@ fun OnboardingScreen(
                         style = MaterialTheme.typography.titleMediumEmphasized,
                         modifier = Modifier.testTag("onboarding-done"),
                     )
-                    Button(onClick = onClose, shapes = ButtonDefaults.shapes()) {
+                    Button(
+                        onClick = onFinish,
+                        shapes = ButtonDefaults.shapes(),
+                        modifier = Modifier.testTag("onboarding-finish"),
+                    ) {
                         Text(stringResource(R.string.onboarding_finish))
                     }
                 }

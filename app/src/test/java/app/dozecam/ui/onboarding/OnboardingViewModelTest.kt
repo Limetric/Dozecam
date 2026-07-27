@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import mockwebserver3.Dispatcher
@@ -34,12 +35,8 @@ import org.junit.rules.TemporaryFolder
 
 private class FakeCameraStore : CameraStore {
     val stored = MutableStateFlow<List<Camera>>(emptyList())
-    val selectedId = MutableStateFlow<String?>(null)
     override val cameras: Flow<List<Camera>> = stored
-    override val selectedCamera: Flow<Camera?> =
-        combine(stored, selectedId) { list, id ->
-            list.firstOrNull { it.id == id } ?: list.firstOrNull()
-        }
+    override val enabledCameras: Flow<List<Camera>> = stored.map { it.filter(Camera::enabled) }
 
     override suspend fun upsert(camera: Camera) {
         stored.value = stored.value.filterNot { it.id == camera.id } + camera
@@ -49,8 +46,9 @@ private class FakeCameraStore : CameraStore {
         stored.value = stored.value.filterNot { it.id == id }
     }
 
-    override suspend fun select(id: String) {
-        selectedId.value = id
+
+    override suspend fun setEnabled(id: String, enabled: Boolean) {
+        stored.value = stored.value.map { if (it.id == id) it.copy(enabled = enabled) else it }
     }
 }
 
@@ -285,6 +283,47 @@ class OnboardingViewModelTest {
             ProtectStream("cam1", 1, consoleHost = "127.0.0.1:${server.port}"),
             imported.protect,
         )
+    }
+
+    @Test
+    fun `re-importing a switched-off camera leaves it switched off`() = runTest {
+        publicConsole()
+        val cameraStore = FakeCameraStore()
+        cameraStore.stored.value = listOf(
+            Camera(
+                id = "protect-cam1-1",
+                name = "Nursery",
+                url = "rtsp://old:7447/stale",
+                enabled = false,
+            ),
+        )
+        val viewModel = viewModel(cameraStore, pinnedTrustStore())
+
+        viewModel.connect()
+        viewModel.state.first { it.step is OnboardingStep.PickCameras }
+        viewModel.import()
+        viewModel.state.first { it.step is OnboardingStep.Done }
+
+        val reimported = cameraStore.stored.value.single()
+        // The URL refreshes, but whether the camera is on is the user's call —
+        // silently re-enabling it would put it back in the viewer and restart
+        // monitoring it.
+        assertEquals("rtsp://127.0.0.1:7447/aliasM", reimported.url)
+        assertEquals(false, reimported.enabled)
+    }
+
+    @Test
+    fun `a newly imported camera arrives switched on`() = runTest {
+        publicConsole()
+        val cameraStore = FakeCameraStore()
+        val viewModel = viewModel(cameraStore, pinnedTrustStore())
+
+        viewModel.connect()
+        viewModel.state.first { it.step is OnboardingStep.PickCameras }
+        viewModel.import()
+        viewModel.state.first { it.step is OnboardingStep.Done }
+
+        assertTrue(cameraStore.stored.value.single().enabled)
     }
 
     @Test

@@ -48,7 +48,7 @@ class CameraRepositoryTest {
         val repository = repository()
 
         assertTrue(repository.cameras.first().isEmpty())
-        assertNull(repository.selectedCamera.first())
+        assertTrue(repository.enabledCameras.first().isEmpty())
     }
 
     @Test
@@ -75,29 +75,18 @@ class CameraRepositoryTest {
         assertEquals(listOf("Nursery"), reloaded.map { it.name })
     }
 
+
+
     @Test
-    fun `selection falls back to the first camera and follows explicit selects`() = runTest {
+    fun `removing a camera drops it from both views`() = runTest {
         val repository = repository()
         repository.upsert(Camera("a", "Nursery", "rtsp://cam:7447/a"))
         repository.upsert(Camera("b", "Play room", "rtsp://cam:7447/b"))
-
-        assertEquals("a", repository.selectedCamera.first()?.id)
-
-        repository.select("b")
-        assertEquals("b", repository.selectedCamera.first()?.id)
-    }
-
-    @Test
-    fun `removing the selected camera falls back to the first remaining`() = runTest {
-        val repository = repository()
-        repository.upsert(Camera("a", "Nursery", "rtsp://cam:7447/a"))
-        repository.upsert(Camera("b", "Play room", "rtsp://cam:7447/b"))
-        repository.select("b")
 
         repository.remove("b")
 
-        assertEquals("a", repository.selectedCamera.first()?.id)
-        assertEquals(1, repository.cameras.first().size)
+        assertEquals(listOf("a"), repository.cameras.first().map { it.id })
+        assertEquals(listOf("a"), repository.enabledCameras.first().map { it.id })
     }
 
     @Test
@@ -111,7 +100,6 @@ class CameraRepositoryTest {
 
         assertEquals(1, cameras.size)
         assertEquals("rtsp://cam:7447/legacy", cameras.first().url)
-        assertEquals(cameras.first(), repository.selectedCamera.first())
         // The plaintext token no longer lives in the unencrypted DataStore.
         assertNull(store.data.first()[stringPreferencesKey("stream_url")])
         assertTrue(prefs.getString("cameras", "")!!.contains("legacy"))
@@ -182,6 +170,63 @@ class CameraRepositoryTest {
         assertEquals(listOf("Nursery"), cameras.map { it.name })
         assertNull(cameras.single().protect)
     }
+
+    @Test
+    fun `a camera stored before the enabled flag existed comes back enabled`() = runTest {
+        val prefs = securePrefs()
+        prefs.edit()
+            .putString("cameras", """[{"id":"a","name":"Nursery","url":"rtsp://cam:7447/a"}]""")
+            .commit()
+
+        // Upgrading must not silently stop monitoring an existing install.
+        assertTrue(repository(prefs).cameras.first().single().enabled)
+    }
+
+    @Test
+    fun `enabledCameras is the switched-on subset in list order`() = runTest {
+        val repository = repository()
+        repository.upsert(Camera("a", "Nursery", "rtsp://cam:7447/a"))
+        repository.upsert(Camera("b", "Play room", "rtsp://cam:7447/b"))
+        repository.upsert(Camera("c", "Hall", "rtsp://cam:7447/c"))
+
+        repository.setEnabled("b", false)
+
+        assertEquals(listOf("a", "c"), repository.enabledCameras.first().map { it.id })
+        assertEquals(3, repository.cameras.first().size)
+    }
+
+    @Test
+    fun `setEnabled survives a new repository over the same storage`() = runTest {
+        val prefs = securePrefs()
+        val store = dataStore()
+        repository(prefs, store).apply {
+            upsert(Camera("a", "Nursery", "rtsp://cam:7447/a"))
+            setEnabled("a", false)
+        }
+
+        assertEquals(false, repository(prefs, store).cameras.first().single().enabled)
+    }
+
+    @Test
+    fun `setEnabled leaves the rest of the camera untouched`() = runTest {
+        val repository = repository()
+        repository.upsert(
+            Camera(
+                id = "a",
+                name = "Nursery",
+                url = "rtsp://cam:7447/a",
+                protect = ProtectStream("cam1", 1, consoleHost = "console.lan"),
+            ),
+        )
+
+        repository.setEnabled("a", false)
+
+        val camera = repository.cameras.first().single()
+        assertEquals("cam1", camera.protect?.cameraId)
+        assertEquals("console.lan", camera.protect?.consoleHost)
+    }
+
+
 
     @Test
     fun `the owning console survives a reload`() = runTest {

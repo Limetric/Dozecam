@@ -13,19 +13,23 @@
     <string name="channel_alerts_name">Sound alerts</string>
     <string name="channel_alerts_description">Wakes the screen when sustained sound is detected</string>
     <string name="notification_monitoring_title">Dozecam monitoring</string>
-    <string name="notification_alert_title">Sound detected</string>
+    <string name="notification_alert_title">Sound detected — %1$s</string>
     <string name="notification_alert_text">Opening the live view…</string>
-    <string name="monitoring_status_starting">Connecting to the camera…</string>
-    <string name="monitoring_status_listening">Listening</string>
-    <string name="monitoring_status_alerting">Sound detected</string>
-    <string name="monitoring_status_reconnecting">Reconnecting…</string>
+    <string name="monitoring_status_starting">Connecting to the cameras…</string>
+    <string name="monitoring_status_alerting">Sound detected — %1$s</string>
+    <string name="monitoring_status_nothing">No camera is switched on</string>
     <string name="monitoring_status_offline">Offline — waiting for network</string>
+    <string name="monitoring_status_partial">%1$s · %2$d not monitorable</string>
     <string name="monitoring_toggle">Wake on sound</string>
-    <string name="home_subtitle_listening">Listening for sound</string>
-    <string name="home_subtitle_idle">Not monitoring</string>
-    <string name="monitoring_supporting_running">Alerting on sustained sound</string>
-    <string name="monitoring_supporting_ready">Wakes the screen when the room gets loud</string>
-    <string name="monitoring_supporting_unavailable">Select a camera to monitor it</string>
+    <string name="monitoring_listening">Listening for sound</string>
+    <string name="monitoring_idle">Not monitoring</string>
+    <string name="monitoring_unavailable">No camera is switched on that can be listened to</string>
+    <string name="viewer_no_cameras">No cameras yet. Connect your UniFi Protect console to add them.</string>
+    <string name="viewer_all_disabled">Every camera is switched off. Turn one on in settings to watch and monitor it.</string>
+    <string name="viewer_add_manually">Add one manually</string>
+    <string name="camera_not_monitorable">Can be watched but not monitored — re-add this camera to fix it</string>
+    <string name="detector_applies_to_all">Applies to every camera that is switched on.</string>
+    <string name="section_monitoring">Monitoring</string>
     <string name="section_cameras">Cameras</string>
     <string name="section_detection">Sound detection</string>
     <string name="section_appearance">Appearance</string>
@@ -77,4 +81,17 @@
     <string name="onboarding_importing">Enabling streams and adding cameras…</string>
     <string name="onboarding_done">Added %1$d camera(s).</string>
     <string name="onboarding_finish">Finish</string>
+
+    <plurals name="monitoring_status_listening_cameras">
+        <item quantity="one">Listening to %1$d camera</item>
+        <item quantity="other">Listening to %1$d cameras</item>
+    </plurals>
+    <plurals name="monitoring_status_reconnecting_cameras">
+        <item quantity="one">Reconnecting to %1$d camera…</item>
+        <item quantity="other">Reconnecting to %1$d cameras…</item>
+    </plurals>
+    <plurals name="viewer_unmonitorable">
+        <item quantity="one">%2$s is shown but not monitored for sound.</item>
+        <item quantity="other">%2$s are shown but not monitored for sound.</item>
+    </plurals>
 </resources>

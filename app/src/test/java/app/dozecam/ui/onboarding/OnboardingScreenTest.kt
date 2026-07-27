@@ -25,6 +25,8 @@ class OnboardingScreenTest {
         onConfirmFingerprint: (String) -> Unit = {},
         onToggleCamera: (String) -> Unit = {},
         onImport: () -> Unit = {},
+        onClose: () -> Unit = {},
+        onFinish: () -> Unit = {},
     ) {
         composeRule.setContent {
             DozecamTheme {
@@ -38,7 +40,8 @@ class OnboardingScreenTest {
                     onRejectFingerprint = {},
                     onToggleCamera = onToggleCamera,
                     onImport = onImport,
-                    onClose = {},
+                    onClose = onClose,
+                    onFinish = onFinish,
                 )
             }
         }
@@ -106,5 +109,39 @@ class OnboardingScreenTest {
         )
 
         composeRule.onNodeWithTag("import-button").performScrollTo().assertIsNotEnabled()
+    }
+
+    @Test
+    fun `finishing is distinct from backing out`() {
+        var finished = false
+        var closed = false
+        setScreen(
+            OnboardingUiState(step = OnboardingStep.Done(importedCount = 2)),
+            onClose = { closed = true },
+            onFinish = { finished = true },
+        )
+
+        composeRule.onNodeWithTag("onboarding-finish").performScrollTo().performClick()
+
+        // Finishing arms monitoring; abandoning the flow must not, so the two
+        // cannot share a callback.
+        assertEquals(true, finished)
+        assertEquals(false, closed)
+    }
+
+    @Test
+    fun `backing out of a completed import does not count as finishing`() {
+        var finished = false
+        var closed = false
+        setScreen(
+            OnboardingUiState(step = OnboardingStep.Done(importedCount = 2)),
+            onClose = { closed = true },
+            onFinish = { finished = true },
+        )
+
+        composeRule.onNodeWithTag("onboarding-close").performClick()
+
+        assertEquals(true, closed)
+        assertEquals(false, finished)
     }
 }

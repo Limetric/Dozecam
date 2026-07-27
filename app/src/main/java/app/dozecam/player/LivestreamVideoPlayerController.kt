@@ -7,6 +7,7 @@ import android.widget.FrameLayout
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.exoplayer.DecoderCounters
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
@@ -40,6 +41,21 @@ class LivestreamVideoPlayerController(
     private val player = ExoPlayer.Builder(context).build()
     private val surfaceView = SurfaceView(context)
 
+    /**
+     * Holds the surface at the video's own shape. ExoPlayer scales whatever it
+     * decodes to fill its surface, so without this the picture stretches to the
+     * tile; the ratio arrives with the first decoded frame.
+     */
+    private val videoFrame = AspectRatioLayout(context).apply {
+        addView(
+            surfaceView,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ),
+        )
+    }
+
     private var socket: ProtectLivestreamSocket? = null
     private var connection: Job? = null
     private var frameWatch: Job? = null
@@ -67,12 +83,21 @@ class LivestreamVideoPlayerController(
                     else -> Unit
                 }
             }
+
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                if (videoSize.width == 0 || videoSize.height == 0) return
+                // pixelWidthHeightRatio is 1 for every camera encode we see, but
+                // honouring it costs nothing and is what makes anamorphic sources
+                // come out square rather than subtly wrong.
+                videoFrame.aspectRatio =
+                    videoSize.width * videoSize.pixelWidthHeightRatio / videoSize.height
+            }
         })
     }
 
     override fun attach(container: ViewGroup) {
         container.addView(
-            surfaceView,
+            videoFrame,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -83,7 +108,11 @@ class LivestreamVideoPlayerController(
 
     override fun detach() {
         player.clearVideoSurface()
-        (surfaceView.parent as? ViewGroup)?.removeView(surfaceView)
+        (videoFrame.parent as? ViewGroup)?.removeView(videoFrame)
+    }
+
+    override fun setMuted(muted: Boolean) {
+        player.volume = if (muted) 0f else 1f
     }
 
     override fun play(source: StreamSource) {

@@ -5,9 +5,9 @@ import android.content.Context
 import app.dozecam.data.AppSettingsRepository
 import app.dozecam.data.CameraRepository
 import app.dozecam.data.DetectorSettingsRepository
-import app.dozecam.data.MonitoringPrefs
 import app.dozecam.data.dozecamDataStore
 import app.dozecam.monitoring.MonitoringState
+import app.dozecam.player.VlcRuntime
 import app.dozecam.protect.EncryptedCredentialsStore
 import app.dozecam.protect.ProtectLivestreamProvider
 import app.dozecam.protect.TofuTrustStore
@@ -31,9 +31,11 @@ class AppContainer(context: Context) {
     val cameras = CameraRepository(securePrefs, dataStore)
     val detectorSettings = DetectorSettingsRepository(dataStore)
     val appSettings = AppSettingsRepository(dataStore)
-    val monitoringPrefs = MonitoringPrefs(securePrefs)
     val monitoringState = MonitoringState()
     val tofuTrustStore = TofuTrustStore(dataStore)
+
+    /** Shared by every RTSP tile on screen; builds its native instance on first use. */
+    val vlcRuntime = VlcRuntime(context.applicationContext)
     val protectCredentials by lazy { EncryptedCredentialsStore(context.applicationContext) }
     val protectLivestream by lazy {
         ProtectLivestreamProvider(protectCredentials, tofuTrustStore)

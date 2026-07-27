@@ -7,8 +7,8 @@ import android.app.PendingIntent
 import android.content.Context
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import app.dozecam.MainActivity
 import app.dozecam.R
-import app.dozecam.ui.monitor.MonitorActivity
 
 object MonitoringNotifications {
 
@@ -57,16 +57,16 @@ object MonitoringNotifications {
      * High-priority full-screen alert: wakes the display and surfaces the
      * monitor over the lock screen when sound is detected.
      */
-    fun alertNotification(context: Context, streamUrl: String): Notification {
+    fun alertNotification(context: Context, cameraId: String, cameraName: String): Notification {
         val fullScreenIntent = PendingIntent.getActivity(
             context,
             0,
-            MonitorActivity.intent(context, streamUrl),
+            MainActivity.alertIntent(context, cameraId),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         return NotificationCompat.Builder(context, ALERT_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(context.getString(R.string.notification_alert_title))
+            .setContentTitle(context.getString(R.string.notification_alert_title, cameraName))
             .setContentText(context.getString(R.string.notification_alert_text))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
@@ -79,10 +79,10 @@ object MonitoringNotifications {
             .build()
     }
 
-    fun postAlert(context: Context, streamUrl: String) {
+    fun postAlert(context: Context, cameraId: String, cameraName: String) {
         val manager = NotificationManagerCompat.from(context)
         try {
-            manager.notify(ALERT_NOTIFICATION_ID, alertNotification(context, streamUrl))
+            manager.notify(ALERT_NOTIFICATION_ID, alertNotification(context, cameraId, cameraName))
         } catch (_: SecurityException) {
             // Notification permission revoked mid-run; monitoring continues,
             // the status notification (FGS-exempt) still reflects the alert.
