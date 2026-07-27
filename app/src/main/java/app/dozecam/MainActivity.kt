@@ -81,6 +81,7 @@ class MainActivity : ComponentActivity() {
         applyAlertIntent(intent)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         enableEdgeToEdge()
+        applyImmersiveMode()
 
         // Without this the volume rocker adjusts the ring stream whenever no
         // camera happens to be audible — so the one gesture for "make this
@@ -200,7 +201,10 @@ class MainActivity : ComponentActivity() {
                     soundGranted = soundGranted,
                     alertCameraId = alertCamera,
                     onAlertConsumed = { alertCameraId.value = null },
-                    onFullscreenChange = ::applyImmersiveMode,
+                    // The whole viewer is immersive, including the grid. A
+                    // layout change is another chance to restore that state if
+                    // Android exposed its transient system bars meanwhile.
+                    onFullscreenChange = { applyImmersiveMode() },
                     onAlertDismissed = ::revokeLockScreenVisibility,
                 )
             }
@@ -265,19 +269,12 @@ class MainActivity : ComponentActivity() {
         setTurnScreenOn(false)
     }
 
-    /**
-     * System bars stay out of the way only while a single camera fills the
-     * screen; the grid and pager need their chrome reachable.
-     */
-    private fun applyImmersiveMode(immersive: Boolean) {
+    /** Keeps Android's status and navigation bars out of the whole viewer. */
+    private fun applyImmersiveMode() {
         WindowInsetsControllerCompat(window, window.decorView).apply {
             systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            if (immersive) {
-                hide(WindowInsetsCompat.Type.systemBars())
-            } else {
-                show(WindowInsetsCompat.Type.systemBars())
-            }
+            hide(WindowInsetsCompat.Type.systemBars())
         }
     }
 
