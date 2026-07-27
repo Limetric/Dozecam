@@ -21,12 +21,6 @@ jobs:
         with:
           fetch-depth: 20
 
-      - name: Setup Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: librclone/go.mod
-          cache-dependency-path: librclone/go.sum
-
       - name: Run Claude Code Review
         id: review
         uses: anthropics/claude-code-action@v1
