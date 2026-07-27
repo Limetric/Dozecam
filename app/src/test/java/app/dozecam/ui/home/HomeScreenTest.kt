@@ -125,7 +125,7 @@ class HomeScreenTest {
             )
         }
 
-        composeRule.onNodeWithTag("camera-save").assertIsEnabled().performClick()
+        composeRule.onNodeWithTag("camera-save").performScrollTo().assertIsEnabled().performClick()
 
         assertEquals(true, saved)
     }

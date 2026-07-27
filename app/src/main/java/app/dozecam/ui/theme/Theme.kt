@@ -1,42 +1,52 @@
 package app.dozecam.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.material3.MotionScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.platform.LocalContext
 
 /**
- * Dim red palette for nighttime use next to a crib: minimal blue light,
- * low luminance, still readable.
+ * Whether the dim red night palette is in force. Content drawn over video sits
+ * outside the colour scheme's control and has to make its own call about how
+ * much light it may emit.
  */
-internal fun nightRedColorScheme() = darkColorScheme(
-    primary = Color(0xFFB94A48),
-    onPrimary = Color(0xFF1A0000),
-    primaryContainer = Color(0xFF3A0A0A),
-    onPrimaryContainer = Color(0xFFD98C8A),
-    secondary = Color(0xFF8B3A38),
-    onSecondary = Color(0xFF1A0000),
-    background = Color(0xFF0A0000),
-    onBackground = Color(0xFFB05A58),
-    surface = Color(0xFF140404),
-    onSurface = Color(0xFFB05A58),
-    surfaceVariant = Color(0xFF241010),
-    onSurfaceVariant = Color(0xFF9A4A48),
-    outline = Color(0xFF5A2A28),
-)
+val LocalNightTheme = staticCompositionLocalOf { false }
 
+/**
+ * Material 3 Expressive theming for Dozecam.
+ *
+ * Colour follows the user's own theme by default: minSdk 31 means the
+ * wallpaper-derived scheme is always available, so it is the primary source
+ * rather than a fallback, and light/dark tracks the system setting. Only two
+ * things override it — the night palette the user asks for explicitly, and
+ * [dynamicColor] = false for previews and host-side tests.
+ */
 @Composable
 fun DozecamTheme(
     nightTheme: Boolean = false,
     darkTheme: Boolean = isSystemInDarkTheme(),
+    dynamicColor: Boolean = true,
     content: @Composable () -> Unit,
 ) {
-    val colorScheme = when {
-        nightTheme -> nightRedColorScheme()
-        darkTheme -> darkColorScheme()
-        else -> lightColorScheme()
+    val context = LocalContext.current
+    val colorScheme: ColorScheme = when {
+        nightTheme -> NightRedColorScheme
+        dynamicColor && darkTheme -> dynamicDarkColorScheme(context)
+        dynamicColor -> dynamicLightColorScheme(context)
+        darkTheme -> DarkColorScheme
+        else -> LightColorScheme
     }
-    MaterialTheme(colorScheme = colorScheme, content = content)
+    CompositionLocalProvider(LocalNightTheme provides nightTheme) {
+        MaterialExpressiveTheme(
+            colorScheme = colorScheme,
+            motionScheme = MotionScheme.expressive(),
+            content = content,
+        )
+    }
 }

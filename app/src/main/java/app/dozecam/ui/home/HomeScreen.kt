@@ -1,7 +1,7 @@
 package app.dozecam.ui.home
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,33 +11,55 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LargeFlexibleTopAppBar
+import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.dozecam.R
 import app.dozecam.data.Camera
 import app.dozecam.data.DetectorSettings
+import app.dozecam.ui.components.GroupRow
+import app.dozecam.ui.components.Section
+import app.dozecam.ui.components.groupShape
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
@@ -81,6 +103,7 @@ fun HomeRoute(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     cameras: List<Camera>,
@@ -104,55 +127,67 @@ fun HomeScreen(
     onOpenOnboarding: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    Scaffold(
+        modifier = modifier
+            .fillMaxSize()
+            .nestedScroll(scrollBehavior.nestedScrollConnection),
+        topBar = {
+            LargeFlexibleTopAppBar(
+                title = { Text(stringResource(R.string.app_name)) },
+                subtitle = {
+                    Text(
+                        stringResource(
+                            if (monitoringRunning) {
+                                R.string.home_subtitle_listening
+                            } else {
+                                R.string.home_subtitle_idle
+                            },
+                        ),
+                    )
+                },
+                actions = {
+                    IconButton(
+                        onClick = onOpenSettings,
+                        shapes = IconButtonDefaults.shapes(),
+                        modifier = Modifier.testTag("open-settings"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = stringResource(R.string.settings),
+                        )
+                    }
+                },
+                scrollBehavior = scrollBehavior,
+            )
+        },
+    ) { contentPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .safeDrawingPadding()
+                .padding(contentPadding)
                 .verticalScroll(rememberScrollState())
-                .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(R.string.app_name),
-                    style = MaterialTheme.typography.headlineMedium,
-                )
-                TextButton(
-                    onClick = onOpenSettings,
-                    modifier = Modifier.testTag("open-settings"),
-                ) {
-                    Text(stringResource(R.string.settings))
-                }
-            }
+            MonitoringCard(
+                monitoringRunning = monitoringRunning,
+                canMonitor = canMonitor,
+                onToggleMonitoring = onToggleMonitoring,
+                audioLevel = audioLevel,
+                threshold = detector.threshold,
+            )
 
-            cameras.forEach { camera ->
-                CameraRow(
-                    camera = camera,
-                    selected = camera.id == selectedCameraId,
-                    onSelect = { onSelect(camera.id) },
-                    onWatch = { onWatch(camera) },
-                    onEdit = { onEdit(camera) },
-                    onDelete = { onDelete(camera.id) },
-                )
-            }
-            if (cameras.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.no_cameras_hint),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-
-            OutlinedButton(
-                onClick = onOpenOnboarding,
-                modifier = Modifier.testTag("open-onboarding"),
-            ) {
-                Text(stringResource(R.string.connect_to_protect))
-            }
+            CamerasSection(
+                cameras = cameras,
+                selectedCameraId = selectedCameraId,
+                onSelect = onSelect,
+                onWatch = onWatch,
+                onEdit = onEdit,
+                onDelete = onDelete,
+                onOpenOnboarding = onOpenOnboarding,
+            )
 
             CameraForm(
                 form = form,
@@ -161,39 +196,6 @@ fun HomeScreen(
                 onSave = onFormSave,
                 onCancel = onFormCancel,
             )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(R.string.monitoring_toggle),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Switch(
-                    checked = monitoringRunning,
-                    onCheckedChange = onToggleMonitoring,
-                    enabled = canMonitor,
-                    modifier = Modifier.testTag("monitoring-switch"),
-                )
-            }
-
-            if (monitoringRunning) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = stringResource(R.string.audio_level_label),
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                    AudioLevelMeter(
-                        level = audioLevel,
-                        threshold = detector.threshold,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 4.dp),
-                    )
-                }
-            }
 
             DetectorTuning(
                 detector = detector,
@@ -204,45 +206,207 @@ fun HomeScreen(
     }
 }
 
+/**
+ * The one control that matters at 3am, so it leads the screen: a hero card that
+ * takes the theme's primary tones while monitoring runs and falls back to a
+ * neutral container when it doesn't.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun MonitoringCard(
+    monitoringRunning: Boolean,
+    canMonitor: Boolean,
+    onToggleMonitoring: (Boolean) -> Unit,
+    audioLevel: Float,
+    threshold: Float,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.extraLarge,
+        colors = CardDefaults.cardColors(
+            containerColor = if (monitoringRunning) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerHigh
+            },
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(MaterialShapes.Cookie9Sided.toShape())
+                        .background(
+                            if (monitoringRunning) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.surfaceContainerHighest
+                            },
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_graphic_eq),
+                        contentDescription = null,
+                        tint = if (monitoringRunning) {
+                            MaterialTheme.colorScheme.onPrimary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 16.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.monitoring_toggle),
+                        style = MaterialTheme.typography.titleLargeEmphasized,
+                    )
+                    Text(
+                        text = stringResource(
+                            when {
+                                monitoringRunning -> R.string.monitoring_supporting_running
+                                canMonitor -> R.string.monitoring_supporting_ready
+                                else -> R.string.monitoring_supporting_unavailable
+                            },
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                Switch(
+                    checked = monitoringRunning,
+                    onCheckedChange = onToggleMonitoring,
+                    enabled = canMonitor,
+                    modifier = Modifier.testTag("monitoring-switch"),
+                )
+            }
+
+            AnimatedVisibility(visible = monitoringRunning) {
+                Column {
+                    Text(
+                        text = stringResource(R.string.audio_level_label),
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    AudioLevelMeter(
+                        level = audioLevel,
+                        threshold = threshold,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CamerasSection(
+    cameras: List<Camera>,
+    selectedCameraId: String?,
+    onSelect: (String) -> Unit,
+    onWatch: (Camera) -> Unit,
+    onEdit: (Camera) -> Unit,
+    onDelete: (String) -> Unit,
+    onOpenOnboarding: () -> Unit,
+) {
+    Section(title = stringResource(R.string.section_cameras)) {
+        cameras.forEachIndexed { index, camera ->
+            CameraRow(
+                camera = camera,
+                selected = camera.id == selectedCameraId,
+                shape = groupShape(index, cameras.size),
+                onSelect = { onSelect(camera.id) },
+                onWatch = { onWatch(camera) },
+                onEdit = { onEdit(camera) },
+                onDelete = { onDelete(camera.id) },
+            )
+        }
+        if (cameras.isEmpty()) {
+            Text(
+                text = stringResource(R.string.no_cameras_hint),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+        }
+        OutlinedButton(
+            onClick = onOpenOnboarding,
+            shapes = ButtonDefaults.shapes(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp)
+                .testTag("open-onboarding"),
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_videocam),
+                contentDescription = null,
+                modifier = Modifier.padding(end = 8.dp),
+            )
+            Text(stringResource(R.string.connect_to_protect))
+        }
+    }
+}
+
 @Composable
 private fun CameraRow(
     camera: Camera,
     selected: Boolean,
+    shape: Shape,
     onSelect: () -> Unit,
     onWatch: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onWatch)
-            .testTag("camera-row-${camera.name}"),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        RadioButton(
-            selected = selected,
-            onClick = onSelect,
-            modifier = Modifier.testTag("camera-select-${camera.name}"),
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Text(text = camera.name, style = MaterialTheme.typography.titleSmall)
-            Text(
-                text = camera.url,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
+    GroupRow(
+        headline = camera.name,
+        supporting = camera.url,
+        shape = shape,
+        containerColor = if (selected) {
+            MaterialTheme.colorScheme.secondaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainer
+        },
+        leading = {
+            RadioButton(
+                selected = selected,
+                onClick = onSelect,
+                modifier = Modifier.testTag("camera-select-${camera.name}"),
             )
-        }
-        TextButton(onClick = onEdit, modifier = Modifier.testTag("camera-edit-${camera.name}")) {
-            Text(stringResource(R.string.edit))
-        }
-        TextButton(
-            onClick = onDelete,
-            modifier = Modifier.testTag("camera-delete-${camera.name}"),
-        ) {
-            Text(stringResource(R.string.delete))
-        }
-    }
+        },
+        trailing = {
+            Row {
+                IconButton(
+                    onClick = onEdit,
+                    shapes = IconButtonDefaults.shapes(),
+                    modifier = Modifier.testTag("camera-edit-${camera.name}"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = stringResource(R.string.edit),
+                    )
+                }
+                IconButton(
+                    onClick = onDelete,
+                    shapes = IconButtonDefaults.shapes(),
+                    modifier = Modifier.testTag("camera-delete-${camera.name}"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = stringResource(R.string.delete),
+                    )
+                }
+            }
+        },
+        onClick = onWatch,
+        modifier = Modifier.testTag("camera-row-${camera.name}"),
+    )
 }
 
 @Composable
@@ -253,43 +417,62 @@ private fun CameraForm(
     onSave: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            text = stringResource(
-                if (form.editingId != null) R.string.edit_camera else R.string.add_camera,
-            ),
-            style = MaterialTheme.typography.titleMedium,
-        )
-        OutlinedTextField(
-            value = form.name,
-            onValueChange = onName,
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("camera-name-field"),
-            label = { Text(stringResource(R.string.camera_name_label)) },
-            singleLine = true,
-        )
-        OutlinedTextField(
-            value = form.url,
-            onValueChange = onUrl,
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("camera-url-field"),
-            label = { Text(stringResource(R.string.stream_url_label)) },
-            placeholder = { Text(stringResource(R.string.stream_url_hint)) },
-            singleLine = true,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(
-                onClick = onSave,
-                enabled = form.canSave,
-                modifier = Modifier.testTag("camera-save"),
-            ) {
-                Text(stringResource(R.string.save))
-            }
-            if (form.editingId != null || form.name.isNotEmpty() || form.url.isNotEmpty()) {
-                OutlinedButton(onClick = onCancel) {
-                    Text(stringResource(R.string.cancel))
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp),
+        shape = MaterialTheme.shapes.extraLarge,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = stringResource(
+                    if (form.editingId != null) R.string.edit_camera else R.string.add_camera,
+                ),
+                style = MaterialTheme.typography.titleMediumEmphasized,
+            )
+            OutlinedTextField(
+                value = form.name,
+                onValueChange = onName,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("camera-name-field"),
+                label = { Text(stringResource(R.string.camera_name_label)) },
+                singleLine = true,
+            )
+            OutlinedTextField(
+                value = form.url,
+                onValueChange = onUrl,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("camera-url-field"),
+                label = { Text(stringResource(R.string.stream_url_label)) },
+                placeholder = { Text(stringResource(R.string.stream_url_hint)) },
+                singleLine = true,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onSave,
+                    shapes = ButtonDefaults.shapes(),
+                    enabled = form.canSave,
+                    modifier = Modifier.testTag("camera-save"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null,
+                        modifier = Modifier.padding(end = 8.dp),
+                    )
+                    Text(stringResource(R.string.save))
+                }
+                if (form.editingId != null || form.name.isNotEmpty() || form.url.isNotEmpty()) {
+                    OutlinedButton(onClick = onCancel, shapes = ButtonDefaults.shapes()) {
+                        Text(stringResource(R.string.cancel))
+                    }
                 }
             }
         }
@@ -298,34 +481,32 @@ private fun CameraForm(
 
 /**
  * Live RMS meter with the trigger threshold marked — the doc calls this
- * invaluable for tuning, and it is. Scaled so the useful 0..0.5 RMS range
- * fills the bar.
+ * invaluable for tuning, and it is. Scaled so the useful 0..0.5 RMS range fills
+ * the bar; the wave swells once the level crosses the threshold, which is the
+ * moment an alert would fire.
  */
 @Composable
 fun AudioLevelMeter(level: Float, threshold: Float, modifier: Modifier = Modifier) {
     val scale = 0.5f
+    val levelFraction = (level / scale).coerceIn(0f, 1f)
+    val thresholdFraction = (threshold / scale).coerceIn(0f, 1f)
+    val triggered = level >= threshold
     Box(
         modifier = modifier
-            .height(16.dp)
-            .background(
-                MaterialTheme.colorScheme.surfaceVariant,
-                RoundedCornerShape(8.dp),
-            )
+            .height(24.dp)
             .testTag("audio-level-meter"),
+        contentAlignment = Alignment.CenterStart,
     ) {
-        val levelFraction = (level / scale).coerceIn(0f, 1f)
-        if (levelFraction > 0f) {
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .fillMaxWidth(levelFraction)
-                    .background(
-                        if (level >= threshold) Color(0xFFEF5350) else Color(0xFF66BB6A),
-                        RoundedCornerShape(8.dp),
-                    ),
-            )
-        }
-        val thresholdFraction = (threshold / scale).coerceIn(0f, 1f)
+        LinearWavyProgressIndicator(
+            progress = { levelFraction },
+            color = if (triggered) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.primary
+            },
+            amplitude = { if (triggered) 1f else 0.2f },
+            modifier = Modifier.fillMaxWidth(),
+        )
         Row(modifier = Modifier.fillMaxSize()) {
             if (thresholdFraction > 0f) {
                 Box(modifier = Modifier.fillMaxWidth(thresholdFraction))
@@ -346,46 +527,61 @@ private fun DetectorTuning(
     onDetectorChange: ((DetectorSettings) -> DetectorSettings) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(
-            text = stringResource(
-                R.string.detector_threshold_label,
-                (detector.threshold * 100).roundToInt(),
+    Section(title = stringResource(R.string.section_detection), modifier = modifier) {
+        Card(
+            shape = MaterialTheme.shapes.extraLarge,
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainer,
             ),
-        )
-        Slider(
-            value = detector.threshold,
-            onValueChange = { value -> onDetectorChange { it.copy(threshold = value) } },
-            valueRange = 0.01f..0.5f,
-            modifier = Modifier.testTag("threshold-slider"),
-        )
-        Text(
-            text = stringResource(
-                R.string.detector_sustain_label,
-                detector.sustainMs / 1000f,
-            ),
-        )
-        Slider(
-            value = detector.sustainMs / 1000f,
-            onValueChange = { value ->
-                onDetectorChange { it.copy(sustainMs = (value * 1000).roundToLong()) }
-            },
-            valueRange = 0.5f..5f,
-            modifier = Modifier.testTag("sustain-slider"),
-        )
-        Text(
-            text = stringResource(
-                R.string.detector_quiet_label,
-                (detector.quietMs / 1000).toInt(),
-            ),
-        )
-        Slider(
-            value = detector.quietMs / 1000f,
-            onValueChange = { value ->
-                onDetectorChange { it.copy(quietMs = (value * 1000).roundToLong()) }
-            },
-            valueRange = 2f..30f,
-            modifier = Modifier.testTag("quiet-slider"),
-        )
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = stringResource(
+                        R.string.detector_threshold_label,
+                        (detector.threshold * 100).roundToInt(),
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Slider(
+                    value = detector.threshold,
+                    onValueChange = { value -> onDetectorChange { it.copy(threshold = value) } },
+                    valueRange = 0.01f..0.5f,
+                    modifier = Modifier.testTag("threshold-slider"),
+                )
+                Text(
+                    text = stringResource(
+                        R.string.detector_sustain_label,
+                        detector.sustainMs / 1000f,
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Slider(
+                    value = detector.sustainMs / 1000f,
+                    onValueChange = { value ->
+                        onDetectorChange { it.copy(sustainMs = (value * 1000).roundToLong()) }
+                    },
+                    valueRange = 0.5f..5f,
+                    modifier = Modifier.testTag("sustain-slider"),
+                )
+                Text(
+                    text = stringResource(
+                        R.string.detector_quiet_label,
+                        (detector.quietMs / 1000).toInt(),
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Slider(
+                    value = detector.quietMs / 1000f,
+                    onValueChange = { value ->
+                        onDetectorChange { it.copy(quietMs = (value * 1000).roundToLong()) }
+                    },
+                    valueRange = 2f..30f,
+                    modifier = Modifier.testTag("quiet-slider"),
+                )
+            }
+        }
     }
 }

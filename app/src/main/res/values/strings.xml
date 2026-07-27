@@ -21,6 +21,16 @@
     <string name="monitoring_status_reconnecting">Reconnecting…</string>
     <string name="monitoring_status_offline">Offline — waiting for network</string>
     <string name="monitoring_toggle">Wake on sound</string>
+    <string name="home_subtitle_listening">Listening for sound</string>
+    <string name="home_subtitle_idle">Not monitoring</string>
+    <string name="monitoring_supporting_running">Alerting on sustained sound</string>
+    <string name="monitoring_supporting_ready">Wakes the screen when the room gets loud</string>
+    <string name="monitoring_supporting_unavailable">Select a camera to monitor it</string>
+    <string name="section_cameras">Cameras</string>
+    <string name="section_detection">Sound detection</string>
+    <string name="section_appearance">Appearance</string>
+    <string name="section_alerts">Alerts</string>
+    <string name="section_monitor">Monitor</string>
     <string name="detector_threshold_label">Sound threshold: %1$d%%</string>
     <string name="detector_sustain_label">Trigger after: %1$.1f s of sound</string>
     <string name="detector_quiet_label">Re-arm after: %1$d s of quiet</string>
@@ -45,6 +55,9 @@
     <string name="orientation_auto">Follow the sensor</string>
     <string name="orientation_portrait">Lock to portrait</string>
     <string name="orientation_landscape">Lock to landscape</string>
+    <string name="orientation_auto_short">Auto</string>
+    <string name="orientation_portrait_short">Portrait</string>
+    <string name="orientation_landscape_short">Landscape</string>
     <string name="connect_to_protect">Connect to UniFi Protect…</string>
     <string name="onboarding_title">Console setup</string>
     <string name="onboarding_intro">Sign in to your UniFi Protect console to add its cameras automatically.</string>
