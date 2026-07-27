@@ -5,6 +5,7 @@ import java.io.File
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -23,12 +24,16 @@ class AppSettingsRepositoryTest {
         val repository = AppSettingsRepository(dataStore)
 
         assertEquals(AppSettings(), repository.settings.first())
+        // Stated outright rather than left to the round-trip: a viewer that
+        // starts audible would talk over a sleeping room the moment it opens.
+        assertFalse(repository.settings.first().viewerSound)
 
         val custom = AppSettings(
             nightTheme = true,
             alertChime = false,
             alertVibrate = false,
             orientationLock = OrientationLock.LANDSCAPE,
+            viewerSound = true,
         )
         repository.update { custom }
 

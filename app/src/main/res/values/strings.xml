@@ -27,6 +27,9 @@
     <string name="viewer_no_cameras">No cameras yet. Connect your UniFi Protect console to add them.</string>
     <string name="viewer_all_disabled">Every camera is switched off. Turn one on in settings to watch and monitor it.</string>
     <string name="viewer_add_manually">Add one manually</string>
+    <string name="viewer_sound_on">Turn sound on</string>
+    <string name="viewer_sound_off">Turn sound off</string>
+    <string name="viewer_audible_camera">Sound from %1$s</string>
     <string name="camera_not_monitorable">Can be watched but not monitored — re-add this camera to fix it</string>
     <string name="detector_applies_to_all">Applies to every camera that is switched on.</string>
     <string name="section_monitoring">Monitoring</string>

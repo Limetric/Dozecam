@@ -2,18 +2,22 @@ package app.dozecam.ui.monitor
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
@@ -26,14 +30,17 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -64,6 +71,27 @@ fun MonitorScreen(
     onOpenSettings: () -> Unit,
     onOpenOnboarding: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * Whether the viewer is allowed to make noise at all. Off until asked for:
+     * this screen comes up on its own when a room gets loud, sometimes over a
+     * lock screen at 3am, and a viewer that starts talking the moment it
+     * appears is a worse surprise than a silent one.
+     */
+    soundEnabled: Boolean = false,
+    onSoundEnabledChange: (Boolean) -> Unit = {},
+    /**
+     * Whether the system is letting the viewer make a sound this instant —
+     * audio focus held, and nothing else borrowing the speaker.
+     *
+     * Kept apart from [soundEnabled] on purpose. The cameras follow this,
+     * because playing on without focus is not ours to do; the button keeps
+     * showing the switch, because a tap during a passing interruption would
+     * otherwise set it to what it already was, and someone reaching to silence
+     * the cameras mid-call would instead arm them for when the call ends.
+     */
+    soundGranted: Boolean = true,
+    /** Injectable so tests need not wait out a real turn. */
+    soundRotationIntervalMs: Long = SOUND_ROTATION_INTERVAL_MS,
     alertCameraId: String? = null,
     onAlertConsumed: () -> Unit = {},
     onFullscreenChange: (Boolean) -> Unit = {},
@@ -134,21 +162,60 @@ fun MonitorScreen(
 
     BackHandler(enabled = fullscreen != null) { fullscreenId = null }
 
+    val audible = soundEnabled && soundGranted
+    val gridState = rememberLazyGridState()
+
+    /**
+     * Only tiles actually on screen take a turn. A camera scrolled out of the
+     * grid has no player at all, so its turn would be ten seconds of silence
+     * next to a badge nobody can see — the exact "is it broken or is the room
+     * quiet?" doubt the badge exists to remove.
+     */
+    val visibleCameraIds by remember(cameras) {
+        derivedStateOf {
+            val onScreen = gridState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String }
+            cameras.map { it.id }.filter { it in onScreen }
+        }
+    }
+
+    // Rotation is a grid problem: one camera on screen alone already has the
+    // user's whole attention, so it simply keeps the sound for as long as it
+    // is up.
+    val audibleCameraId = rememberAudibleCameraId(
+        cameraIds = visibleCameraIds,
+        enabled = audible && fullscreen == null,
+        intervalMs = soundRotationIntervalMs,
+    )
+
     if (fullscreen != null) {
-        CameraTile(
-            camera = fullscreen,
-            source = sources[fullscreen.id],
-            controllerFactory = controllerFactory,
-            networkOnline = networkOnline,
-            showLabel = false,
-            // The one camera on screen alone is the one worth hearing; this is
-            // the "listen to the room" case the viewer exists for.
-            muted = false,
-            onClick = { fullscreenId = null },
-            modifier = modifier
-                .fillMaxSize()
-                .testTag("fullscreen-tile"),
-        )
+        Box(modifier = modifier.fillMaxSize()) {
+            CameraTile(
+                camera = fullscreen,
+                source = sources[fullscreen.id],
+                controllerFactory = controllerFactory,
+                networkOnline = networkOnline,
+                showLabel = false,
+                // The one camera on screen alone is the one worth hearing; this
+                // is the "listen to the room" case the viewer exists for, so it
+                // needs nothing beyond sound being switched on.
+                audible = audible,
+                onClick = { fullscreenId = null },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("fullscreen-tile"),
+            )
+            // The only control a single camera keeps. Without it, sound could
+            // be switched on solely from the grid — including for a camera an
+            // alert opened, which is precisely when the user wants to listen.
+            SoundToggle(
+                soundEnabled = soundEnabled,
+                onSoundEnabledChange = onSoundEnabledChange,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .safeDrawingPadding()
+                    .padding(12.dp),
+            )
+        }
         return
     }
 
@@ -173,6 +240,8 @@ fun MonitorScreen(
                     sources = sources,
                     controllerFactory = controllerFactory,
                     networkOnline = networkOnline,
+                    audibleCameraId = audibleCameraId,
+                    gridState = gridState,
                     onFullscreen = { fullscreenId = it },
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -180,21 +249,60 @@ fun MonitorScreen(
         }
 
         // Floated over the video rather than given a bar of its own: on a phone
-        // an app bar costs a camera's worth of height to hold one button.
-        FilledTonalIconButton(
-            onClick = onOpenSettings,
-            shapes = IconButtonDefaults.shapes(),
+        // an app bar costs a camera's worth of height to hold two buttons.
+        Row(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .safeDrawingPadding()
-                .padding(12.dp)
-                .testTag("open-settings"),
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Icon(
-                imageVector = Icons.Default.Settings,
-                contentDescription = stringResource(R.string.settings),
-            )
+            // Nothing to listen to yet: an empty viewer offers setup, not a
+            // switch for sound that has no camera to come from.
+            if (cameras.isNotEmpty()) {
+                SoundToggle(
+                    soundEnabled = soundEnabled,
+                    onSoundEnabledChange = onSoundEnabledChange,
+                )
+            }
+            FilledTonalIconButton(
+                onClick = onOpenSettings,
+                shapes = IconButtonDefaults.shapes(),
+                modifier = Modifier.testTag("open-settings"),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = stringResource(R.string.settings),
+                )
+            }
         }
+    }
+}
+
+/**
+ * One switch for the whole viewer rather than one per camera. Which room is
+ * audible is already answered — by opening a camera, or by whose turn it is —
+ * so the only question left is whether the phone should be making noise.
+ */
+@Composable
+private fun SoundToggle(
+    soundEnabled: Boolean,
+    onSoundEnabledChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    FilledTonalIconButton(
+        onClick = { onSoundEnabledChange(!soundEnabled) },
+        shapes = IconButtonDefaults.shapes(),
+        modifier = modifier.testTag("toggle-sound"),
+    ) {
+        Icon(
+            painter = painterResource(
+                if (soundEnabled) R.drawable.ic_volume_up else R.drawable.ic_volume_off,
+            ),
+            contentDescription = stringResource(
+                if (soundEnabled) R.string.viewer_sound_off else R.string.viewer_sound_on,
+            ),
+        )
     }
 }
 
@@ -212,6 +320,8 @@ private fun CameraLayout(
     sources: Map<String, StreamSource>,
     controllerFactory: (StreamSource) -> VideoPlayerController,
     networkOnline: Boolean,
+    audibleCameraId: String?,
+    gridState: LazyGridState,
     onFullscreen: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -222,6 +332,7 @@ private fun CameraLayout(
             else -> 1
         }.coerceAtMost(cameras.size)
         LazyVerticalGrid(
+            state = gridState,
             columns = GridCells.Fixed(columns),
             verticalArrangement = Arrangement.spacedBy(2.dp),
             horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -230,18 +341,35 @@ private fun CameraLayout(
                 .testTag("camera-list-$columns"),
         ) {
             items(cameras, key = { it.id }) { camera ->
-                CameraTile(
-                    camera = camera,
-                    source = sources[camera.id],
-                    controllerFactory = controllerFactory,
-                    networkOnline = networkOnline,
-                    onClick = { onFullscreen(camera.id) },
-                    // Tiles keep a 16:9 box; the picture letterboxes inside it,
-                    // so a 4:3 camera still shows its whole frame.
+                val audible = camera.id == audibleCameraId
+                // Tiles keep a 16:9 box; the picture letterboxes inside it, so
+                // a 4:3 camera still shows its whole frame.
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(16f / 9f),
-                )
+                ) {
+                    CameraTile(
+                        camera = camera,
+                        source = sources[camera.id],
+                        controllerFactory = controllerFactory,
+                        networkOnline = networkOnline,
+                        audible = audible,
+                        onClick = { onFullscreen(camera.id) },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    // Drawn over the tile rather than around it: the tile paints
+                    // its own black background, which would cover an outline
+                    // that arrived earlier in the chain. Takes no pointer input,
+                    // so the tap still reaches the camera underneath.
+                    if (audible) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .border(2.dp, MaterialTheme.colorScheme.primary),
+                        )
+                    }
+                }
             }
         }
     }

@@ -1,7 +1,9 @@
 package app.dozecam
 
+import android.media.AudioManager
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -25,5 +27,13 @@ class MainActivityTest {
         composeRule.onNodeWithTag("open-settings").assertExists()
         composeRule.onNodeWithTag("camera-name-field").assertDoesNotExist()
         composeRule.onNodeWithTag("threshold-slider").assertDoesNotExist()
+    }
+
+    @Test
+    fun `the volume keys reach for the cameras, not the ringer`() {
+        // Camera audio comes and goes as the sound moves round the grid, and
+        // the default routing follows whatever happens to be playing — so the
+        // rocker would silently adjust the ringer between turns.
+        assertEquals(AudioManager.STREAM_MUSIC, composeRule.activity.volumeControlStream)
     }
 }

@@ -39,6 +39,15 @@
      `Dialog` callbacks auto-answer the self-signed-certificate questions;
      verify the handshake completes and video renders (wake-on-sound
      deliberately refuses rtsps — Media3 has no RTSP TLS),
+   - viewer sound: switch it on, confirm one grid tile at a time is audible
+     and carries the speaker badge, that the badge and the sound move on
+     together every 10 s, and that a camera opened on its own keeps it. Check
+     the media volume first — a muted STREAM_MUSIC looks exactly like broken
+     audio. `adb logcat | grep Dozecam` reports what a Protect livestream
+     camera offered and what the player selected, which is the difference
+     between a camera with no microphone and audio that failed to decode,
+   - audio focus: with sound on, start music in another app and confirm the
+     cameras go quiet and the switch turns itself off,
    - wake-on-sound end to end with the screen off (grant full-screen-intent
      special access when prompted on Android 14+),
    - battery-optimization exemption flow on at least one aggressive OEM

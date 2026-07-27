@@ -16,6 +16,12 @@ data class AppSettings(
     val alertChime: Boolean = true,
     val alertVibrate: Boolean = true,
     val orientationLock: OrientationLock = OrientationLock.AUTO,
+    /**
+     * Whether the viewer may play camera audio. Off until asked for, and
+     * remembered: a viewer that comes back talking after a restart — or after
+     * the alert that woke the screen — is a surprise nobody asked for twice.
+     */
+    val viewerSound: Boolean = false,
 )
 
 interface AppSettingsStore {
@@ -36,6 +42,7 @@ class AppSettingsRepository(private val dataStore: DataStore<Preferences>) : App
             prefs[KEY_ALERT_CHIME] = next.alertChime
             prefs[KEY_ALERT_VIBRATE] = next.alertVibrate
             prefs[KEY_ORIENTATION] = next.orientationLock.name
+            prefs[KEY_VIEWER_SOUND] = next.viewerSound
         }
     }
 
@@ -48,6 +55,7 @@ class AppSettingsRepository(private val dataStore: DataStore<Preferences>) : App
             orientationLock = prefs[KEY_ORIENTATION]
                 ?.let { stored -> OrientationLock.entries.firstOrNull { it.name == stored } }
                 ?: defaults.orientationLock,
+            viewerSound = prefs[KEY_VIEWER_SOUND] ?: defaults.viewerSound,
         )
     }
 
@@ -56,5 +64,6 @@ class AppSettingsRepository(private val dataStore: DataStore<Preferences>) : App
         val KEY_ALERT_CHIME = booleanPreferencesKey("alert_chime")
         val KEY_ALERT_VIBRATE = booleanPreferencesKey("alert_vibrate")
         val KEY_ORIENTATION = stringPreferencesKey("orientation_lock")
+        val KEY_VIEWER_SOUND = booleanPreferencesKey("viewer_sound")
     }
 }

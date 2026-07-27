@@ -1,12 +1,16 @@
 package app.dozecam.player
 
 import android.content.Context
+import android.util.Log
 import android.view.SurfaceView
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.exoplayer.DecoderCounters
 import androidx.media3.exoplayer.ExoPlayer
@@ -38,7 +42,20 @@ class LivestreamVideoPlayerController(
     private val provider: ProtectLivestreamProvider,
 ) : VideoPlayerController {
 
-    private val player = ExoPlayer.Builder(context).build()
+    private val player = ExoPlayer.Builder(context)
+        // Declared rather than left to default so the stream is routed and
+        // volume-keyed as media. Focus is deliberately not handled here: the
+        // viewer owns one focus request for the whole screen, and a grid that
+        // hands the sound from camera to camera would otherwise take and give
+        // back focus every few seconds.
+        .setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(C.USAGE_MEDIA)
+                .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                .build(),
+            /* handleAudioFocus = */ false,
+        )
+        .build()
     private val surfaceView = SurfaceView(context)
 
     /**
@@ -81,6 +98,33 @@ class LivestreamVideoPlayerController(
                     Player.STATE_BUFFERING -> listener?.invoke(PlayerEvent.Buffering)
                     Player.STATE_ENDED -> listener?.invoke(PlayerEvent.Stopped)
                     else -> Unit
+                }
+            }
+
+            /**
+             * Says out loud whether this stream actually carries sound, and
+             * whether the audio track was selected. A camera with no audio
+             * track and a camera whose audio quietly failed to decode look
+             * identical from the outside — silence — so the difference is
+             * worth one line in the log per connection.
+             */
+            override fun onTracksChanged(tracks: Tracks) {
+                val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+                if (audio.isEmpty()) {
+                    Log.i(TAG, "livestream carries no audio track")
+                    return
+                }
+                for (group in audio) {
+                    for (i in 0 until group.length) {
+                        val format = group.getTrackFormat(i)
+                        Log.i(
+                            TAG,
+                            "livestream audio ${format.sampleMimeType} " +
+                                "${format.sampleRate}Hz ${format.channelCount}ch " +
+                                "selected=${group.isTrackSelected(i)} " +
+                                "supported=${group.isTrackSupported(i)}",
+                        )
+                    }
                 }
             }
 
@@ -131,6 +175,11 @@ class LivestreamVideoPlayerController(
             socket = ProtectLivestreamSocket(
                 httpClient = negotiated.client,
                 onBytes = pipe::offer,
+                // The console names the codecs it is about to send, and until
+                // now that was read and thrown away. Logged, it is the other
+                // half of the audio picture: what was offered, against what
+                // the extractor and decoder made of it.
+                onCodec = { Log.i(TAG, "console codec string: $it") },
                 onFailure = { cause ->
                     pipe.fail(cause)
                     // The pipe only surfaces this once ExoPlayer next reads;
@@ -210,5 +259,6 @@ class LivestreamVideoPlayerController(
         /** The pipe is the real source; ExoPlayer only needs a stable identity. */
         const val LIVESTREAM_URI = "dozecam://livestream"
         const val FRAME_POLL_MS = 500L
+        const val TAG = "Dozecam"
     }
 }

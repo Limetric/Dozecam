@@ -3,6 +3,7 @@ package app.dozecam
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.media.AudioManager
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -19,6 +20,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import app.dozecam.audio.ViewerAudioFocus
 import app.dozecam.data.AppSettings
 import app.dozecam.data.OrientationLock
 import app.dozecam.monitoring.MonitoringStarter
@@ -36,6 +38,9 @@ import app.dozecam.ui.settings.SettingsActivity
 import app.dozecam.ui.theme.DozecamTheme
 import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -55,6 +60,13 @@ class MainActivity : ComponentActivity() {
 
     private val monitoringStarter = MonitoringStarter(this)
 
+    /**
+     * Losing focus for good is treated as the user's own switch being turned
+     * off, so the viewer comes back silent rather than jumping back in when
+     * whatever took the speaker is finished with it.
+     */
+    private val audioFocus by lazy { ViewerAudioFocus(this) { setViewerSound(false) } }
+
     // Nothing in the app can reach the LAN without this, so ask up front rather
     // than letting the first console or stream connection time out.
     private val localNetworkPermission = registerForActivityResult(
@@ -70,6 +82,11 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         enableEdgeToEdge()
 
+        // Without this the volume rocker adjusts the ring stream whenever no
+        // camera happens to be audible — so the one gesture for "make this
+        // quieter" would change the wrong thing at exactly the wrong moment.
+        volumeControlStream = AudioManager.STREAM_MUSIC
+
         val networkMonitor = NetworkMonitor(applicationContext)
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -83,6 +100,38 @@ class MainActivity : ComponentActivity() {
                     OrientationLock.AUTO -> ActivityInfo.SCREEN_ORIENTATION_SENSOR
                     OrientationLock.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
                     OrientationLock.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                }
+            }
+        }
+
+        // One focus request for the whole viewer, held for exactly as long as
+        // it is allowed to make noise. Going to the background silences the
+        // players anyway, so holding on past that would leave every other app
+        // ducked for a viewer nobody can hear — and so would keeping it while
+        // there is no camera on to produce a sound in the first place. The
+        // switch itself survives either: turning a camera back on picks the
+        // focus up again rather than making the user ask twice.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                try {
+                    combine(
+                        appContainer.appSettings.settings.map { it.viewerSound },
+                        appContainer.cameras.enabledCameras.map { it.isNotEmpty() },
+                    ) { soundOn, anyCameras -> soundOn && anyCameras }
+                        .distinctUntilChanged()
+                        .collect { wanted ->
+                            when {
+                                !wanted -> audioFocus.release()
+                                // Refused means something else owns the
+                                // speaker. Switching back off is the honest
+                                // answer: a sound button that is on while the
+                                // phone stays silent is worse than one that
+                                // did not take.
+                                !audioFocus.request() -> setViewerSound(false)
+                            }
+                        }
+                } finally {
+                    audioFocus.release()
                 }
             }
         }
@@ -111,6 +160,7 @@ class MainActivity : ComponentActivity() {
                 val disabledOnly by viewModel.hasDisabledOnly.collectAsStateWithLifecycle()
                 val online by networkOnline.collectAsStateWithLifecycle()
                 val alertCamera by alertCameraId.collectAsStateWithLifecycle()
+                val soundGranted by audioFocus.granted.collectAsStateWithLifecycle()
 
                 // Coming back to the front may mean a different console was
                 // signed in while we were away.
@@ -139,6 +189,15 @@ class MainActivity : ComponentActivity() {
                     hasDisabledOnly = disabledOnly,
                     onOpenSettings = { startActivity(SettingsActivity.intent(this)) },
                     onOpenOnboarding = { startActivity(OnboardingActivity.intent(this)) },
+                    soundEnabled = appSettings.viewerSound,
+                    onSoundEnabledChange = ::setViewerSound,
+                    // The cameras follow the focus we actually hold, not the
+                    // switch: a call or a navigation prompt silences them
+                    // without touching it, and they come back on their own
+                    // once the interruption is over. Sound the user has just
+                    // asked for likewise waits for the request to be granted
+                    // rather than starting on the strength of the setting.
+                    soundGranted = soundGranted,
                     alertCameraId = alertCamera,
                     onAlertConsumed = { alertCameraId.value = null },
                     onFullscreenChange = ::applyImmersiveMode,
@@ -229,6 +288,13 @@ class MainActivity : ComponentActivity() {
      */
     private suspend fun autoArm() {
         if (appContainer.shouldArmMonitoring(this)) monitoringStarter.startWithAlertPermissions()
+    }
+
+    /** Remembered, so the viewer opens the way it was last left. */
+    private fun setViewerSound(enabled: Boolean) {
+        lifecycleScope.launch {
+            appContainer.appSettings.update { it.copy(viewerSound = enabled) }
+        }
     }
 
 

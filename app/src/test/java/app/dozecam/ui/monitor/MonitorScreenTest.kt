@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -63,6 +64,10 @@ class MonitorScreenTest {
 
     private val controllers = mutableListOf<FakeController>()
 
+    /** The player that ended up playing [camera], whatever order tiles were built in. */
+    private fun controllerFor(camera: Camera): FakeController =
+        controllers.last { (it.played as? StreamSource.Rtsp)?.url == camera.url }
+
     private fun sourcesFor(vararg cameras: Camera) =
         cameras.associate { it.id to StreamSource.Rtsp(it.url) as StreamSource }
 
@@ -73,6 +78,10 @@ class MonitorScreenTest {
         hasDisabledOnly: Boolean = false,
         onOpenSettings: () -> Unit = {},
         onOpenOnboarding: () -> Unit = {},
+        soundEnabled: Boolean = false,
+        onSoundEnabledChange: (Boolean) -> Unit = {},
+        soundGranted: Boolean = true,
+        soundRotationIntervalMs: Long = ROTATION_MS,
         alertCameraId: String? = null,
         onAlertConsumed: () -> Unit = {},
         onFullscreenChange: (Boolean) -> Unit = {},
@@ -88,6 +97,10 @@ class MonitorScreenTest {
                 hasDisabledOnly = hasDisabledOnly,
                 onOpenSettings = onOpenSettings,
                 onOpenOnboarding = onOpenOnboarding,
+                soundEnabled = soundEnabled,
+                onSoundEnabledChange = onSoundEnabledChange,
+                soundGranted = soundGranted,
+                soundRotationIntervalMs = soundRotationIntervalMs,
                 alertCameraId = alertCameraId,
                 onAlertConsumed = onAlertConsumed,
                 onFullscreenChange = onFullscreenChange,
@@ -174,10 +187,11 @@ class MonitorScreenTest {
     }
 
     @Test
-    fun `the viewer offers settings and nothing else`() {
+    fun `the viewer offers settings and sound and nothing else`() {
         composeRule.setContent { Screen(cameras = listOf(nursery)) }
 
         composeRule.onNodeWithTag("open-settings").assertExists()
+        composeRule.onNodeWithTag("toggle-sound").assertExists()
         // Arming lives in settings now; the viewer is for watching.
         composeRule.onNodeWithTag("monitoring-switch").assertDoesNotExist()
         composeRule.onNodeWithTag("audio-level-meter").assertDoesNotExist()
@@ -329,10 +343,14 @@ class MonitorScreenTest {
     }
 
     @Test
-    fun `a camera opened on its own is audible`() {
+    fun `a camera opened on its own is audible once sound is on`() {
         controllers.clear()
         composeRule.setContent {
-            Screen(cameras = listOf(nursery, playroom), alertCameraId = "b")
+            Screen(
+                cameras = listOf(nursery, playroom),
+                soundEnabled = true,
+                alertCameraId = "b",
+            )
         }
         composeRule.waitForIdle()
 
@@ -340,7 +358,229 @@ class MonitorScreenTest {
         assertEquals(false, controllers.last().muted)
     }
 
+    @Test
+    fun `a camera opened by an alert stays silent until sound is asked for`() {
+        controllers.clear()
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery, playroom), alertCameraId = "b")
+        }
+        composeRule.waitForIdle()
+
+        // The screen can come on by itself, over a lock screen, in the middle
+        // of the night. It must not start talking by itself as well.
+        assertEquals(true, controllers.last().muted)
+        assertEquals(true, controllers.last().mutedWhenPlayed)
+    }
+
+    @Test
+    fun `the sound button hands the choice back rather than deciding`() {
+        var asked: Boolean? = null
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery), onSoundEnabledChange = { asked = it })
+        }
+
+        composeRule.onNodeWithTag("toggle-sound").performClick()
+
+        assertEquals(true, asked)
+    }
+
+    @Test
+    fun `the sound button is reachable on a single camera too`() {
+        var asked: Boolean? = null
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery, playroom),
+                soundEnabled = true,
+                onSoundEnabledChange = { asked = it },
+                alertCameraId = "b",
+            )
+        }
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+
+        composeRule.onNodeWithTag("toggle-sound").performClick()
+
+        // Otherwise the camera an alert opened could only be silenced by
+        // leaving it, which is the one thing the user does not want to do.
+        assertEquals(false, asked)
+    }
+
+    @Test
+    @Config(qualifiers = TABLET_SCREEN)
+    fun `the grid gives the sound to one camera at a time`() {
+        controllers.clear()
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery, playroom, hall), soundEnabled = true)
+        }
+        composeRule.waitUntil { controllers.size == 3 }
+
+        composeRule.waitUntil { controllerFor(nursery).muted == false }
+        assertEquals(true, controllerFor(playroom).muted)
+        assertEquals(true, controllerFor(hall).muted)
+        // Every tile still starts silent; the turn is granted afterwards.
+        assertTrue(controllers.all { it.mutedWhenPlayed == true })
+    }
+
+    @Test
+    @Config(qualifiers = TABLET_SCREEN)
+    fun `the sound moves on to the next camera when the turn is up`() {
+        controllers.clear()
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery, playroom, hall), soundEnabled = true)
+        }
+        composeRule.waitUntil { controllers.size == 3 }
+        composeRule.waitUntil { controllerFor(nursery).muted == false }
+
+        composeRule.mainClock.advanceTimeBy(ROTATION_MS + 1)
+
+        composeRule.waitUntil { controllerFor(playroom).muted == false }
+        assertEquals(true, controllerFor(nursery).muted)
+        assertEquals(true, controllerFor(hall).muted)
+    }
+
+    @Test
+    @Config(qualifiers = TABLET_SCREEN)
+    fun `the audible camera says so on screen`() {
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery, playroom), soundEnabled = true)
+        }
+
+        // Sound with no visible source is indistinguishable from the wrong
+        // camera being open.
+        // Unmerged: the tile is clickable, which merges its children's
+        // semantics into the tile's own node.
+        composeRule.onNodeWithTag("audible-badge-Nursery", useUnmergedTree = true)
+            .assertIsDisplayed()
+        composeRule.onNodeWithTag("audible-badge-Play room", useUnmergedTree = true)
+            .assertDoesNotExist()
+    }
+
+    @Test
+    @Config(qualifiers = TABLET_SCREEN)
+    fun `sound switched off leaves every tile silent and unmarked`() {
+        controllers.clear()
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery, playroom), soundEnabled = false)
+        }
+        composeRule.waitUntil { controllers.size == 2 }
+
+        assertTrue(controllers.all { it.muted == true })
+        composeRule.onNodeWithTag("audible-badge-Nursery", useUnmergedTree = true)
+            .assertDoesNotExist()
+    }
+
+    @Test
+    @Config(qualifiers = TABLET_SCREEN)
+    fun `an interruption silences the cameras without touching the switch`() {
+        controllers.clear()
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery, playroom),
+                soundEnabled = true,
+                soundGranted = false,
+            )
+        }
+        composeRule.waitUntil { controllers.size == 2 }
+
+        assertTrue(controllers.all { it.muted == true })
+        // The button still shows the user's own choice, so a tap during a call
+        // silences the viewer rather than setting it to what it already was.
+        composeRule.onNodeWithTag("toggle-sound")
+            .assertContentDescriptionEquals("Turn sound off")
+    }
+
+    @Test
+    @Config(qualifiers = TABLET_SCREEN)
+    fun `a camera on its own keeps the sound rather than losing its turn`() {
+        controllers.clear()
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery, playroom),
+                soundEnabled = true,
+                alertCameraId = "a",
+            )
+        }
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+        composeRule.waitUntil { controllerFor(nursery).muted == false }
+
+        composeRule.mainClock.advanceTimeBy(ROTATION_MS * 4)
+
+        // Rotation is a grid problem. A camera opened on its own — often by an
+        // alert — must not fall silent because a timer said its turn was over.
+        assertEquals(false, controllerFor(nursery).muted)
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+    }
+
+    @Test
+    @Config(qualifiers = TABLET_SCREEN)
+    fun `switching sound off mid-round silences the camera holding it`() {
+        controllers.clear()
+        var sound by mutableStateOf(true)
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery, playroom), soundEnabled = sound)
+        }
+        composeRule.waitUntil { controllers.size == 2 }
+        composeRule.waitUntil { controllerFor(nursery).muted == false }
+
+        composeRule.runOnIdle { sound = false }
+
+        composeRule.waitUntil { controllerFor(nursery).muted == true }
+        composeRule.onNodeWithTag("audible-badge-Nursery", useUnmergedTree = true)
+            .assertDoesNotExist()
+    }
+
+    @Test
+    @Config(qualifiers = TABLET_SCREEN)
+    fun `a camera that goes away hands its turn on instead of taking it with it`() {
+        controllers.clear()
+        var shown by mutableStateOf(listOf(nursery, playroom))
+        composeRule.setContent { Screen(cameras = shown, soundEnabled = true) }
+        composeRule.waitUntil { controllers.size == 2 }
+        composeRule.waitUntil { controllerFor(nursery).muted == false }
+
+        // Switched off in settings, or deleted, while it held the sound.
+        composeRule.runOnIdle { shown = listOf(playroom) }
+
+        composeRule.waitUntil { controllerFor(playroom).muted == false }
+        composeRule.onNodeWithTag("audible-badge-Play room", useUnmergedTree = true)
+            .assertIsDisplayed()
+    }
+
+    @Test
+    @Config(qualifiers = SHORT_SCREEN)
+    fun `a camera scrolled off the grid is skipped rather than given a silent turn`() {
+        controllers.clear()
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery, playroom, hall), soundEnabled = true)
+        }
+        composeRule.waitUntil { controllerFor(nursery).muted == false }
+        // Only two tiles fit; the third has no player at all.
+        composeRule.onNodeWithTag("camera-tile-Hall").assertDoesNotExist()
+
+        composeRule.mainClock.advanceTimeBy(ROTATION_MS + 1)
+        composeRule.waitUntil { controllerFor(playroom).muted == false }
+        composeRule.mainClock.advanceTimeBy(ROTATION_MS + 1)
+
+        // Back to the top rather than ten seconds of silence over a badge that
+        // is itself off screen.
+        composeRule.waitUntil { controllerFor(nursery).muted == false }
+        assertEquals(true, controllerFor(playroom).muted)
+    }
+
+    @Test
+    fun `an empty viewer offers setup rather than a switch for sound`() {
+        composeRule.setContent { Screen(cameras = emptyList()) }
+
+        composeRule.onNodeWithTag("toggle-sound").assertDoesNotExist()
+        composeRule.onNodeWithTag("open-settings").assertExists()
+    }
+
     private companion object {
+        /** Short enough that a turn passing is not a slow test. */
+        const val ROTATION_MS = 200L
+
+        /** One column, and only room for two 16:9 tiles: the third must scroll. */
+        const val SHORT_SCREEN = "w400dp-h400dp"
+
         /** Wide enough for three columns. */
         const val TABLET_SCREEN = "w1200dp-h900dp"
 

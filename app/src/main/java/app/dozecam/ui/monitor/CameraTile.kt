@@ -6,6 +6,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,16 +24,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import app.dozecam.R
 import app.dozecam.data.Camera
 import app.dozecam.player.ConnectionState
 import app.dozecam.player.PlaybackWatchdog
 import app.dozecam.player.StreamSource
 import app.dozecam.player.VideoPlayerController
+import app.dozecam.ui.theme.LocalNightTheme
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
@@ -54,11 +61,13 @@ fun CameraTile(
     modifier: Modifier = Modifier,
     showLabel: Boolean = true,
     /**
-     * Silent by default: several tiles play at once, and several rooms talking
-     * over each other is worse than none. Only a camera singled out on its own
-     * is worth hearing.
+     * Whether this tile is the one being listened to. Silent by default:
+     * several tiles play at once, and several rooms talking over each other is
+     * worse than none, so only the camera holding the sound is ever audible —
+     * and it says so on screen, because sound with no visible source is
+     * indistinguishable from the wrong camera being open.
      */
-    muted: Boolean = true,
+    audible: Boolean = false,
     onClick: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
@@ -73,7 +82,7 @@ fun CameraTile(
     // exactly what the watchdog exists to absorb, so a flapping Wi-Fi must feed
     // it events, not tear the player down and build a new one.
     val online by rememberUpdatedState(networkOnline)
-    val silent by rememberUpdatedState(muted)
+    val listening by rememberUpdatedState(audible)
 
     // Keyed by everything a session depends on: a URL edit or a transport
     // change means the running session is stale and must be rebuilt.
@@ -110,9 +119,9 @@ fun CameraTile(
             // decoder running behind the camera being looked at — and cheap on
             // a LAN, where reconnecting costs about as long as the 150ms of
             // caching the player asks for anyway.
-            controller.setMuted(silent)
+            controller.setMuted(!listening)
             val muteJob = launch {
-                snapshotFlow { silent }.drop(1).collect(controller::setMuted)
+                snapshotFlow { listening }.drop(1).collect { controller.setMuted(!it) }
             }
             controller.play(resolved)
             try {
@@ -143,6 +152,14 @@ fun CameraTile(
             lastFrameAtMs = lastFrameAtMs,
             modifier = Modifier.align(Alignment.TopStart),
         )
+        if (audible) {
+            AudibleBadge(
+                cameraName = camera.name,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(12.dp),
+            )
+        }
         if (showLabel) {
             Text(
                 text = camera.name,
@@ -160,4 +177,25 @@ fun CameraTile(
             )
         }
     }
+}
+
+/**
+ * Marks the camera the sound is coming from. In a grid the sound moves on a
+ * timer, so without this the user hears a room and has to guess which one —
+ * and guessing wrong is the entire failure mode a baby monitor cannot afford.
+ */
+@Composable
+private fun AudibleBadge(cameraName: String, modifier: Modifier = Modifier) {
+    val night = LocalNightTheme.current
+    val colorScheme = MaterialTheme.colorScheme
+    Icon(
+        painter = painterResource(R.drawable.ic_volume_up),
+        contentDescription = stringResource(R.string.viewer_audible_camera, cameraName),
+        tint = if (night) colorScheme.primary else Color.White,
+        modifier = modifier
+            .background(colorScheme.scrim.copy(alpha = 0.55f), CircleShape)
+            .padding(8.dp)
+            .size(20.dp)
+            .testTag("audible-badge-$cameraName"),
+    )
 }
