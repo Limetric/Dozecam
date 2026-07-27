@@ -26,11 +26,13 @@ import app.dozecam.player.StreamSource
 import app.dozecam.player.VideoPlayerController
 import app.dozecam.player.VlcVideoPlayerController
 import app.dozecam.ui.theme.DozecamTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MonitorActivity : ComponentActivity() {
 
@@ -38,6 +40,9 @@ class MonitorActivity : ComponentActivity() {
     private lateinit var watchdog: PlaybackWatchdog
 
     private val streamUrl = MutableStateFlow("")
+
+    /** Latest known connectivity, re-delivered to each new playback session. */
+    private var networkOnline = true
 
     // Cached per transport rather than per camera: building either player is
     // expensive, and switching cameras only ever needs one of the two.
@@ -95,6 +100,7 @@ class MonitorActivity : ComponentActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 networkMonitor.isOnline.collect { online ->
+                    networkOnline = online
                     if (online) watchdog.onNetworkAvailable() else watchdog.onNetworkLost()
                 }
             }
@@ -121,6 +127,12 @@ class MonitorActivity : ComponentActivity() {
                     controller.listener = watchdog::onPlayerEvent
                     controller.attach(videoContainer)
                     watchdog.start()
+                    // start() discards whatever was queued while stopped, and
+                    // assumes the network is up. Coming to the foreground while
+                    // already offline, the collector's NetworkDown lands in that
+                    // window — leaving the monitor retrying as "reconnecting"
+                    // forever, since NetworkMonitor only speaks up on a change.
+                    if (networkOnline) watchdog.onNetworkAvailable() else watchdog.onNetworkLost()
                     controller.play(source)
                     try {
                         awaitCancellation()
@@ -158,11 +170,14 @@ class MonitorActivity : ComponentActivity() {
      * the only transport that carries an AV1 encode. A URL the user typed has
      * no console behind it, so it stays on RTSP.
      */
-    private suspend fun sourceFor(url: String): StreamSource =
-        appContainer.cameras.cameras.first()
-            .firstOrNull { it.url == url }
-            ?.let { StreamSource.of(it) }
-            ?: StreamSource.Rtsp(url)
+    private suspend fun sourceFor(url: String): StreamSource {
+        val camera = appContainer.cameras.cameras.first().firstOrNull { it.url == url }
+            ?: return StreamSource.Rtsp(url)
+        val console = withContext(Dispatchers.IO) {
+            appContainer.protectCredentials.load()?.host
+        }
+        return StreamSource.of(camera, console)
+    }
 
     /**
      * The transport chosen for the running session. A reconnect must reuse it:

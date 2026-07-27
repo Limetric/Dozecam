@@ -165,6 +165,14 @@ class OnboardingViewModel(
         }
     }
 
+    /**
+     * The console these cameras belong to, in the same form [saveCredentials]
+     * stores, so playback can tell whether the signed-in console is the one
+     * that issued a camera.
+     */
+    private val consoleHost: String
+        get() = _state.value.host.trim()
+
     private suspend fun importPublic(source: Discovery.Public, selected: Set<String>): Int {
         var imported = 0
         for (camera in source.cameras) {
@@ -188,7 +196,7 @@ class OnboardingViewModel(
                     id = "protect-${camera.id}-$MEDIUM_CHANNEL_ID",
                     name = camera.displayName,
                     url = url,
-                    protect = ProtectStream(camera.id, MEDIUM_CHANNEL_ID),
+                    protect = ProtectStream(camera.id, MEDIUM_CHANNEL_ID, consoleHost),
                 ),
             )
             imported++
@@ -217,7 +225,7 @@ class OnboardingViewModel(
                     id = "protect-${camera.id}-${channel.id}",
                     name = camera.name.ifBlank { "Camera" },
                     url = source.api.rtspUrlFor(alias),
-                    protect = ProtectStream(camera.id, channel.id),
+                    protect = ProtectStream(camera.id, channel.id, consoleHost),
                 ),
             )
             imported++

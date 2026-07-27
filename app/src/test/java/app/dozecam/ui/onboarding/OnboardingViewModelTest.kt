@@ -279,8 +279,12 @@ class OnboardingViewModelTest {
         // Same id the private path produces, so re-onboarding updates in place.
         assertEquals("protect-cam1-1", imported.id)
         // Carries the console identity, without which the monitor cannot pick
-        // the livestream transport and an AV1 camera stays black.
-        assertEquals(ProtectStream("cam1", 1), imported.protect)
+        // the livestream transport and an AV1 camera stays black — including
+        // which console issued it, so a later re-onboard cannot mis-route it.
+        assertEquals(
+            ProtectStream("cam1", 1, consoleHost = "127.0.0.1:${server.port}"),
+            imported.protect,
+        )
     }
 
     @Test
@@ -416,7 +420,10 @@ class OnboardingViewModelTest {
             .step as OnboardingStep.Done
         assertEquals(1, done.importedCount)
         assertEquals("rtsp://127.0.0.1:7447/aliasM", cameraStore.stored.value.single().url)
-        assertEquals(ProtectStream("cam1", 1), cameraStore.stored.value.single().protect)
+        assertEquals(
+            ProtectStream("cam1", 1, consoleHost = "127.0.0.1:${server.port}"),
+            cameraStore.stored.value.single().protect,
+        )
         assertEquals(2, console.pathsFor("POST").count { it == LOGIN })
     }
 

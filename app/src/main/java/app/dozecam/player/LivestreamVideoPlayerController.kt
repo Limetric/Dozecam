@@ -7,6 +7,7 @@ import android.widget.FrameLayout
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.exoplayer.DecoderCounters
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.extractor.ExtractorsFactory
@@ -43,6 +44,9 @@ class LivestreamVideoPlayerController(
     private var connection: Job? = null
     private var frameWatch: Job? = null
     private var renderedFrames = 0
+
+    /** Identity of the decoder the count belongs to; a swap means rebase. */
+    private var counters: DecoderCounters? = null
 
     override var listener: ((PlayerEvent) -> Unit)? = null
 
@@ -131,6 +135,7 @@ class LivestreamVideoPlayerController(
         player.stop()
         player.clearMediaItems()
         renderedFrames = 0
+        counters = null
     }
 
     override fun release() {
@@ -146,17 +151,27 @@ class LivestreamVideoPlayerController(
      */
     private fun watchFrames() {
         frameWatch = scope.launch {
-            // Baseline from the live counter rather than zero: if ExoPlayer
-            // carries counters across a re-prepare, starting at zero would read
-            // the previous session's frames as proof this one is rendering —
-            // reinstating the very lie this watch exists to prevent.
-            renderedFrames = player.videoDecoderCounters?.renderedOutputBufferCount ?: 0
             while (isActive) {
                 delay(FRAME_POLL_MS)
-                val rendered = player.videoDecoderCounters?.renderedOutputBufferCount ?: 0
-                if (rendered > renderedFrames) {
-                    renderedFrames = rendered
-                    listener?.invoke(PlayerEvent.TimeChanged(player.currentPosition))
+                val current = player.videoDecoderCounters
+                val rendered = current?.renderedOutputBufferCount ?: 0
+                when {
+                    // A reconnect builds a fresh decoder whose count restarts,
+                    // and ExoPlayer swaps the counters on its own thread well
+                    // after stop() returns. Comparing across that boundary
+                    // either reads the old session's frames as proof this one
+                    // is rendering, or — if the old count was higher — pins the
+                    // baseline above anything the new decoder can reach, so no
+                    // frame ever counts and the stream reconnects forever.
+                    current !== counters || rendered < renderedFrames -> {
+                        counters = current
+                        renderedFrames = rendered
+                    }
+
+                    rendered > renderedFrames -> {
+                        renderedFrames = rendered
+                        listener?.invoke(PlayerEvent.TimeChanged(player.currentPosition))
+                    }
                 }
             }
         }

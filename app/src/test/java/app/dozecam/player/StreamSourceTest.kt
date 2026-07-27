@@ -65,4 +65,69 @@ class StreamSourceTest {
 
         assertEquals(StreamSource.Livestream("current", 2), StreamSource.of(camera))
     }
+
+    @Test
+    fun `a camera from another console falls back to its own RTSP url`() {
+        // Onboarding a second console overwrites the single credentials slot
+        // but leaves the first console's cameras in place. Negotiating their
+        // ids against the new console cannot work; their RTSP URL still can.
+        val camera = Camera(
+            id = "protect-cam1-1",
+            name = "Nursery",
+            url = "rtsp://old-console:7447/alias",
+            protect = ProtectStream("cam1", 1, consoleHost = "old-console"),
+        )
+
+        assertEquals(
+            StreamSource.Rtsp("rtsp://old-console:7447/alias"),
+            StreamSource.of(camera, consoleHost = "new-console"),
+        )
+    }
+
+    @Test
+    fun `a camera from the signed-in console uses the livestream`() {
+        val camera = Camera(
+            id = "protect-cam1-1",
+            name = "Nursery",
+            url = "rtsp://console:7447/alias",
+            protect = ProtectStream("cam1", 1, consoleHost = "console"),
+        )
+
+        assertEquals(
+            StreamSource.Livestream("cam1", 1),
+            StreamSource.of(camera, consoleHost = "console"),
+        )
+    }
+
+    @Test
+    fun `a mismatch does not fall through to the id-derived identity`() {
+        // The id encodes the same camera, so a fall-through would negotiate
+        // exactly the wrong camera the ownership check just rejected.
+        val camera = Camera(
+            id = "protect-cam1-1",
+            name = "Nursery",
+            url = "rtsp://old:7447/alias",
+            protect = ProtectStream("cam1", 1, consoleHost = "old"),
+        )
+
+        assertEquals(
+            StreamSource.Rtsp("rtsp://old:7447/alias"),
+            StreamSource.of(camera, consoleHost = "new"),
+        )
+    }
+
+    @Test
+    fun `a camera stored before ownership was recorded is still played`() {
+        val camera = Camera(
+            id = "protect-cam1-1",
+            name = "Nursery",
+            url = "rtsp://console:7447/alias",
+            protect = ProtectStream("cam1", 1, consoleHost = null),
+        )
+
+        assertEquals(
+            StreamSource.Livestream("cam1", 1),
+            StreamSource.of(camera, consoleHost = "console"),
+        )
+    }
 }

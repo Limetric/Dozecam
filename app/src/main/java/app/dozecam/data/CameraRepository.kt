@@ -28,6 +28,14 @@ data class ProtectStream(
     val cameraId: String,
     /** Quality channel on the console; 1 is Medium, the nursery default. */
     val channel: Int,
+    /**
+     * The console that issued [cameraId]. Only one console's credentials are
+     * stored at a time, so onboarding a second one leaves the first one's
+     * cameras behind: without this, their ids would be negotiated against the
+     * new console, which knows nothing about them. Null for cameras stored
+     * before this was recorded.
+     */
+    val consoleHost: String? = null,
 )
 
 @Serializable

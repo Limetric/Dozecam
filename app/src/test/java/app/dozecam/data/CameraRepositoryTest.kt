@@ -182,4 +182,39 @@ class CameraRepositoryTest {
         assertEquals(listOf("Nursery"), cameras.map { it.name })
         assertNull(cameras.single().protect)
     }
+
+    @Test
+    fun `the owning console survives a reload`() = runTest {
+        val prefs = securePrefs()
+        val store = dataStore()
+        repository(prefs, store).upsert(
+            Camera(
+                id = "protect-cam1-1",
+                name = "Nursery",
+                url = "rtsp://cam:7447/a",
+                protect = ProtectStream("cam1", 1, consoleHost = "console.lan"),
+            ),
+        )
+
+        val reloaded = repository(prefs, store).cameras.first().single()
+
+        assertEquals("console.lan", reloaded.protect?.consoleHost)
+    }
+
+    @Test
+    fun `a camera stored before ownership was recorded still loads`() = runTest {
+        val prefs = securePrefs()
+        prefs.edit()
+            .putString(
+                "cameras",
+                """[{"id":"a","name":"Nursery","url":"rtsp://c:7447/a",""" +
+                    """"protect":{"cameraId":"cam1","channel":1}}]""",
+            )
+            .commit()
+
+        val camera = repository(prefs).cameras.first().single()
+
+        assertEquals("cam1", camera.protect?.cameraId)
+        assertNull(camera.protect?.consoleHost)
+    }
 }

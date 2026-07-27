@@ -29,10 +29,22 @@ sealed interface StreamSource {
         /** Onboarding's id shape for a Protect camera: `protect-<cameraId>-<channel>`. */
         private val LEGACY_PROTECT_ID = Regex("""^protect-([^-]+)-(\d+)$""")
 
-        fun of(camera: Camera): StreamSource =
-            camera.protect?.let { Livestream(it.cameraId, it.channel) }
-                ?: legacyProtectIdentity(camera)
-                ?: Rtsp(camera.url)
+        /**
+         * [consoleHost] is the console currently signed in. A camera issued by
+         * a different one cannot be negotiated here, so it falls back to its
+         * own RTSP URL — which is self-contained and keeps working — rather
+         * than failing against a console that has never heard of it.
+         */
+        fun of(camera: Camera, consoleHost: String? = null): StreamSource {
+            val protect = camera.protect
+            if (protect != null) {
+                // A mismatch must not fall through to the id-derived identity
+                // below, which would negotiate the same wrong camera anyway.
+                val ours = protect.consoleHost == null || protect.consoleHost == consoleHost
+                return if (ours) Livestream(protect.cameraId, protect.channel) else Rtsp(camera.url)
+            }
+            return legacyProtectIdentity(camera) ?: Rtsp(camera.url)
+        }
 
         /**
          * Cameras onboarded before the livestream existed carry no [Camera.protect],
