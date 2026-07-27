@@ -1,0 +1,57 @@
+name: OpenCode Auth Keepalive
+
+# Refreshes the ChatGPT OAuth session used by opencode-review.yml and saves
+# it to the default-branch cache scope, which every PR run can read. Without
+# this, PR-scoped cache saves never propagate across PRs and the seeded
+# tokens (as well as the cache entries, evicted after 7 idle days) go stale.
+
+on:
+  schedule:
+    - cron: '17 6 */3 * *' # every 3 days
+  workflow_dispatch:
+
+concurrency:
+  group: opencode-auth-keepalive
+
+jobs:
+  keepalive:
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Restore opencode auth
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.local/share/opencode/auth.json
+          key: opencode-auth-${{ github.run_id }}
+          restore-keys: |
+            opencode-auth-
+
+      - name: Seed opencode auth if missing
+        env:
+          OPENCODE_AUTH_JSON: ${{ secrets.OPENCODE_AUTH_JSON }}
+        run: |
+          if [ ! -s "$HOME/.local/share/opencode/auth.json" ]; then
+            if [ -z "$OPENCODE_AUTH_JSON" ]; then
+              echo "No cached opencode auth and OPENCODE_AUTH_JSON secret is empty" >&2
+              exit 1
+            fi
+            mkdir -p "$HOME/.local/share/opencode"
+            printf '%s' "$OPENCODE_AUTH_JSON" > "$HOME/.local/share/opencode/auth.json"
+            chmod 600 "$HOME/.local/share/opencode/auth.json"
+          fi
+
+      - name: Install opencode
+        run: curl -fsSL https://opencode.ai/install | bash
+
+      - name: Refresh ChatGPT session
+        run: |
+          "$HOME/.opencode/bin/opencode" run --model openai/gpt-5.6-luna "Reply with exactly: OK"
+
+      - name: Save opencode auth
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.local/share/opencode/auth.json
+          key: opencode-auth-${{ github.run_id }}
