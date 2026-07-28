@@ -1,15 +1,23 @@
 package app.dozecam.ui.monitor
 
 import android.view.ViewGroup
+import androidx.activity.OnBackPressedDispatcher
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.dozecam.data.Camera
 import app.dozecam.player.PlayerEvent
 import app.dozecam.player.StreamSource
@@ -64,6 +72,22 @@ class MonitorScreenTest {
 
     private val controllers = mutableListOf<FakeController>()
 
+    /** A host whose state the test drives, to stand in for backgrounding the app. */
+    private class FakeLifecycleOwner : LifecycleOwner {
+        val registry = LifecycleRegistry.createUnsafe(this).apply {
+            currentState = Lifecycle.State.RESUMED
+        }
+        override val lifecycle: Lifecycle get() = registry
+    }
+
+    /** Captured from the composition, so Back can be pressed the way the system does. */
+    private var backDispatcher: OnBackPressedDispatcher? = null
+
+    private fun pressBack() {
+        composeRule.runOnUiThread { backDispatcher!!.onBackPressed() }
+        composeRule.waitForIdle()
+    }
+
     /** The player that ended up playing [camera], whatever order tiles were built in. */
     private fun controllerFor(camera: Camera): FakeController =
         controllers.last { (it.played as? StreamSource.Rtsp)?.url == camera.url }
@@ -82,11 +106,13 @@ class MonitorScreenTest {
         onSoundEnabledChange: (Boolean) -> Unit = {},
         soundGranted: Boolean = true,
         soundRotationIntervalMs: Long = ROTATION_MS,
+        inactivityTimeoutMs: Long = INACTIVITY_MS,
         alertCameraId: String? = null,
         onAlertConsumed: () -> Unit = {},
         onFullscreenChange: (Boolean) -> Unit = {},
         onAlertDismissed: () -> Unit = {},
     ) {
+        backDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
         DozecamTheme {
             MonitorScreen(
                 cameras = cameras,
@@ -101,6 +127,7 @@ class MonitorScreenTest {
                 onSoundEnabledChange = onSoundEnabledChange,
                 soundGranted = soundGranted,
                 soundRotationIntervalMs = soundRotationIntervalMs,
+                inactivityTimeoutMs = inactivityTimeoutMs,
                 alertCameraId = alertCameraId,
                 onAlertConsumed = onAlertConsumed,
                 onFullscreenChange = onFullscreenChange,
@@ -246,7 +273,7 @@ class MonitorScreenTest {
         composeRule.onNodeWithTag("fullscreen-tile").assertExists()
         assertFalse(dismissed)
 
-        composeRule.onNodeWithTag("fullscreen-tile").performClick()
+        pressBack()
 
         // The alert bought a look at one room, not at the whole house.
         composeRule.onNodeWithTag("camera-list-1").assertExists()
@@ -271,7 +298,7 @@ class MonitorScreenTest {
         composeRule.waitForIdle()
         assertFalse(dismissed)
 
-        composeRule.onNodeWithTag("fullscreen-tile").performClick()
+        pressBack()
         composeRule.onNodeWithTag("camera-list-1").assertExists()
 
         // Without this the grid would sit on the lock screen after Back.
@@ -296,21 +323,242 @@ class MonitorScreenTest {
         composeRule.waitForIdle()
         assertFalse(dismissed)
 
-        composeRule.onNodeWithTag("fullscreen-tile").performClick()
+        pressBack()
         composeRule.onNodeWithTag("camera-list-1").assertExists()
 
         assertTrue(dismissed)
     }
 
     @Test
-    fun `tapping a tile promotes it to fullscreen and tapping again returns`() {
+    fun `tapping a tile promotes it to fullscreen and back returns`() {
         composeRule.setContent { Screen(cameras = listOf(nursery, playroom)) }
 
         composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
         composeRule.onNodeWithTag("fullscreen-tile").assertExists()
 
-        composeRule.onNodeWithTag("fullscreen-tile").performClick()
+        pressBack()
         composeRule.onNodeWithTag("camera-list-1").assertExists()
+    }
+
+    @Test
+    fun `a camera left alone hands the screen back to the grid`() {
+        var wentFullscreen: Boolean? = null
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery, playroom),
+                onFullscreenChange = { wentFullscreen = it },
+            )
+        }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+
+        composeRule.mainClock.advanceTimeBy(INACTIVITY_MS + 1)
+
+        // A phone left face up on one room stopped showing the rest of the
+        // house without ever saying so.
+        composeRule.onNodeWithTag("fullscreen-tile").assertDoesNotExist()
+        composeRule.onNodeWithTag("camera-list-1").assertExists()
+        // Timing out is leaving, all the way down: the host hears the layout
+        // change it takes as its cue to put the system bars back in their place.
+        assertEquals(false, wentFullscreen)
+    }
+
+    @Test
+    fun `a camera list refresh does not give the wait a fresh start`() {
+        var shown by mutableStateOf(listOf(nursery, playroom))
+        composeRule.setContent { Screen(cameras = shown) }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.mainClock.advanceTimeBy(2_000)
+
+        // A camera switched on in settings, or a re-resolved source.
+        composeRule.runOnIdle { shown = listOf(nursery, playroom, hall) }
+        composeRule.waitForIdle()
+
+        // The room on screen has not changed, so neither has how long it has
+        // been sitting there unattended.
+        composeRule.onNodeWithTag("inactivity-countdown").assertTextEquals("All cameras in 2s")
+        composeRule.mainClock.advanceTimeBy(2_001)
+        composeRule.onNodeWithTag("camera-list-1").assertExists()
+    }
+
+    @Test
+    fun `the countdown says how long is left`() {
+        composeRule.setContent { Screen(cameras = listOf(nursery, playroom)) }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+
+        composeRule.onNodeWithTag("inactivity-countdown").assertTextEquals("All cameras in 4s")
+        composeRule.mainClock.advanceTimeBy(1_000)
+
+        composeRule.onNodeWithTag("inactivity-countdown").assertTextEquals("All cameras in 3s")
+        composeRule.onNodeWithTag("inactivity-bar").assertExists()
+    }
+
+    @Test
+    fun `touching the picture keeps the camera up`() {
+        composeRule.setContent { Screen(cameras = listOf(nursery, playroom)) }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.mainClock.advanceTimeBy(INACTIVITY_MS - 1_000)
+
+        composeRule.onNodeWithTag("fullscreen-tile").performClick()
+        composeRule.mainClock.advanceTimeBy(INACTIVITY_MS - 1_000)
+
+        // A tap says "I am still here" — the whole wait starts over, and the
+        // camera does not fall back to the grid under someone's eyes.
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+        composeRule.onNodeWithTag("inactivity-countdown").assertTextEquals("All cameras in 1s")
+    }
+
+    @Test
+    fun `the stay button keeps the camera up`() {
+        composeRule.setContent { Screen(cameras = listOf(nursery, playroom)) }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.mainClock.advanceTimeBy(INACTIVITY_MS - 1_000)
+
+        composeRule.onNodeWithTag("inactivity-stay").performClick()
+        composeRule.mainClock.advanceTimeBy(INACTIVITY_MS - 1_000)
+
+        // The discoverable answer to the countdown, for anyone who would not
+        // guess that tapping the video is one.
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+    }
+
+    @Test
+    fun `reaching for the sound keeps the camera up`() {
+        var sound by mutableStateOf(false)
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery, playroom),
+                soundEnabled = sound,
+                onSoundEnabledChange = { sound = it },
+            )
+        }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.mainClock.advanceTimeBy(INACTIVITY_MS - 1_000)
+
+        composeRule.onNodeWithTag("toggle-sound").performClick()
+        composeRule.mainClock.advanceTimeBy(INACTIVITY_MS - 1_000)
+
+        // Switching sound on is someone being there, and the room they just
+        // asked to hear must not vanish a moment later.
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+    }
+
+    @Test
+    fun `listening to a room does not hold the timer off`() {
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery, playroom), soundEnabled = true)
+        }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+
+        composeRule.mainClock.advanceTimeBy(INACTIVITY_MS + 1)
+
+        // One rule, sound or not: a listening session is kept alive by a tap a
+        // minute, not by the speaker being on.
+        composeRule.onNodeWithTag("camera-list-1").assertExists()
+    }
+
+    @Test
+    fun `a camera an alert opened times out like any other and ends the alert`() {
+        var dismissed = false
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery, playroom),
+                alertCameraId = "b",
+                onAlertDismissed = { dismissed = true },
+            )
+        }
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+        assertFalse(dismissed)
+
+        composeRule.mainClock.advanceTimeBy(INACTIVITY_MS + 1)
+
+        // The alert bought a look at one room. Once nobody is looking it ends
+        // like any other — including handing the lock screen back, so the grid
+        // is never left sitting over the keyguard.
+        composeRule.onNodeWithTag("camera-list-1").assertExists()
+        assertTrue(dismissed)
+    }
+
+    @Test
+    fun `an alert swapping the camera gives the new room its own wait`() {
+        var alerted by mutableStateOf<String?>(null)
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery, playroom), alertCameraId = alerted)
+        }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.mainClock.advanceTimeBy(INACTIVITY_MS - 1_000)
+
+        composeRule.runOnIdle { alerted = "b" }
+        composeRule.waitForIdle()
+
+        // A new room on screen is a new reason to be looking; it must not
+        // inherit the last second of the camera it replaced.
+        composeRule.onNodeWithTag("inactivity-countdown").assertTextEquals("All cameras in 4s")
+        composeRule.mainClock.advanceTimeBy(INACTIVITY_MS - 1_000)
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+    }
+
+    @Test
+    fun `time spent away from the viewer does not count against it`() {
+        val host = FakeLifecycleOwner()
+        composeRule.setContent {
+            CompositionLocalProvider(LocalLifecycleOwner provides host) {
+                Screen(cameras = listOf(nursery, playroom))
+            }
+        }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.mainClock.advanceTimeBy(INACTIVITY_MS - 1_000)
+
+        composeRule.runOnUiThread { host.registry.currentState = Lifecycle.State.CREATED }
+        composeRule.mainClock.advanceTimeBy(INACTIVITY_MS * 4)
+        composeRule.runOnUiThread { host.registry.currentState = Lifecycle.State.RESUMED }
+        composeRule.waitForIdle()
+
+        // A camera nobody can see is not a camera being ignored. Coming back to
+        // a phone that was in a pocket must show the room, not the tail of a
+        // countdown that ran out in the dark.
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+        composeRule.onNodeWithTag("inactivity-countdown").assertTextEquals("All cameras in 4s")
+    }
+
+    @Test
+    fun `a room getting loud again restarts the wait on the camera already up`() {
+        var alerted by mutableStateOf<String?>(null)
+        var dismissed = false
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery, playroom),
+                alertCameraId = alerted,
+                onAlertConsumed = { alerted = null },
+                onAlertDismissed = { dismissed = true },
+            )
+        }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.mainClock.advanceTimeBy(INACTIVITY_MS - 1_000)
+
+        // The detector re-arms and fires for the very room already on screen.
+        composeRule.runOnIdle { alerted = "a" }
+        composeRule.waitForIdle()
+
+        // Nothing on screen changed, so nothing would otherwise tell the wait
+        // that the newest reason to be looking arrived a second ago.
+        composeRule.onNodeWithTag("inactivity-countdown").assertTextEquals("All cameras in 4s")
+        composeRule.mainClock.advanceTimeBy(INACTIVITY_MS - 1_000)
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+        // An alert that woke the phone must not hand the lock screen straight
+        // back because the last one was nearly out of time.
+        assertFalse(dismissed)
+    }
+
+    @Test
+    fun `the grid counts down to nothing`() {
+        composeRule.setContent { Screen(cameras = listOf(nursery, playroom)) }
+
+        // Every camera at once is where the viewer belongs; there is nothing
+        // for it to return to.
+        composeRule.onNodeWithTag("inactivity-notice").assertDoesNotExist()
+        composeRule.onNodeWithTag("inactivity-bar").assertDoesNotExist()
     }
 
     @Test
@@ -577,6 +825,9 @@ class MonitorScreenTest {
     private companion object {
         /** Short enough that a turn passing is not a slow test. */
         const val ROTATION_MS = 200L
+
+        /** Whole seconds, so the readout can be checked, but only a few of them. */
+        const val INACTIVITY_MS = 4_000L
 
         /** One column, and only room for two 16:9 tiles: the third must scroll. */
         const val SHORT_SCREEN = "w400dp-h400dp"

@@ -32,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -92,6 +93,8 @@ fun MonitorScreen(
     soundGranted: Boolean = true,
     /** Injectable so tests need not wait out a real turn. */
     soundRotationIntervalMs: Long = SOUND_ROTATION_INTERVAL_MS,
+    /** Injectable so tests need not wait out a real minute. */
+    inactivityTimeoutMs: Long = FULLSCREEN_INACTIVITY_TIMEOUT_MS,
     alertCameraId: String? = null,
     onAlertConsumed: () -> Unit = {},
     onFullscreenChange: (Boolean) -> Unit = {},
@@ -108,6 +111,10 @@ fun MonitorScreen(
     // request is in but the tile is not yet showing — read as a dismissal.
     var alertPendingShow by rememberSaveable { mutableStateOf(false) }
     var alertShowing by rememberSaveable { mutableStateOf(false) }
+    // Counts alerts that land on the camera already on screen. Nothing about
+    // the screen changes in that case, so without a signal of its own the new
+    // alert would inherit however little was left of the old one's wait.
+    var samePlaceAlerts by remember { mutableIntStateOf(0) }
     val fullscreen = cameras.firstOrNull { it.id == fullscreenId }
 
     // A camera that went away (switched off, deleted) must not strand the
@@ -127,6 +134,7 @@ fun MonitorScreen(
                 // transition below will not fire; mark it here or leaving
                 // fullscreen would never hand the lock screen back.
                 alertShowing = true
+                samePlaceAlerts++
             } else {
                 fullscreenId = id
                 alertPendingShow = true
@@ -160,6 +168,8 @@ fun MonitorScreen(
         }
     }
 
+    // Leaving one camera by hand, now that a tap on it means "stay". Nothing
+    // else is left to go back to from here, so the gesture is free.
     BackHandler(enabled = fullscreen != null) { fullscreenId = null }
 
     val audible = soundEnabled && soundGranted
@@ -188,6 +198,20 @@ fun MonitorScreen(
     )
 
     if (fullscreen != null) {
+        // Watching one room is a detour the viewer takes itself back from. The
+        // alerted camera is no exception: the alert bought a look, and once
+        // nobody is looking it ends like any other — handing back the lock
+        // screen on the way out, through the same transition Back uses.
+        val countdown = rememberInactivityCountdown(
+            cameraId = fullscreen.id,
+            timeoutMs = inactivityTimeoutMs,
+            // A room that got loud again while its own camera was up is the
+            // newest reason there is to be looking at it, and nothing on screen
+            // changed to say so — without this, an alert that woke the phone at
+            // 3am could hand the lock screen back seconds later.
+            restartOn = samePlaceAlerts,
+            onExpired = { fullscreenId = null },
+        )
         Box(modifier = modifier.fillMaxSize()) {
             CameraTile(
                 camera = fullscreen,
@@ -199,21 +223,43 @@ fun MonitorScreen(
                 // is the "listen to the room" case the viewer exists for, so it
                 // needs nothing beyond sound being switched on.
                 audible = audible,
-                onClick = { fullscreenId = null },
+                // A tap now means "I am still here" rather than "take me back":
+                // leaving is Back, and a countdown with no way to answer it
+                // would cap every look at one room to a flat minute.
+                onClick = countdown::reset,
                 modifier = Modifier
                     .fillMaxSize()
                     .testTag("fullscreen-tile"),
+            )
+            InactivityBar(
+                countdown = countdown,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .safeDrawingPadding(),
             )
             // The only control a single camera keeps. Without it, sound could
             // be switched on solely from the grid — including for a camera an
             // alert opened, which is precisely when the user wants to listen.
             SoundToggle(
                 soundEnabled = soundEnabled,
-                onSoundEnabledChange = onSoundEnabledChange,
+                // Reaching for the sound is as much a sign of someone being
+                // there as touching the picture is.
+                onSoundEnabledChange = {
+                    countdown.reset()
+                    onSoundEnabledChange(it)
+                },
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .safeDrawingPadding()
                     .padding(12.dp),
+            )
+            InactivityNotice(
+                countdown = countdown,
+                onStay = countdown::reset,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .safeDrawingPadding()
+                    .padding(16.dp),
             )
         }
         return
