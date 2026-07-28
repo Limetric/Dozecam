@@ -3,6 +3,7 @@ package app.dozecam
 import android.content.Context
 import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
+import app.dozecam.data.AppSettings
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -22,6 +23,10 @@ import org.robolectric.Shadows.shadowOf
 class MainActivityAlertIntentTest {
 
     private val context: Context = ApplicationProvider.getApplicationContext()
+
+    /** The alarm's own noise is beside the point here; only the latch is. */
+    private val silentAlarmSettings =
+        AppSettings(alertChime = false, alertVibrate = false)
 
     @Test
     fun `our own alert may wake the screen over the lock screen`() {
@@ -91,6 +96,49 @@ class MainActivityAlertIntentTest {
         // Only waking is gated; showing a camera to someone already past the
         // lock screen is not the risk being defended against.
         assertEquals("cam-a", replayed.intent.getStringExtra("alert_camera_id"))
+    }
+
+    /**
+     * The other half of the alert: the viewer appearing cannot be the
+     * acknowledgement, because our own full-screen intent is what put it there.
+     */
+    @Test
+    fun `a touch on the woken viewer silences the alarm`() {
+        val signaler = context.appContainer.alertSignaler
+        signaler.signal("cam-a", silentAlarmSettings)
+        val intent = MainActivity.alertIntent(context, "cam-a")
+        val activity = Robolectric.buildActivity(MainActivity::class.java, intent)
+            .create().start().resume().get()
+
+        assertTrue("the alarm should survive the screen coming on", signaler.isAlarming)
+
+        activity.onUserInteraction()
+
+        assertFalse(signaler.isAlarming)
+    }
+
+    @Test
+    fun `the viewer coming up on its own does not silence the alarm`() {
+        val signaler = context.appContainer.alertSignaler
+        signaler.signal("cam-a", silentAlarmSettings)
+        val intent = MainActivity.alertIntent(context, "cam-a")
+
+        Robolectric.buildActivity(MainActivity::class.java, intent).create().start().resume()
+
+        // A screen nobody has their eyes open for is not an acknowledgement.
+        assertTrue(signaler.isAlarming)
+        signaler.stop()
+    }
+
+    @Test
+    fun `ordinary use of the viewer costs nothing`() {
+        val signaler = context.appContainer.alertSignaler
+        val activity = Robolectric.buildActivity(MainActivity::class.java)
+            .create().start().resume().get()
+
+        activity.onUserInteraction()
+
+        assertFalse(signaler.isAlarming)
     }
 
     @Test

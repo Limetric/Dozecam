@@ -44,7 +44,6 @@ class MonitoringService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var wakeLock: PowerManager.WakeLock? = null
-    private lateinit var signaler: AlertSignaler
     private var appSettings = AppSettings()
     private var detectorSettings = DetectorSettings()
     private var networkOnline = true
@@ -71,7 +70,9 @@ class MonitoringService : Service() {
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "dozecam:monitoring")
             .apply { acquire() }
 
-        signaler = AlertSignaler(this)
+        // A process killed mid-alarm may owe the user their Do Not Disturb mode
+        // back; this is the first moment we can pay it.
+        appContainer.alertSignaler.recoverFromCrash()
         appContainer.monitoringState.serviceRunning.value = true
         start()
     }
@@ -213,8 +214,10 @@ class MonitoringService : Service() {
         // Current name rather than the one captured when this monitor started,
         // so an alert never names a camera by a name the user has since changed.
         val name = state.cameras.value[camera.id]?.name ?: camera.name
+        // Notification first, always: the full-screen intent is the fastest
+        // signal there is, and sound is for the person whose eyes are shut.
         MonitoringNotifications.postAlert(this, camera.id, name)
-        signaler.signal(appSettings)
+        appContainer.alertSignaler.signal(camera.id, appSettings)
     }
 
     /**
@@ -271,6 +274,9 @@ class MonitoringService : Service() {
     override fun onDestroy() {
         val state = appContainer.monitoringState
         state.serviceRunning.value = false
+        // Monitoring ending takes its alert with it: an alarm still sounding for
+        // a camera nobody is listening to any more has nothing left to mean.
+        appContainer.alertSignaler.stop()
         monitors.values.forEach { it.stop() }
         monitors.clear()
         monitorTransports.clear()

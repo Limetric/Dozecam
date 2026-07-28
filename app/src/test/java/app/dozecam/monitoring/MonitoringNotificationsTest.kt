@@ -69,6 +69,39 @@ class MonitoringNotificationsTest {
         )
     }
 
+    /**
+     * The dismiss half of the acknowledgement: without this the alarm would keep
+     * ringing with nothing on screen left to explain why.
+     */
+    @Test
+    fun `dismissing the alert reaches the receiver that silences the alarm`() {
+        MonitoringNotifications.ensureChannels(context)
+
+        val notification = MonitoringNotifications.alertNotification(context, "cam-a", "Nursery")
+        val intent = shadowOf(notification.deleteIntent).savedIntent
+
+        assertEquals(
+            AlertDismissReceiver::class.java.name,
+            intent.component?.className,
+        )
+    }
+
+    /**
+     * The channel stays silent so the in-app alarm is the single audible
+     * surface — and channel settings are immutable once created, so a sound set
+     * here could never be changed again.
+     */
+    @Test
+    fun `the alert channel makes no noise of its own`() {
+        MonitoringNotifications.ensureChannels(context)
+
+        val channel = context.getSystemService(NotificationManager::class.java)
+            .getNotificationChannel(MonitoringNotifications.ALERT_CHANNEL_ID)
+
+        assertEquals(null, channel.sound)
+        assertEquals(false, channel.shouldVibrate())
+    }
+
     @Test
     fun `status notification is ongoing`() {
         MonitoringNotifications.ensureChannels(context)

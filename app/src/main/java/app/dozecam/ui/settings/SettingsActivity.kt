@@ -2,18 +2,23 @@ package app.dozecam.ui.settings
 
 import android.content.Context
 import android.content.Intent
+import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
+import androidx.core.content.IntentCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import app.dozecam.appContainer
+import app.dozecam.monitoring.AlarmSound
+import app.dozecam.monitoring.AlertDnd
 import app.dozecam.monitoring.MonitoringService
 import app.dozecam.monitoring.MonitoringStarter
 import app.dozecam.monitoring.shouldArmMonitoring
@@ -21,6 +26,7 @@ import app.dozecam.monitoring.shouldStopMonitoring
 import app.dozecam.permissions.LocalNetworkPermission
 import app.dozecam.ui.onboarding.OnboardingActivity
 import app.dozecam.ui.theme.DozecamTheme
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
@@ -28,12 +34,43 @@ class SettingsActivity : ComponentActivity() {
 
     private val monitoringStarter = MonitoringStarter(this)
 
+    private val alertDnd by lazy { AlertDnd(this) }
+
+    /** Held by the system, not by us, and revocable there at any time. */
+    private val dndGranted = MutableStateFlow(false)
+
     // Switching monitoring on is the moment LAN access stops being optional:
     // without it every RTSP connection is dropped as a timeout, which looks
     // like a broken camera rather than a missing permission.
     private val localNetworkPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted -> if (granted) armIfNeeded() }
+
+    private val alertSoundPicker = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode != RESULT_OK) return@registerForActivityResult
+        // Null only comes back for "Silent", which the picker is not asked to
+        // offer — but if a device offers it anyway, it has to mean the phone's
+        // own alarm sound rather than an alert nobody can hear.
+        val picked = result.data?.let {
+            IntentCompat.getParcelableExtra(
+                it,
+                RingtoneManager.EXTRA_RINGTONE_PICKED_URI,
+                Uri::class.java,
+            )
+        }
+        lifecycleScope.launch {
+            appContainer.appSettings.update { it.copy(alertSoundUri = picked?.toString()) }
+        }
+    }
+
+    private val dndGrant = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        // The result code says nothing; the grant itself is the answer.
+        dndGranted.value = alertDnd.isGranted
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -84,6 +121,7 @@ class SettingsActivity : ComponentActivity() {
                 .collectAsStateWithLifecycle()
             val canMonitor by settingsViewModel.canMonitor.collectAsStateWithLifecycle()
             val audioLevel by settingsViewModel.audioLevel.collectAsStateWithLifecycle()
+            val dndAccess by dndGranted.collectAsStateWithLifecycle()
             DozecamTheme(nightTheme = settings.nightTheme) {
                 SettingsScreen(
                     settings = settings,
@@ -119,11 +157,34 @@ class SettingsActivity : ComponentActivity() {
                     onDetectorChange = settingsViewModel::onDetectorChange,
                     onOpenOnboarding = { startActivity(OnboardingActivity.intent(this)) },
                     onBack = { finish() },
+                    onPickAlertSound = { pickAlertSound(settings.alertSoundUri) },
+                    onPreviewAlertSound = { appContainer.alertSignaler.preview(settings) },
+                    dndGranted = dndAccess,
+                    onRequestDndGrant = {
+                        runCatching { dndGrant.launch(AlertDnd.grantIntent()) }
+                    },
                 )
             }
         }
     }
 
+
+    override fun onResume() {
+        super.onResume()
+        // Revocable in system settings without ever coming back through us.
+        dndGranted.value = alertDnd.isGranted
+    }
+
+    /** A preview belongs to this screen; leaving it takes the sound with it. */
+    override fun onStop() {
+        super.onStop()
+        appContainer.alertSignaler.stopPreview()
+    }
+
+    /** Not every device ships a picker; without one the current sound stays as it was. */
+    private fun pickAlertSound(current: String?) {
+        runCatching { alertSoundPicker.launch(AlarmSound.pickerIntent(this, current)) }
+    }
 
     /** Through the same gate as auto-arming, so a manual start cannot misfire. */
     private fun armIfNeeded() {

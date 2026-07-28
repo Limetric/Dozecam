@@ -211,6 +211,24 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Being looked at is the acknowledgement — but only when a person is doing
+     * the looking.
+     *
+     * The alert's own full-screen intent puts this activity on the lock screen
+     * showing the camera that got loud, with nobody awake, so the viewer merely
+     * being up cannot be the signal: taken as one it would silence the alarm a
+     * second in, before the ramp had climbed at all. A real touch or key press
+     * — including the volume rocker someone gropes for in the dark — is the
+     * first thing that only a person can produce.
+     */
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        // A no-op unless an alarm is actually sounding, so ordinary use of the
+        // viewer costs nothing.
+        appContainer.alertSignaler.acknowledge()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         // singleTask: a wake alert reuses this activity rather than stacking a
