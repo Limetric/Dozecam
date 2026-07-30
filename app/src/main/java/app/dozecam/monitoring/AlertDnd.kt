@@ -53,17 +53,28 @@ class AlertDnd(context: Context) : DndOverride {
     }
 
     /**
-     * Puts back whatever was there. Safe to call when nothing was changed, and
-     * called again at service start so a process death during an alarm heals on
-     * the next launch rather than the next alert.
+     * Puts back whatever was there, but only if the phone is still where we left
+     * it. Safe to call when nothing was changed, and called again at service
+     * start so a process death during an alarm heals on the next launch rather
+     * than the next alert.
      */
     override fun endBypass() {
         val prior = prefs.getInt(KEY_PRIOR_FILTER, UNSET)
         if (prior == UNSET) return
-        // The record is kept when the restore could not happen. Access revoked
-        // mid-alarm leaves us owing the user a mode we are momentarily unable to
-        // give back; forgetting the debt here would strand them in it, while
-        // holding it costs nothing until the access returns.
+        // The record is kept when the restore cannot happen at all. Access
+        // revoked mid-alarm leaves us owing the user a mode we are momentarily
+        // unable to give back; forgetting the debt would strand them in it,
+        // while holding it costs nothing until the access returns.
+        if (!isGranted) return
+        if (manager.currentInterruptionFilter != NotificationManager.INTERRUPTION_FILTER_ALARMS) {
+            // Someone has moved the phone on since we changed it — most likely
+            // the user themselves, hours later, after a process death left this
+            // record behind. The debt is void, not owed: writing a stale filter
+            // back could drop them into total silence and mute their calls and
+            // their own alarm clock, with nothing on screen to explain it.
+            prefs.edit { remove(KEY_PRIOR_FILTER) }
+            return
+        }
         if (setFilter(prior)) prefs.edit { remove(KEY_PRIOR_FILTER) }
     }
 

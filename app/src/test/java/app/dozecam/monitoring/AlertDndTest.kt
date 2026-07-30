@@ -137,6 +137,47 @@ class AlertDndTest {
     }
 
     /**
+     * The other direction, and the worse one. A record left behind by a process
+     * death is only good while nothing else has touched the filter: writing it
+     * back after the user has moved on would drop them into total silence and
+     * mute their calls and their own alarm clock.
+     */
+    @Test
+    fun `a stale record does not force the phone back into total silence`() {
+        setFilter(NotificationManager.INTERRUPTION_FILTER_NONE)
+        AlertDnd(context).beginBypass(enabled = true)
+
+        // Morning: the user takes the phone out of Do Not Disturb themselves,
+        // with the dead process's record still on disk.
+        manager.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL)
+
+        AlertDnd(context).endBypass()
+
+        assertEquals(
+            NotificationManager.INTERRUPTION_FILTER_ALL,
+            manager.currentInterruptionFilter,
+        )
+    }
+
+    /** And having been found void once, it must not be waiting to fire later. */
+    @Test
+    fun `a void record is dropped rather than kept for the next start`() {
+        setFilter(NotificationManager.INTERRUPTION_FILTER_NONE)
+        AlertDnd(context).beginBypass(enabled = true)
+        manager.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL)
+        AlertDnd(context).endBypass()
+
+        // Back into total silence by the user's own hand, then another start.
+        manager.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALARMS)
+        AlertDnd(context).endBypass()
+
+        assertEquals(
+            NotificationManager.INTERRUPTION_FILTER_ALARMS,
+            manager.currentInterruptionFilter,
+        )
+    }
+
+    /**
      * Revoking the grant mid-alarm leaves us owing a mode we cannot give back
      * yet. The debt has to survive until we can.
      */
