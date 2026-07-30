@@ -47,8 +47,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import app.dozecam.R
 import app.dozecam.data.Camera
+import app.dozecam.player.CameraStreams
 import app.dozecam.player.StreamSource
 import app.dozecam.player.VideoPlayerController
+import app.dozecam.player.rememberCameraStreams
 
 /** Below this there is only room for one camera across; above it, two. */
 private val TWO_COLUMN_BREAKPOINT = 600.dp
@@ -105,7 +107,51 @@ fun MonitorScreen(
      */
     onAlertDismissed: () -> Unit = {},
 ) {
+    val streams = rememberCameraStreams(controllerFactory, networkOnline)
+    val gridState = rememberLazyGridState()
+
+    /**
+     * Only tiles actually on screen take a turn. A camera scrolled out of the
+     * grid has no player at all, so its turn would be ten seconds of silence
+     * next to a badge nobody can see — the exact "is it broken or is the room
+     * quiet?" doubt the badge exists to remove.
+     */
+    val visibleCameraIds by remember(cameras) {
+        derivedStateOf {
+            val onScreen = gridState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String }
+            cameras.map { it.id }.filter { it in onScreen }
+        }
+    }
+
     var fullscreenId by rememberSaveable { mutableStateOf<String?>(null) }
+    var warmIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+    /**
+     * Opens one camera, and keeps the rest of the grid connected behind it.
+     *
+     * The warm set is named here, in the same act that empties the grid, rather
+     * than worked out afterwards: by the time the tiles are gone there is
+     * nothing left to say which rooms were on screen, and a set named late
+     * would arrive after their sessions had already been released.
+     */
+    fun promote(cameraId: String) {
+        val previous = fullscreenId
+        val warm = when (previous) {
+            // Opening one camera from the grid: every other room on screen
+            // keeps its session behind it.
+            null -> visibleCameraIds.toSet()
+            // Swapping the camera on screen, which is what an alert arriving
+            // over an open one does. The room being left is one of the grid's
+            // own and joins the rest — without this it would be the single
+            // camera the grid had to reconnect on the way back.
+            else -> warmIds + previous
+        } - cameraId
+        // A room switched off or deleted meanwhile is not coming back, and its
+        // session is not worth holding open on the chance that it does.
+        warmIds = warm.intersect(cameras.mapTo(mutableSetOf()) { it.id })
+        streams.keepWarm(warmIds)
+        fullscreenId = cameraId
+    }
     // Two states, not one: "an alert asked for fullscreen" and "that fullscreen
     // is actually up". Collapsing them lets the first composition — where the
     // request is in but the tile is not yet showing — read as a dismissal.
@@ -136,7 +182,7 @@ fun MonitorScreen(
                 alertShowing = true
                 samePlaceAlerts++
             } else {
-                fullscreenId = id
+                promote(id)
                 alertPendingShow = true
             }
         } else {
@@ -153,6 +199,14 @@ fun MonitorScreen(
     LaunchedEffect(fullscreen?.id) {
         val showing = fullscreen != null
         onFullscreenChange(showing)
+        // The grid is back and its tiles have claimed their cameras again —
+        // effects run after the composition that re-added them — so nothing
+        // needs keeping warm on their behalf any more. Cameras the grid did not
+        // ask for this time round are released here rather than left running.
+        if (!showing) {
+            warmIds = emptySet()
+            streams.keepWarm(emptySet())
+        }
         when {
             showing && alertPendingShow -> {
                 alertPendingShow = false
@@ -173,20 +227,6 @@ fun MonitorScreen(
     BackHandler(enabled = fullscreen != null) { fullscreenId = null }
 
     val audible = soundEnabled && soundGranted
-    val gridState = rememberLazyGridState()
-
-    /**
-     * Only tiles actually on screen take a turn. A camera scrolled out of the
-     * grid has no player at all, so its turn would be ten seconds of silence
-     * next to a badge nobody can see — the exact "is it broken or is the room
-     * quiet?" doubt the badge exists to remove.
-     */
-    val visibleCameraIds by remember(cameras) {
-        derivedStateOf {
-            val onScreen = gridState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String }
-            cameras.map { it.id }.filter { it in onScreen }
-        }
-    }
 
     // Rotation is a grid problem: one camera on screen alone already has the
     // user's whole attention, so it simply keeps the sound for as long as it
@@ -216,8 +256,7 @@ fun MonitorScreen(
             CameraTile(
                 camera = fullscreen,
                 source = sources[fullscreen.id],
-                controllerFactory = controllerFactory,
-                networkOnline = networkOnline,
+                streams = streams,
                 showLabel = false,
                 // The one camera on screen alone is the one worth hearing; this
                 // is the "listen to the room" case the viewer exists for, so it
@@ -284,11 +323,10 @@ fun MonitorScreen(
                 CameraLayout(
                     cameras = cameras,
                     sources = sources,
-                    controllerFactory = controllerFactory,
-                    networkOnline = networkOnline,
+                    streams = streams,
                     audibleCameraId = audibleCameraId,
                     gridState = gridState,
-                    onFullscreen = { fullscreenId = it },
+                    onFullscreen = ::promote,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -364,8 +402,7 @@ private fun SoundToggle(
 private fun CameraLayout(
     cameras: List<Camera>,
     sources: Map<String, StreamSource>,
-    controllerFactory: (StreamSource) -> VideoPlayerController,
-    networkOnline: Boolean,
+    streams: CameraStreams,
     audibleCameraId: String?,
     gridState: LazyGridState,
     onFullscreen: (String) -> Unit,
@@ -398,8 +435,7 @@ private fun CameraLayout(
                     CameraTile(
                         camera = camera,
                         source = sources[camera.id],
-                        controllerFactory = controllerFactory,
-                        networkOnline = networkOnline,
+                        streams = streams,
                         audible = audible,
                         onClick = { onFullscreen(camera.id) },
                         modifier = Modifier.fillMaxSize(),

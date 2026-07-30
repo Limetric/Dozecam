@@ -272,6 +272,194 @@ class PlaybackWatchdogTest {
     }
 
     @Test
+    fun `a camera nobody is watching is not declared stalled`() = runTest {
+        val recorder = recorder()
+        val watchdog = watchdog(recorder)
+        watchdog.start()
+        watchdog.onPlayerEvent(PlayerEvent.Playing)
+        runCurrent()
+
+        // Opening one camera drops the video track on the rest. No frames will
+        // ever arrive for them, which is the point — and reading that as a
+        // stall would reconnect the very sessions being kept warm.
+        watchdog.onVideoDisabled()
+        advanceTimeBy(60_000)
+
+        assertTrue("kept warm but reconnected: ${recorder.attempts}", recorder.attempts.isEmpty())
+        assertEquals(ConnectionState.Live, watchdog.state.value)
+    }
+
+    @Test
+    fun `an unwatched stream that dies is still recovered`() = runTest {
+        val recorder = recorder()
+        val watchdog = watchdog(recorder)
+        watchdog.start()
+        watchdog.onPlayerEvent(PlayerEvent.Playing)
+        runCurrent()
+        watchdog.onVideoDisabled()
+        runCurrent()
+
+        // The socket drops while the grid is behind an open camera. Waiting to
+        // find out on the way back would make returning cost a reconnect —
+        // exactly what keeping it warm is meant to save.
+        watchdog.onPlayerEvent(PlayerEvent.Error)
+        advanceTimeBy(501)
+
+        assertEquals(1, recorder.attempts.size)
+    }
+
+    @Test
+    fun `a warm reconnect is not retried on a timer it cannot answer`() = runTest {
+        val recorder = recorder()
+        val watchdog = watchdog(recorder)
+        watchdog.start()
+        watchdog.onPlayerEvent(PlayerEvent.Playing)
+        runCurrent()
+        watchdog.onVideoDisabled()
+        runCurrent()
+
+        watchdog.onPlayerEvent(PlayerEvent.Error)
+        advanceTimeBy(501)
+        assertEquals(1, recorder.attempts.size)
+
+        // With no video there is nothing to confirm the attempt worked, so
+        // retrying on a deadline would just reconnect a healthy stream over and
+        // over for as long as one camera stayed open.
+        advanceTimeBy(60_000)
+        assertEquals(1, recorder.attempts.size)
+    }
+
+    @Test
+    fun `network changes still reach a camera being kept warm`() = runTest {
+        val recorder = recorder()
+        val watchdog = watchdog(recorder)
+        watchdog.start()
+        watchdog.onPlayerEvent(PlayerEvent.Playing)
+        runCurrent()
+        watchdog.onVideoDisabled()
+        runCurrent()
+
+        watchdog.onNetworkLost()
+        runCurrent()
+        assertEquals(ConnectionState.Offline, watchdog.state.value)
+
+        watchdog.onNetworkAvailable()
+        runCurrent()
+
+        // A Wi-Fi blip during a look at one room must not leave the whole grid
+        // dead when it comes back.
+        assertEquals(1, recorder.attempts.size)
+    }
+
+    @Test
+    fun `coming back to a camera allows for the wait on a keyframe`() = runTest {
+        val recorder = recorder()
+        val watchdog = watchdog(recorder)
+        watchdog.start()
+        watchdog.onPlayerEvent(PlayerEvent.Playing)
+        runCurrent()
+        watchdog.onVideoDisabled()
+        advanceTimeBy(30_000)
+
+        watchdog.onVideoEnabled()
+        // The decoder went away with the track and cannot paint until the next
+        // keyframe, which is longer than the stall allowance the camera was
+        // live under. Judging it by that would reconnect every camera the grid
+        // just got back.
+        advanceTimeBy(2_600)
+        assertTrue(recorder.attempts.isEmpty())
+
+        watchdog.onPlayerEvent(PlayerEvent.Playing)
+        runCurrent()
+        assertEquals(ConnectionState.Live, watchdog.state.value)
+        assertTrue(recorder.attempts.isEmpty())
+    }
+
+    @Test
+    fun `a camera coming back does not claim to be live before it paints`() = runTest {
+        val recorder = recorder()
+        val watchdog = watchdog(recorder)
+        watchdog.start()
+        watchdog.onPlayerEvent(PlayerEvent.Playing)
+        runCurrent()
+        watchdog.onVideoDisabled()
+        advanceTimeBy(30_000)
+        assertEquals(ConnectionState.Live, watchdog.state.value)
+
+        watchdog.onVideoEnabled()
+        runCurrent()
+
+        // Its decoder went away with the track, so nothing is on screen yet.
+        // A pill reading LIVE over a picture that has not come back is the
+        // frozen frame this whole class exists to refuse to report — and Live
+        // is also the one state that hides the last frame's timestamp, which
+        // would otherwise give it away.
+        assertEquals(ConnectionState.Connecting, watchdog.state.value)
+
+        watchdog.onPlayerEvent(PlayerEvent.Playing)
+        runCurrent()
+        assertEquals(ConnectionState.Live, watchdog.state.value)
+    }
+
+    @Test
+    fun `coming back while reconnecting does not overwrite the honest state`() = runTest {
+        val recorder = recorder()
+        val watchdog = watchdog(recorder)
+        watchdog.start()
+        watchdog.onPlayerEvent(PlayerEvent.Playing)
+        runCurrent()
+        watchdog.onVideoDisabled()
+        runCurrent()
+
+        watchdog.onPlayerEvent(PlayerEvent.Error)
+        advanceTimeBy(501)
+        assertEquals(ConnectionState.Reconnecting(1), watchdog.state.value)
+
+        // Asking for the picture back says nothing good about a stream already
+        // known to be in trouble; only Live is the claim that needs retracting.
+        watchdog.onVideoEnabled()
+        runCurrent()
+
+        assertEquals(ConnectionState.Reconnecting(1), watchdog.state.value)
+    }
+
+    @Test
+    fun `a camera that never comes back is reconnected once it is watched again`() = runTest {
+        val recorder = recorder()
+        val watchdog = watchdog(recorder)
+        watchdog.start()
+        watchdog.onPlayerEvent(PlayerEvent.Playing)
+        runCurrent()
+        watchdog.onVideoDisabled()
+        advanceTimeBy(30_000)
+
+        // Nothing arrives after the picture is asked for again: the session
+        // quietly died while unwatched. The first-frame allowance runs out and
+        // normal recovery takes over.
+        watchdog.onVideoEnabled()
+        advanceTimeBy(5_501)
+
+        assertEquals(1, recorder.attempts.size)
+    }
+
+    @Test
+    fun `frames on the audio clock cannot keep a warm camera on a stall timer`() = runTest {
+        val recorder = recorder()
+        val watchdog = watchdog(recorder)
+        watchdog.start()
+        watchdog.onVideoDisabled()
+        runCurrent()
+
+        // libVLC keeps reporting time from the audio track with the video track
+        // dropped. Marking that live must not re-arm a stall deadline the
+        // stream has no way of meeting.
+        watchdog.onPlayerEvent(PlayerEvent.TimeChanged(1_000))
+        advanceTimeBy(60_000)
+
+        assertTrue(recorder.attempts.isEmpty())
+    }
+
+    @Test
     fun `stopped when idle live counts as a failure`() = runTest {
         val recorder = recorder()
         val watchdog = watchdog(recorder)

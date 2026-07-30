@@ -35,6 +35,7 @@ class PlaybackWatchdog(
         data class Player(val event: PlayerEvent) : Input
         data object NetworkUp : Input
         data object NetworkDown : Input
+        data class Video(val enabled: Boolean) : Input
     }
 
     private val events = Channel<Input>(Channel.UNLIMITED)
@@ -58,6 +59,24 @@ class PlaybackWatchdog(
         events.trySend(Input.NetworkDown)
     }
 
+    /**
+     * Says whether this stream is still expected to produce a picture. It is
+     * not, while the camera is kept connected for a grid nobody is looking at:
+     * the video track is dropped, and stall detection has to stop with it or
+     * every warm camera would be declared dead within [Config.stallTimeoutMs]
+     * and reconnected — the exact teardown keeping it warm exists to avoid.
+     *
+     * Errors and network changes are still acted on, so a session that really
+     * does die while unwatched is recovered rather than discovered on return.
+     */
+    fun onVideoEnabled() {
+        events.trySend(Input.Video(true))
+    }
+
+    fun onVideoDisabled() {
+        events.trySend(Input.Video(false))
+    }
+
     fun start() {
         if (job?.isActive == true) return
         // Discard events queued while stopped (e.g. an Error racing
@@ -78,6 +97,10 @@ class PlaybackWatchdog(
         // True between issuing a reconnect and seeing frames; teardown echoes
         // (Stopped from the old session) are ignored in this window.
         var awaitingRecovery = false
+        // Whether a picture is still expected. Nothing is timed while it is
+        // not: the frames every deadline here waits for are exactly what a
+        // dropped video track stops producing.
+        var videoOn = true
         // Absolute time at which the current phase (initial connect, live
         // stall watch, reconnect attempt) is declared failed. Only frame
         // events and phase transitions may move it — ignored events such as
@@ -89,7 +112,7 @@ class PlaybackWatchdog(
             _state.value = ConnectionState.Live
             attempts = 0
             awaitingRecovery = false
-            deadline = monotonicClock() + config.stallTimeoutMs
+            deadline = if (videoOn) monotonicClock() + config.stallTimeoutMs else null
         }
 
         // Waits out the backoff window but stays responsive: returns the input
@@ -108,6 +131,7 @@ class PlaybackWatchdog(
                     }
                     Input.NetworkDown -> return input
                     Input.NetworkUp -> Unit // already about to reconnect
+                    is Input.Video -> videoOn = input.enabled
                 }
             }
         }
@@ -132,7 +156,10 @@ class PlaybackWatchdog(
             }
             onReconnect()
             awaitingRecovery = true
-            deadline = monotonicClock() + config.connectTimeoutMs
+            // An unwatched camera has no frames to prove the attempt worked, so
+            // there is nothing to wait for and nothing to retry on. Whether it
+            // took is settled the moment the picture is asked for again.
+            deadline = if (videoOn) monotonicClock() + config.connectTimeoutMs else null
         }
 
         while (true) {
@@ -179,6 +206,29 @@ class PlaybackWatchdog(
                     networkUp = false
                     _state.value = ConnectionState.Offline
                     deadline = null
+                }
+
+                is Input.Video -> {
+                    videoOn = input.enabled
+                    // The decoder went away with the track, so whatever the
+                    // stream was doing before, it is not painting now. Leaving
+                    // the pill on Live would be the frozen-frame lie this
+                    // watchdog exists to prevent — and would hide the last
+                    // frame's timestamp, which is the one thing that would give
+                    // it away. A frame coming back sets it right.
+                    if (videoOn && _state.value == ConnectionState.Live) {
+                        _state.value = ConnectionState.Connecting
+                    }
+                    deadline = when {
+                        !videoOn -> null
+                        // Nothing is coming until the network is back, and the
+                        // offline state already says so.
+                        !networkUp -> null
+                        // The first-frame allowance rather than the stall one:
+                        // the decoder went away with the track, and it cannot
+                        // paint until the stream's next keyframe comes round.
+                        else -> monotonicClock() + config.connectTimeoutMs
+                    }
                 }
             }
         }

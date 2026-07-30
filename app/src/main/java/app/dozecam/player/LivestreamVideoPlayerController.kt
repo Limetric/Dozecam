@@ -134,6 +134,11 @@ class LivestreamVideoPlayerController(
     }
 
     override fun attach(container: ViewGroup) {
+        // A camera moving from the grid to a screen of its own is attached to
+        // its new home and detached from the old one in whichever order Compose
+        // applies the two, and [videoFrame] is one view reused across both —
+        // adding it while it still has a parent would throw.
+        (videoFrame.parent as? ViewGroup)?.removeView(videoFrame)
         container.addView(
             videoFrame,
             FrameLayout.LayoutParams(
@@ -151,6 +156,24 @@ class LivestreamVideoPlayerController(
 
     override fun setMuted(muted: Boolean) {
         player.volume = if (muted) 0f else 1f
+    }
+
+    /**
+     * Deselects the video track, which releases the decoder while the
+     * WebSocket carrying the stream stays open. Set on the player's track
+     * selection rather than per media item, so it outlives a reconnect: a
+     * camera nobody is watching must not come back from a stall decoding.
+     */
+    override fun setVideoEnabled(enabled: Boolean) {
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, !enabled)
+            .build()
+        // The counter belongs to a decoder that is about to go away, or to none
+        // at all. Leaving it would have the next enable read the old session's
+        // frames as proof this one is painting.
+        renderedFrames = 0
+        counters = null
     }
 
     override fun play(source: StreamSource) {

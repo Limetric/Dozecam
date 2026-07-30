@@ -12,13 +12,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -28,36 +26,40 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.repeatOnLifecycle
 import app.dozecam.R
 import app.dozecam.data.Camera
+import app.dozecam.player.CameraStreams
 import app.dozecam.player.ConnectionState
-import app.dozecam.player.PlaybackWatchdog
 import app.dozecam.player.StreamSource
-import app.dozecam.player.VideoPlayerController
 import app.dozecam.ui.theme.LocalNightTheme
-import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
 /**
- * One camera's live picture, with its own player and its own watchdog. Tiles
- * are independent on purpose: in a grid one camera stalling must not disturb
- * the others, and its status pill has to tell the truth about that camera
- * alone.
+ * What a tile reports before it has a session to report on — a camera whose
+ * source has not resolved yet, or one whose stream is still being built.
+ */
+private val connecting: StateFlow<ConnectionState> =
+    MutableStateFlow(ConnectionState.Connecting)
+private val noFrameYet: StateFlow<Long?> = MutableStateFlow(null)
+
+/**
+ * One camera's live picture. Tiles are independent on purpose: in a grid one
+ * camera stalling must not disturb the others, and its status pill has to tell
+ * the truth about that camera alone.
  *
- * The player exists only while this tile is composed and its host is at least
- * STARTED, so scrolling a tile away or backgrounding the app tears the stream
- * down instead of leaving a decoder running.
+ * A tile shows a session rather than owning one. [CameraStreams] holds the
+ * players, so opening a camera from the grid hands the running stream to the
+ * tile that fills the screen instead of tearing it down and negotiating the
+ * same camera again — and the cameras left behind keep their sessions, minus
+ * their video, until the grid comes back. What a tile still decides is what it
+ * is for: where the picture goes, and whether this is the camera being heard.
  */
 @Composable
 fun CameraTile(
     camera: Camera,
     source: StreamSource?,
-    controllerFactory: (StreamSource) -> VideoPlayerController,
-    networkOnline: Boolean,
+    streams: CameraStreams,
     modifier: Modifier = Modifier,
     showLabel: Boolean = true,
     /**
@@ -72,73 +74,36 @@ fun CameraTile(
 ) {
     val context = LocalContext.current
     val host = remember(camera.id) { FrameLayout(context) }
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var connection by remember(camera.id) {
-        mutableStateOf<ConnectionState>(ConnectionState.Connecting)
-    }
-    var lastFrameAtMs by remember(camera.id) { mutableStateOf<Long?>(null) }
 
-    // Read inside the session rather than keyed on: connectivity changing is
-    // exactly what the watchdog exists to absorb, so a flapping Wi-Fi must feed
-    // it events, not tear the player down and build a new one.
-    val online by rememberUpdatedState(networkOnline)
-    val listening by rememberUpdatedState(audible)
-
-    // Keyed by everything a session depends on: a URL edit or a transport
-    // change means the running session is stale and must be rebuilt.
-    LaunchedEffect(host, camera.url, source) {
-        val resolved = source ?: return@LaunchedEffect
-        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            val controller = controllerFactory(resolved)
-            val watchdog = PlaybackWatchdog(
-                scope = this,
-                onReconnect = { controller.play(resolved) },
-            )
-            val stateJob = launch { watchdog.state.collect { connection = it } }
-            val frameJob = launch { watchdog.lastFrameAtMs.collect { lastFrameAtMs = it } }
-            controller.listener = watchdog::onPlayerEvent
-            controller.attach(host)
-            watchdog.start()
-            // Emits the current value first, which also covers coming to the
-            // foreground already offline: start() assumes the network is up, and
-            // the network monitor only speaks up on a change, so without this
-            // the tile would sit reconnecting forever.
-            val networkJob = launch {
-                snapshotFlow { online }.collect {
-                    if (it) watchdog.onNetworkAvailable() else watchdog.onNetworkLost()
-                }
-            }
-            // Applied synchronously, because launching it would let play()
-            // start first and a tile scrolling into a grid would blurt out a
-            // burst of room audio. The collector then carries later changes
-            // within a session, without a rebuild.
-            //
-            // Promotion to fullscreen is a different matter: that swaps the
-            // whole layout, so this tile is disposed and the fullscreen one
-            // starts fresh. Deliberate — the alternative keeps every grid
-            // decoder running behind the camera being looked at — and cheap on
-            // a LAN, where reconnecting costs about as long as the 150ms of
-            // caching the player asks for anyway.
-            controller.setMuted(!listening)
-            val muteJob = launch {
-                snapshotFlow { listening }.drop(1).collect { controller.setMuted(!it) }
-            }
-            controller.play(resolved)
-            try {
-                awaitCancellation()
-            } finally {
-                muteJob.cancel()
-                networkJob.cancel()
-                stateJob.cancel()
-                frameJob.cancel()
-                watchdog.stop()
-                controller.listener = null
-                controller.stop()
-                controller.detach()
-                controller.release()
-            }
-        }
+    // Claimed for exactly as long as this tile is on screen, under a token of
+    // this tile's own. A camera being promoted is claimed by the tile filling
+    // the screen and given up by the tile in the grid, and one token each is
+    // what makes the handover come out the same whichever order Compose applies
+    // them in.
+    val claim = remember { Any() }
+    DisposableEffect(streams, claim, camera.id, source) {
+        if (source != null) streams.claim(claim, camera.id, source)
+        onDispose { streams.unclaim(claim) }
     }
+
+    val stream = streams[camera.id]
+
+    DisposableEffect(stream, host) {
+        stream?.attach(host)
+        onDispose { stream?.detach(host) }
+    }
+
+    // A session starts silent and is asked for sound afterwards, so a tile
+    // arriving in the grid can never blurt out a burst of room audio.
+    LaunchedEffect(stream, audible) {
+        stream?.setMuted(!audible)
+    }
+
+    // Read from the session rather than kept per tile: a camera opened from the
+    // grid is already connected, and a status pill that reset to "Connecting"
+    // would report a reconnection that is not happening.
+    val connection by (stream?.connection ?: connecting).collectAsState()
+    val lastFrameAtMs by (stream?.lastFrameAtMs ?: noFrameYet).collectAsState()
 
     Box(
         modifier = modifier

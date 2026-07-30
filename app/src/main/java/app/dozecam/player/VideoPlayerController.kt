@@ -75,6 +75,18 @@ interface VideoPlayerController {
      * the user has singled out is ever audible.
      */
     fun setMuted(muted: Boolean)
+
+    /**
+     * Drops or restores the video track without touching the session carrying
+     * it. This is what a camera nobody is looking at costs: the socket stays
+     * open and its place in the stream is kept, while no decoder runs for a
+     * picture that is not on screen.
+     *
+     * Restoring is not instant — the decoder is built again and cannot paint
+     * until the stream's next keyframe — but it skips the expensive part, which
+     * is negotiating the stream in the first place.
+     */
+    fun setVideoEnabled(enabled: Boolean)
     fun stop()
     fun release()
 }
