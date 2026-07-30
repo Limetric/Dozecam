@@ -288,9 +288,8 @@ class PlaybackWatchdogTest {
         assertTrue("kept warm but reconnected: ${recorder.attempts}", recorder.attempts.isEmpty())
         assertEquals(ConnectionState.Live, watchdog.state.value)
     }
-
     @Test
-    fun `an unwatched stream that dies is still recovered`() = runTest {
+    fun `nothing is restarted for a camera nobody is watching`() = runTest {
         val recorder = recorder()
         val watchdog = watchdog(recorder)
         watchdog.start()
@@ -299,38 +298,134 @@ class PlaybackWatchdogTest {
         watchdog.onVideoDisabled()
         runCurrent()
 
-        // The socket drops while the grid is behind an open camera. Waiting to
-        // find out on the way back would make returning cost a reconnect —
-        // exactly what keeping it warm is meant to save.
+        // Everything that would normally start a restart, arriving while the
+        // room is behind an open camera.
         watchdog.onPlayerEvent(PlayerEvent.Error)
-        advanceTimeBy(501)
-
-        assertEquals(1, recorder.attempts.size)
-    }
-
-    @Test
-    fun `a warm reconnect is not retried on a timer it cannot answer`() = runTest {
-        val recorder = recorder()
-        val watchdog = watchdog(recorder)
-        watchdog.start()
-        watchdog.onPlayerEvent(PlayerEvent.Playing)
-        runCurrent()
-        watchdog.onVideoDisabled()
-        runCurrent()
-
-        watchdog.onPlayerEvent(PlayerEvent.Error)
-        advanceTimeBy(501)
-        assertEquals(1, recorder.attempts.size)
-
-        // With no video there is nothing to confirm the attempt worked, so
-        // retrying on a deadline would just reconnect a healthy stream over and
-        // over for as long as one camera stayed open.
+        watchdog.onPlayerEvent(PlayerEvent.Stopped)
         advanceTimeBy(60_000)
+
+        // A stream with no video track cannot say whether a restart worked, so
+        // it is not started blind. Repairing a camera nobody can see would also
+        // take the network from the room actually being watched.
+        assertTrue("restarted while unwatched: ${recorder.attempts}", recorder.attempts.isEmpty())
+    }
+
+    @Test
+    fun `a camera that broke while unwatched is repaired the moment it is wanted`() = runTest {
+        val recorder = recorder()
+        val watchdog = watchdog(recorder)
+        watchdog.start()
+        watchdog.onPlayerEvent(PlayerEvent.Playing)
+        runCurrent()
+        watchdog.onVideoDisabled()
+        runCurrent()
+
+        watchdog.onPlayerEvent(PlayerEvent.Error)
+        advanceTimeBy(30_000)
+        assertTrue(recorder.attempts.isEmpty())
+
+        watchdog.onVideoEnabled()
+        runCurrent()
+
+        // Asking for the picture is the first moment the question is answerable,
+        // and it is answered at once rather than after a backoff the user would
+        // spend looking at nothing.
+        assertEquals(1, recorder.attempts.size)
+        assertEquals(ConnectionState.Reconnecting(1), watchdog.state.value)
+    }
+
+    @Test
+    fun `several failures while unwatched still cost one repair`() = runTest {
+        val recorder = recorder()
+        val watchdog = watchdog(recorder)
+        watchdog.start()
+        watchdog.onPlayerEvent(PlayerEvent.Playing)
+        runCurrent()
+        watchdog.onVideoDisabled()
+        runCurrent()
+
+        watchdog.onPlayerEvent(PlayerEvent.Error)
+        watchdog.onPlayerEvent(PlayerEvent.Stopped)
+        watchdog.onPlayerEvent(PlayerEvent.Error)
+        advanceTimeBy(10_000)
+
+        watchdog.onVideoEnabled()
+        runCurrent()
+
+        // One broken session is one thing to fix, however many ways it said so.
+        // Counting each would walk the backoff up before the first attempt.
+        assertEquals(1, recorder.attempts.size)
+        assertEquals(ConnectionState.Reconnecting(1), watchdog.state.value)
+    }
+
+    @Test
+    fun `a camera unwatched and healthy is not repaired on the way back`() = runTest {
+        val recorder = recorder()
+        val watchdog = watchdog(recorder)
+        watchdog.start()
+        watchdog.onPlayerEvent(PlayerEvent.Playing)
+        runCurrent()
+
+        watchdog.onVideoDisabled()
+        advanceTimeBy(30_000)
+        watchdog.onVideoEnabled()
+        watchdog.onPlayerEvent(PlayerEvent.Playing)
+        runCurrent()
+
+        // Nothing went wrong, so coming back costs a keyframe and nothing else.
+        assertTrue(recorder.attempts.isEmpty())
+        assertEquals(ConnectionState.Live, watchdog.state.value)
+    }
+
+    @Test
+    fun `an audio tick does not date a frame a warm camera never drew`() = runTest {
+        val recorder = recorder()
+        val watchdog = watchdog(recorder)
+        watchdog.start()
+        watchdog.onPlayerEvent(PlayerEvent.Playing)
+        runCurrent()
+        val lastRealFrame = watchdog.lastFrameAtMs.value
+
+        watchdog.onVideoDisabled()
+        advanceTimeBy(10_000)
+        watchdog.onPlayerEvent(PlayerEvent.TimeChanged(1_000))
+        runCurrent()
+
+        // The timestamp is what the pill offers instead of a picture. Moving it
+        // on for audio would say a frame arrived ten seconds after the last one
+        // that actually did.
+        assertEquals(lastRealFrame, watchdog.lastFrameAtMs.value)
+    }
+
+    @Test
+    fun `a restart abandoned when the camera stops being watched is not left in flight`() = runTest {
+        val recorder = recorder()
+        val watchdog = watchdog(recorder)
+        watchdog.start()
+        watchdog.onPlayerEvent(PlayerEvent.Playing)
+        runCurrent()
+
+        // A stall starts a restart, and the user opens another camera before its
+        // backoff is out.
+        watchdog.onPlayerEvent(PlayerEvent.Error)
+        runCurrent()
+        watchdog.onVideoDisabled()
+        advanceTimeBy(30_000)
+
+        // Finishing it would have put a reconnect in flight for a picture nobody
+        // was waiting for, and left the events that followed ambiguous between
+        // the old session and the new.
+        assertTrue(recorder.attempts.isEmpty())
+
+        watchdog.onVideoEnabled()
+        runCurrent()
+
+        // The failure is not forgotten, though — it is settled on the way back.
         assertEquals(1, recorder.attempts.size)
     }
 
     @Test
-    fun `network changes still reach a camera being kept warm`() = runTest {
+    fun `a network drop while unwatched is repaired on the way back`() = runTest {
         val recorder = recorder()
         val watchdog = watchdog(recorder)
         watchdog.start()
@@ -344,12 +439,18 @@ class PlaybackWatchdogTest {
         assertEquals(ConnectionState.Offline, watchdog.state.value)
 
         watchdog.onNetworkAvailable()
+        advanceTimeBy(10_000)
+
+        // The Wi-Fi coming back is not a reason to reconnect a room nobody is
+        // looking at, ahead of the one they are.
+        assertTrue(recorder.attempts.isEmpty())
+
+        watchdog.onVideoEnabled()
         runCurrent()
 
-        // A Wi-Fi blip during a look at one room must not leave the whole grid
-        // dead when it comes back.
         assertEquals(1, recorder.attempts.size)
     }
+
 
     @Test
     fun `coming back to a camera allows for the wait on a keyframe`() = runTest {
@@ -402,7 +503,7 @@ class PlaybackWatchdogTest {
     }
 
     @Test
-    fun `coming back while reconnecting does not overwrite the honest state`() = runTest {
+    fun `coming back to a camera with no network still reports offline`() = runTest {
         val recorder = recorder()
         val watchdog = watchdog(recorder)
         watchdog.start()
@@ -411,16 +512,19 @@ class PlaybackWatchdogTest {
         watchdog.onVideoDisabled()
         runCurrent()
 
-        watchdog.onPlayerEvent(PlayerEvent.Error)
-        advanceTimeBy(501)
-        assertEquals(ConnectionState.Reconnecting(1), watchdog.state.value)
-
-        // Asking for the picture back says nothing good about a stream already
-        // known to be in trouble; only Live is the claim that needs retracting.
-        watchdog.onVideoEnabled()
+        watchdog.onNetworkLost()
         runCurrent()
+        assertEquals(ConnectionState.Offline, watchdog.state.value)
 
-        assertEquals(ConnectionState.Reconnecting(1), watchdog.state.value)
+        // Asking for the picture retracts a claim of Live, because the decoder
+        // went with the track. It must not talk over a state that already says
+        // something truer — a room with no network to reach is offline, not
+        // connecting, and saying otherwise promises a picture that cannot come.
+        watchdog.onVideoEnabled()
+        advanceTimeBy(10_000)
+
+        assertEquals(ConnectionState.Offline, watchdog.state.value)
+        assertTrue(recorder.attempts.isEmpty())
     }
 
     @Test

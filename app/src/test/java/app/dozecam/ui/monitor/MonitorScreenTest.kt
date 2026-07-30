@@ -986,13 +986,16 @@ class MonitorScreenTest {
 
         composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
         composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+        composeRule.waitUntil { !gone.decoding }
+
         composeRule.runOnIdle { shown = listOf(nursery) }
-        pressBack()
 
         // Warmth is for cameras the grid will want back. One switched off in
         // settings is not coming back, and holding its socket open would be a
-        // leak with a friendly name.
+        // leak with a friendly name — released while the other camera is still
+        // up, rather than whenever someone next happens to leave it.
         composeRule.waitUntil { gone.released }
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
     }
 
     @Test

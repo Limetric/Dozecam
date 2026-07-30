@@ -169,6 +169,20 @@ fun MonitorScreen(
         if (fullscreenId != null && fullscreen == null) fullscreenId = null
     }
 
+    // Nor go on being kept warm. A room switched off in settings while another
+    // camera is open is not one the grid will want back, and the warm set is
+    // otherwise only worked out at the moment of opening — so without this its
+    // session would be held until the viewer left the camera it is behind.
+    LaunchedEffect(cameras, fullscreen?.id) {
+        if (fullscreen == null) return@LaunchedEffect
+        val present = cameras.mapTo(mutableSetOf()) { it.id }
+        val kept = warmIds.intersect(present)
+        if (kept != warmIds) {
+            warmIds = kept
+            streams.keepWarm(kept)
+        }
+    }
+
     // A wake alert names the camera that got loud; show that one, alone and
     // whole, because that is the entire reason the screen just came on.
     LaunchedEffect(alertCameraId, cameras) {
