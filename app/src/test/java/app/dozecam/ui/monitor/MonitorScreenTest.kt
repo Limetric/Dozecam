@@ -25,6 +25,8 @@ import app.dozecam.player.VideoPlayerController
 import app.dozecam.ui.theme.DozecamTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -52,16 +54,35 @@ class MonitorScreenTest {
         /** Whether the tile was already silenced by the time it started playing. */
         var mutedWhenPlayed: Boolean? = null
 
-        override fun attach(container: ViewGroup) = Unit
-        override fun detach() = Unit
+        /** How many times a stream was negotiated on this player. */
+        var plays = 0
+
+        /** Whether a decoder is currently running for this camera. */
+        var decoding = true
+
+        /** The view currently holding the picture, if any. */
+        var attachedTo: ViewGroup? = null
+
+        override fun attach(container: ViewGroup) {
+            attachedTo = container
+        }
+
+        override fun detach() {
+            attachedTo = null
+        }
 
         override fun play(source: StreamSource) {
             played = source
+            plays++
             mutedWhenPlayed = muted
         }
 
         override fun setMuted(muted: Boolean) {
             this.muted = muted
+        }
+
+        override fun setVideoEnabled(enabled: Boolean) {
+            decoding = enabled
         }
 
         override fun stop() = Unit
@@ -600,10 +621,12 @@ class MonitorScreenTest {
                 alertCameraId = "b",
             )
         }
-        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
 
         // Listening to the room is the whole point of opening one camera.
-        assertEquals(false, controllers.last().muted)
+        // Named rather than taken by position: which player was built last says
+        // nothing about which camera is on screen.
+        composeRule.waitUntil { controllerFor(playroom).muted == false }
     }
 
     @Test
@@ -612,12 +635,14 @@ class MonitorScreenTest {
         composeRule.setContent {
             Screen(cameras = listOf(nursery, playroom), alertCameraId = "b")
         }
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
         composeRule.waitForIdle()
 
         // The screen can come on by itself, over a lock screen, in the middle
         // of the night. It must not start talking by itself as well.
-        assertEquals(true, controllers.last().muted)
-        assertEquals(true, controllers.last().mutedWhenPlayed)
+        assertEquals(true, controllerFor(playroom).muted)
+        assertEquals(true, controllerFor(playroom).mutedWhenPlayed)
+        assertTrue(controllers.all { it.muted == true })
     }
 
     @Test
@@ -812,6 +837,209 @@ class MonitorScreenTest {
         // is itself off screen.
         composeRule.waitUntil { controllerFor(nursery).muted == false }
         assertEquals(true, controllerFor(playroom).muted)
+    }
+
+    @Test
+    @Config(qualifiers = TABLET_SCREEN)
+    fun `opening a camera from the grid keeps the stream it was already showing`() {
+        controllers.clear()
+        composeRule.setContent { Screen(cameras = listOf(nursery, playroom)) }
+        composeRule.waitUntil { controllers.size == 2 }
+        val player = controllerFor(nursery)
+        val inGrid = player.attachedTo
+
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+        // Waits for the handover to have actually been reconciled. Asserting
+        // straight after the click reads the state before any of this has
+        // happened, which passes whether the stream was reused or rebuilt.
+        composeRule.waitUntil { player.attachedTo !== inGrid }
+
+        // The whole point: a camera the grid was already playing must not be
+        // torn down and negotiated again just because it filled the screen.
+        assertEquals(1, player.plays)
+        assertFalse("the open camera was torn down and rebuilt", player.released)
+        assertNotNull(player.attachedTo)
+        assertEquals(2, controllers.size)
+    }
+
+    @Test
+    @Config(qualifiers = TABLET_SCREEN)
+    fun `the camera opened moves its picture to the screen filling the view`() {
+        controllers.clear()
+        composeRule.setContent { Screen(cameras = listOf(nursery, playroom)) }
+        composeRule.waitUntil { controllers.size == 2 }
+        val player = controllerFor(nursery)
+        val inGrid = player.attachedTo
+
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+        composeRule.waitUntil { player.attachedTo !== inGrid }
+
+        // Same session, different view: the running player is handed to the
+        // tile that now fills the screen rather than left behind with the grid.
+        assertFalse(player.released)
+        assertNotNull(player.attachedTo)
+        assertNotEquals(inGrid, player.attachedTo)
+    }
+
+    @Test
+    @Config(qualifiers = TABLET_SCREEN)
+    fun `the rest of the grid stays connected without decoding behind it`() {
+        controllers.clear()
+        composeRule.setContent { Screen(cameras = listOf(nursery, playroom)) }
+        composeRule.waitUntil { controllers.size == 2 }
+        val other = controllerFor(playroom)
+
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+        composeRule.waitUntil { !other.decoding }
+
+        // Its session is worth keeping — that is what makes coming back cheap —
+        // but a decoder for a picture nobody can see is not.
+        assertFalse("a camera left behind was torn down", other.released)
+        assertEquals(1, other.plays)
+        // Nothing on screen can say where a sound is coming from while the
+        // camera making it is not on it.
+        assertEquals(true, other.muted)
+    }
+
+    @Test
+    @Config(qualifiers = TABLET_SCREEN)
+    fun `coming back to the grid costs no camera a reconnection`() {
+        controllers.clear()
+        composeRule.setContent { Screen(cameras = listOf(nursery, playroom)) }
+        composeRule.waitUntil { controllers.size == 2 }
+        val opened = controllerFor(nursery)
+        val other = controllerFor(playroom)
+
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+        composeRule.waitUntil { !other.decoding }
+
+        pressBack()
+        composeRule.onNodeWithTag("camera-list-2").assertExists()
+        composeRule.waitUntil { other.decoding }
+
+        // Both directions, and no new players either: the grid comes back to
+        // the sessions it left rather than rebuilding the house.
+        assertEquals(1, opened.plays)
+        assertEquals(1, other.plays)
+        assertFalse(opened.released)
+        assertFalse(other.released)
+        assertEquals(2, controllers.size)
+    }
+
+    @Test
+    @Config(qualifiers = SHORT_SCREEN)
+    fun `a camera scrolled out of the grid is not kept warm for nothing`() {
+        controllers.clear()
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery, playroom, hall))
+        }
+        composeRule.waitUntil { controllers.size == 2 }
+
+        // Only two tiles fit, so the third never had a session to keep. Warmth
+        // spares a camera the grid was showing; it does not go looking for one.
+        composeRule.onNodeWithTag("camera-tile-Hall").assertDoesNotExist()
+        assertEquals(2, controllers.size)
+    }
+
+    @Test
+    @Config(qualifiers = TABLET_SCREEN)
+    fun `an alert swapping the open camera keeps the one it replaced connected`() {
+        controllers.clear()
+        var alerted by mutableStateOf<String?>(null)
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery, playroom, hall), alertCameraId = alerted)
+        }
+        composeRule.waitUntil { controllers.size == 3 }
+        val first = controllerFor(nursery)
+
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+        // A room gets loud while another is already open.
+        composeRule.runOnIdle { alerted = "b" }
+        composeRule.waitForIdle()
+        composeRule.waitUntil { !first.decoding }
+
+        // The camera being left is one of the grid's own. Dropping it here
+        // would make it the single room that had to reconnect on the way back,
+        // for no reason other than having been the one on screen.
+        assertFalse("the camera left behind was torn down", first.released)
+        assertEquals(1, first.plays)
+
+        pressBack()
+        composeRule.onNodeWithTag("camera-list-3").assertExists()
+        composeRule.waitUntil { first.decoding }
+        assertEquals(1, first.plays)
+    }
+
+    @Test
+    @Config(qualifiers = TABLET_SCREEN)
+    fun `a camera switched off while another is open is let go rather than kept warm`() {
+        controllers.clear()
+        var shown by mutableStateOf(listOf(nursery, playroom))
+        composeRule.setContent { Screen(cameras = shown) }
+        composeRule.waitUntil { controllers.size == 2 }
+        val gone = controllerFor(playroom)
+
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+        composeRule.waitUntil { !gone.decoding }
+
+        composeRule.runOnIdle { shown = listOf(nursery) }
+
+        // Warmth is for cameras the grid will want back. One switched off in
+        // settings is not coming back, and holding its socket open would be a
+        // leak with a friendly name — released while the other camera is still
+        // up, rather than whenever someone next happens to leave it.
+        composeRule.waitUntil { gone.released }
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+    }
+
+    @Test
+    @Config(qualifiers = TABLET_SCREEN)
+    fun `going to the background still tears every camera down`() {
+        controllers.clear()
+        val host = FakeLifecycleOwner()
+        composeRule.setContent {
+            CompositionLocalProvider(LocalLifecycleOwner provides host) {
+                Screen(cameras = listOf(nursery, playroom))
+            }
+        }
+        composeRule.waitUntil { controllers.size == 2 }
+
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+        composeRule.runOnUiThread { host.registry.currentState = Lifecycle.State.CREATED }
+        composeRule.waitForIdle()
+
+        // Keeping a camera warm is for a grid that is still on screen. A phone
+        // in a pocket must not be holding a house's worth of sockets open.
+        composeRule.waitUntil { controllers.all { it.released } }
+    }
+
+    @Test
+    @Config(qualifiers = TABLET_SCREEN)
+    fun `coming back to the foreground builds the cameras again`() {
+        controllers.clear()
+        val host = FakeLifecycleOwner()
+        composeRule.setContent {
+            CompositionLocalProvider(LocalLifecycleOwner provides host) {
+                Screen(cameras = listOf(nursery, playroom))
+            }
+        }
+        composeRule.waitUntil { controllers.size == 2 }
+
+        composeRule.runOnUiThread { host.registry.currentState = Lifecycle.State.CREATED }
+        composeRule.waitUntil { controllers.all { it.released } }
+        composeRule.runOnUiThread { host.registry.currentState = Lifecycle.State.RESUMED }
+
+        // Released on the way out, so there is nothing left to reuse: the
+        // viewer has to be able to build them again on the way back in.
+        composeRule.waitUntil { controllers.size == 4 }
+        composeRule.waitUntil { controllers.takeLast(2).all { it.plays == 1 } }
     }
 
     @Test

@@ -21,6 +21,7 @@ class VlcVideoPlayerController(runtime: VlcRuntime) : VideoPlayerController {
     private val libVlc = runtime.libVlc
     private val mediaPlayer = MediaPlayer(libVlc)
     private var videoLayout: VLCVideoLayout? = null
+    private var videoEnabled = true
 
     override var listener: ((PlayerEvent) -> Unit)? = null
 
@@ -43,6 +44,10 @@ class VlcVideoPlayerController(runtime: VlcRuntime) : VideoPlayerController {
     }
 
     override fun attach(container: ViewGroup) {
+        // A camera moving from the grid to a screen of its own is attached to
+        // its new home and detached from the old one in whichever order Compose
+        // applies the two, so attaching has to be able to follow an attach.
+        if (videoLayout != null) detach()
         val layout = VLCVideoLayout(container.context).also { videoLayout = it }
         container.addView(
             layout,
@@ -68,6 +73,11 @@ class VlcVideoPlayerController(runtime: VlcRuntime) : VideoPlayerController {
         val url = (source as? StreamSource.Rtsp)?.url ?: return
         val media = Media(libVlc, Uri.parse(url)).apply {
             setHWDecoderEnabled(true, false)
+            // Carried on the media as well as toggled on the player below,
+            // because a reconnect builds a new media and libVLC selects its
+            // tracks afresh — a camera nobody is watching would otherwise come
+            // back from a stall with its decoder running again.
+            if (!videoEnabled) addOption(NO_VIDEO)
         }
         mediaPlayer.media = media
         media.release()
@@ -82,6 +92,17 @@ class VlcVideoPlayerController(runtime: VlcRuntime) : VideoPlayerController {
         mediaPlayer.volume = if (muted) 0 else FULL_VOLUME
     }
 
+    /**
+     * Deselects the video track on the running session, leaving the RTSP
+     * connection and its audio untouched. [play] carries the same choice onto
+     * any media built after this one.
+     */
+    override fun setVideoEnabled(enabled: Boolean) {
+        if (videoEnabled == enabled) return
+        videoEnabled = enabled
+        mediaPlayer.setVideoTrackEnabled(enabled)
+    }
+
     override fun stop() {
         mediaPlayer.stop()
     }
@@ -94,5 +115,8 @@ class VlcVideoPlayerController(runtime: VlcRuntime) : VideoPlayerController {
     private companion object {
         /** libVLC's scale is 0..100, unlike Media3's 0..1. */
         const val FULL_VOLUME = 100
+
+        /** Keeps a new media's video track unselected from the outset. */
+        const val NO_VIDEO = ":no-video"
     }
 }
