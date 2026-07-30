@@ -39,7 +39,6 @@ import kotlinx.coroutines.launch
 class AlertSignaler(
     private val player: AlarmPlayer,
     private val vibrator: AlarmVibrator,
-    private val dnd: DndOverride,
     private val scope: CoroutineScope =
         CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
     /** Monotonic and unaffected by the clock being set; injectable so tests need no real time. */
@@ -50,7 +49,6 @@ class AlertSignaler(
     constructor(context: Context) : this(
         player = MediaPlayerAlarmPlayer(context.applicationContext),
         vibrator = SystemAlarmVibrator(context.applicationContext),
-        dnd = AlertDnd(context),
     )
 
     private val _alarmingCameraId = MutableStateFlow<String?>(null)
@@ -119,7 +117,6 @@ class AlertSignaler(
     private fun teardown() {
         player.stop()
         vibrator.cancel()
-        dnd.endBypass()
         _alarmingCameraId.value = null
     }
 
@@ -156,21 +153,11 @@ class AlertSignaler(
         player.stop()
     }
 
-    /**
-     * Restores anything a process death left changed. Called at monitoring
-     * start, so a crash mid-alarm heals on the next launch rather than being
-     * carried until the next alert.
-     */
-    fun recoverFromCrash() {
-        dnd.endBypass()
-    }
-
     private suspend fun run(settings: AppSettings, token: Long) {
         val schedule = settings.alarmSchedule()
         val uri = AlarmSound.uriFor(settings)
         val startedAtMs = clock()
         try {
-            dnd.beginBypass(settings.alertBypassDnd)
             burst(settings, schedule, uri, elapsedMs = 0L)
             var previousMs = 0L
             while (true) {

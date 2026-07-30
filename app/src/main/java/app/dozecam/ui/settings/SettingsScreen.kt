@@ -92,9 +92,6 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onPickAlertSound: () -> Unit = {},
     onPreviewAlertSound: () -> Unit = {},
-    /** Whether the system grant the Do Not Disturb override needs is actually held. */
-    dndGranted: Boolean = false,
-    onRequestDndGrant: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -178,8 +175,6 @@ fun SettingsScreen(
                 onSettingsChange = onSettingsChange,
                 onPickAlertSound = onPickAlertSound,
                 onPreviewAlertSound = onPreviewAlertSound,
-                dndGranted = dndGranted,
-                onRequestDndGrant = onRequestDndGrant,
             )
 
             Section(title = stringResource(R.string.section_monitor)) {
@@ -525,11 +520,7 @@ private fun AlertsSection(
     onSettingsChange: ((AppSettings) -> AppSettings) -> Unit,
     onPickAlertSound: () -> Unit,
     onPreviewAlertSound: () -> Unit,
-    dndGranted: Boolean,
-    onRequestDndGrant: () -> Unit,
 ) {
-    var explainDnd by rememberSaveable { mutableStateOf(false) }
-
     Section(title = stringResource(R.string.section_alerts)) {
         SettingSwitchRow(
             label = stringResource(R.string.setting_alert_chime),
@@ -585,28 +576,6 @@ private fun AlertsSection(
 
         AlertTuning(settings = settings, onSettingsChange = onSettingsChange)
 
-        DndOverrideRow(
-            enabled = settings.alertBypassDnd,
-            granted = dndGranted,
-            onEnabledChange = { checked ->
-                onSettingsChange { it.copy(alertBypassDnd = checked) }
-                // Asked for the moment it is switched on, because a setting that
-                // silently needs a grant it does not have is a promise of noise
-                // that will not come.
-                if (checked && !dndGranted) explainDnd = true
-            },
-            onExplain = { explainDnd = true },
-        )
-    }
-
-    if (explainDnd) {
-        DndExplainer(
-            onConfirm = {
-                explainDnd = false
-                onRequestDndGrant()
-            },
-            onDismiss = { explainDnd = false },
-        )
     }
 }
 
@@ -678,85 +647,6 @@ private fun AlertTuning(
             )
         }
     }
-}
-
-/**
- * Offered, never required. The row says which of the three states it is in,
- * because "on" while the grant is missing would be the worst of them: a promise
- * of noise at 3am that the system will not keep.
- */
-@Composable
-private fun DndOverrideRow(
-    enabled: Boolean,
-    granted: Boolean,
-    onEnabledChange: (Boolean) -> Unit,
-    onExplain: () -> Unit,
-) {
-    val needsGrant = enabled && !granted
-    GroupRow(
-        headline = stringResource(R.string.setting_alert_dnd),
-        supporting = stringResource(
-            when {
-                !enabled -> R.string.setting_alert_dnd_off
-                granted -> R.string.setting_alert_dnd_on
-                else -> R.string.setting_alert_dnd_needs_grant
-            },
-        ),
-        shape = GroupSingleShape,
-        containerColor = when {
-            needsGrant -> MaterialTheme.colorScheme.errorContainer
-            enabled -> MaterialTheme.colorScheme.secondaryContainer
-            else -> MaterialTheme.colorScheme.surfaceContainer
-        },
-        leading = {
-            Icon(
-                painter = painterResource(R.drawable.ic_do_not_disturb),
-                contentDescription = null,
-            )
-        },
-        trailing = {
-            Switch(
-                checked = enabled,
-                onCheckedChange = onEnabledChange,
-                modifier = Modifier.testTag("alert-dnd-switch"),
-            )
-        },
-        // The row does what the switch does, except when it is on without its
-        // grant — the one state where the useful thing to offer is the
-        // explanation and the way to fix it, not a toggle.
-        onClick = { if (needsGrant) onExplain() else onEnabledChange(!enabled) },
-        modifier = Modifier
-            .padding(top = 8.dp)
-            .testTag("alert-dnd-row"),
-    )
-}
-
-@Composable
-private fun DndExplainer(onConfirm: () -> Unit, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        icon = {
-            Icon(
-                painter = painterResource(R.drawable.ic_do_not_disturb),
-                contentDescription = null,
-            )
-        },
-        title = { Text(stringResource(R.string.dnd_dialog_title)) },
-        text = { Text(stringResource(R.string.dnd_dialog_body)) },
-        confirmButton = {
-            TextButton(
-                onClick = onConfirm,
-                modifier = Modifier.testTag("dnd-grant"),
-            ) {
-                Text(stringResource(R.string.dnd_dialog_confirm))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.dnd_dialog_dismiss))
-            }
-        },
-    )
 }
 
 /** The chosen tone's own name, or an honest description of the fallback. */

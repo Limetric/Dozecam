@@ -70,9 +70,6 @@ class MonitoringService : Service() {
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "dozecam:monitoring")
             .apply { acquire() }
 
-        // A process killed mid-alarm may owe the user their Do Not Disturb mode
-        // back; this is the first moment we can pay it.
-        appContainer.alertSignaler.recoverFromCrash()
         appContainer.monitoringState.serviceRunning.value = true
         start()
     }

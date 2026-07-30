@@ -61,8 +61,6 @@ class SettingsScreenTest {
         onBack: () -> Unit = {},
         onPickAlertSound: () -> Unit = {},
         onPreviewAlertSound: () -> Unit = {},
-        dndGranted: Boolean = false,
-        onRequestDndGrant: () -> Unit = {},
     ) {
         DozecamTheme {
             SettingsScreen(
@@ -87,8 +85,6 @@ class SettingsScreenTest {
                 onBack = onBack,
                 onPickAlertSound = onPickAlertSound,
                 onPreviewAlertSound = onPreviewAlertSound,
-                dndGranted = dndGranted,
-                onRequestDndGrant = onRequestDndGrant,
             )
         }
     }
@@ -185,72 +181,6 @@ class SettingsScreenTest {
         composeRule.onNodeWithTag("alert-repeat-slider").performScrollTo()
             .performSemanticsAction(SemanticsActions.SetProgress) { it(15f) }
         assertEquals(15_000L, changed?.alertRepeatIntervalMs)
-    }
-
-    /**
-     * The grant is what makes the setting mean anything, so it is asked for the
-     * moment the switch goes on rather than discovered missing at 3am.
-     */
-    @Test
-    fun `switching the do not disturb override on explains it and offers the grant`() {
-        var requested = false
-        var changed: AppSettings? = null
-        composeRule.setContent {
-            Screen(
-                settings = AppSettings(alertBypassDnd = false),
-                dndGranted = false,
-                onSettingsChange = { changed = it(AppSettings(alertBypassDnd = false)) },
-                onRequestDndGrant = { requested = true },
-            )
-        }
-
-        composeRule.onNodeWithTag("alert-dnd-switch").performScrollTo().performClick()
-        assertEquals(true, changed?.alertBypassDnd)
-
-        composeRule.onNodeWithTag("dnd-grant").performClick()
-
-        assertEquals(true, requested)
-    }
-
-    /** Granting from the row has to leave the setting on, or it is a dead end. */
-    @Test
-    fun `tapping the override row switches it on rather than only explaining it`() {
-        var changed: AppSettings? = null
-        composeRule.setContent {
-            Screen(
-                settings = AppSettings(alertBypassDnd = false),
-                dndGranted = false,
-                onSettingsChange = { changed = it(AppSettings(alertBypassDnd = false)) },
-            )
-        }
-
-        composeRule.onNodeWithTag("alert-dnd-row").performScrollTo().performClick()
-
-        assertEquals(true, changed?.alertBypassDnd)
-        composeRule.onNodeWithTag("dnd-grant").assertIsDisplayed()
-    }
-
-    @Test
-    fun `the override is not explained again once the grant is held`() {
-        composeRule.setContent {
-            Screen(settings = AppSettings(alertBypassDnd = false), dndGranted = true)
-        }
-
-        composeRule.onNodeWithTag("alert-dnd-switch").performScrollTo().performClick()
-
-        composeRule.onNodeWithTag("dnd-grant").assertDoesNotExist()
-    }
-
-    /** On without the grant is the worst state to be silent about. */
-    @Test
-    fun `an override missing its grant says so`() {
-        composeRule.setContent {
-            Screen(settings = AppSettings(alertBypassDnd = true), dndGranted = false)
-        }
-
-        val context: Context = ApplicationProvider.getApplicationContext()
-        composeRule.onNodeWithTag("alert-dnd-row").performScrollTo()
-            .assertTextContains(context.getString(R.string.setting_alert_dnd_needs_grant))
     }
 
     @Test

@@ -71,14 +71,6 @@
     <string name="alert_volume_label">Alert volume: %1$d%% of your alarm volume</string>
     <string name="alert_repeat_label">Repeat every: %1$d s</string>
     <string name="alert_repeat_footnote">An alert repeats until you touch the screen, and gives up on its own after five minutes.</string>
-    <string name="setting_alert_dnd">Override Do Not Disturb</string>
-    <string name="setting_alert_dnd_off">Total silence will mute alerts</string>
-    <string name="setting_alert_dnd_needs_grant">Needs permission — tap to grant</string>
-    <string name="setting_alert_dnd_on">Alerts get through total silence</string>
-    <string name="dnd_dialog_title">Let alerts through total silence</string>
-    <string name="dnd_dialog_body">Alerts already get through Do Not Disturb — but not its total-silence mode, which mutes alarms too.\n\nTo get through that, Dozecam needs permission to change Do Not Disturb. It uses it for nothing else: while an alert is sounding it switches the phone from total silence to alarms-only, then puts your setting back.\n\nYou can revoke this at any time in system settings.</string>
-    <string name="dnd_dialog_confirm">Open system settings</string>
-    <string name="dnd_dialog_dismiss">Not now</string>
     <string name="setting_orientation">Monitor orientation</string>
     <string name="orientation_auto">Follow the sensor</string>
     <string name="orientation_portrait">Lock to portrait</string>

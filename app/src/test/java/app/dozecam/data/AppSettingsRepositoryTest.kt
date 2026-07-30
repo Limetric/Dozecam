@@ -39,7 +39,6 @@ class AppSettingsRepositoryTest {
             alertRamp = false,
             alertRepeatIntervalMs = 12_000,
             alertVolume = 0.6f,
-            alertBypassDnd = true,
             orientationLock = OrientationLock.LANDSCAPE,
             viewerSound = true,
         )
@@ -63,7 +62,6 @@ class AppSettingsRepositoryTest {
         assertTrue(defaults.alertVibrate)
         assertTrue(defaults.alertRamp)
         assertEquals(1f, defaults.alertVolume, 0.0001f)
-        assertFalse("a system override must always be asked for", defaults.alertBypassDnd)
         assertTrue(
             "the repeat has to be inside the range settings offers",
             defaults.alertRepeatIntervalMs in

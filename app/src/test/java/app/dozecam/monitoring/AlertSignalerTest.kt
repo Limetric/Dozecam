@@ -26,7 +26,6 @@ class AlertSignalerTest {
 
     private val player = FakePlayer()
     private val vibrator = FakeVibrator()
-    private val dnd = FakeDnd()
 
     /**
      * Virtual time throughout: the alarm reads the test scheduler's clock, so a
@@ -35,7 +34,6 @@ class AlertSignalerTest {
     private fun TestScope.signaler() = AlertSignaler(
         player = player,
         vibrator = vibrator,
-        dnd = dnd,
         scope = backgroundScope,
         clock = { testScheduler.currentTime },
         tickMs = AlertSignaler.TICK_MS,
@@ -209,32 +207,6 @@ class AlertSignalerTest {
     }
 
     @Test
-    fun `the do not disturb override is asked for and always handed back`() = alarmTest {
-        val signaler = signaler()
-
-        signaler.signal("cam-1", settings(alertBypassDnd = true))
-        runCurrent()
-        assertEquals(true, dnd.begun)
-        assertEquals(0, dnd.ends)
-
-        signaler.acknowledge()
-        runCurrent()
-        assertEquals(1, dnd.ends)
-    }
-
-    @Test
-    fun `an alarm that gives up still hands the override back`() = alarmTest {
-        val signaler = signaler()
-
-        signaler.signal("cam-1", settings(alertBypassDnd = true))
-        runCurrent()
-        advanceTimeBy(AlarmSchedule.DEFAULT_MAX_DURATION_MS)
-        runCurrent()
-
-        assertEquals(1, dnd.ends)
-    }
-
-    @Test
     fun `preview plays once without latching an alarm`() = alarmTest {
         val signaler = signaler()
 
@@ -320,14 +292,12 @@ class AlertSignalerTest {
         alertRamp: Boolean = true,
         alertRepeatIntervalMs: Long = AlarmSchedule.DEFAULT_REPEAT_INTERVAL_MS,
         alertVolume: Float = 1f,
-        alertBypassDnd: Boolean = false,
     ) = AppSettings(
         alertChime = alertChime,
         alertVibrate = alertVibrate,
         alertRamp = alertRamp,
         alertRepeatIntervalMs = alertRepeatIntervalMs,
         alertVolume = alertVolume,
-        alertBypassDnd = alertBypassDnd,
     )
 
     private fun alarmTest(body: suspend TestScope.() -> Unit) = runTest { body() }
@@ -362,19 +332,6 @@ class AlertSignalerTest {
 
         override fun cancel() {
             cancels++
-        }
-    }
-
-    private class FakeDnd : DndOverride {
-        var begun: Boolean? = null
-        var ends = 0
-
-        override fun beginBypass(enabled: Boolean) {
-            begun = enabled
-        }
-
-        override fun endBypass() {
-            ends++
         }
     }
 

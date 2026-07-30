@@ -20,7 +20,6 @@ import androidx.lifecycle.repeatOnLifecycle
 import app.dozecam.R
 import app.dozecam.appContainer
 import app.dozecam.monitoring.AlarmSound
-import app.dozecam.monitoring.AlertDnd
 import app.dozecam.monitoring.MonitoringService
 import app.dozecam.monitoring.MonitoringStarter
 import app.dozecam.monitoring.shouldArmMonitoring
@@ -28,18 +27,12 @@ import app.dozecam.monitoring.shouldStopMonitoring
 import app.dozecam.permissions.LocalNetworkPermission
 import app.dozecam.ui.onboarding.OnboardingActivity
 import app.dozecam.ui.theme.DozecamTheme
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 class SettingsActivity : ComponentActivity() {
 
     private val monitoringStarter = MonitoringStarter(this)
-
-    private val alertDnd by lazy { AlertDnd(this) }
-
-    /** Held by the system, not by us, and revocable there at any time. */
-    private val dndGranted = MutableStateFlow(false)
 
     // Switching monitoring on is the moment LAN access stops being optional:
     // without it every RTSP connection is dropped as a timeout, which looks
@@ -73,13 +66,6 @@ class SettingsActivity : ComponentActivity() {
         lifecycleScope.launch {
             appContainer.appSettings.update { it.copy(alertSoundUri = picked?.toString()) }
         }
-    }
-
-    private val dndGrant = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) {
-        // The result code says nothing; the grant itself is the answer.
-        dndGranted.value = alertDnd.isGranted
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -131,7 +117,6 @@ class SettingsActivity : ComponentActivity() {
                 .collectAsStateWithLifecycle()
             val canMonitor by settingsViewModel.canMonitor.collectAsStateWithLifecycle()
             val audioLevel by settingsViewModel.audioLevel.collectAsStateWithLifecycle()
-            val dndAccess by dndGranted.collectAsStateWithLifecycle()
             DozecamTheme(nightTheme = settings.nightTheme) {
                 SettingsScreen(
                     settings = settings,
@@ -169,21 +154,11 @@ class SettingsActivity : ComponentActivity() {
                     onBack = { finish() },
                     onPickAlertSound = { pickAlertSound(settings.alertSoundUri) },
                     onPreviewAlertSound = { appContainer.alertSignaler.preview(settings) },
-                    dndGranted = dndAccess,
-                    onRequestDndGrant = {
-                        runCatching { dndGrant.launch(AlertDnd.grantIntent()) }
-                    },
                 )
             }
         }
     }
 
-
-    override fun onResume() {
-        super.onResume()
-        // Revocable in system settings without ever coming back through us.
-        dndGranted.value = alertDnd.isGranted
-    }
 
     /** A preview belongs to this screen; leaving it takes the sound with it. */
     override fun onStop() {
