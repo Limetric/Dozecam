@@ -64,6 +64,7 @@
     <string name="setting_alert_sound_default">Your phone\'s alarm sound</string>
     <string name="setting_alert_sound_unknown">Chosen sound</string>
     <string name="setting_alert_preview">Preview the alert sound</string>
+    <string name="alert_sound_unreadable">Dozecam cannot open that sound, so it would leave an alert silent. Your previous alert sound has been kept.</string>
     <string name="setting_alert_ramp">Escalate volume</string>
     <string name="setting_alert_ramp_description">Start gently and build over a few seconds</string>
     <string name="alert_tuning_hint">Alerts play at alarm volume, so a silent ringer will not silence them. They can be quieter than your alarm volume, never louder.</string>

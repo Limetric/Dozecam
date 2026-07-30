@@ -8,6 +8,7 @@ import android.provider.Settings
 import androidx.core.net.toUri
 import app.dozecam.R
 import app.dozecam.data.AppSettings
+import java.io.IOException
 
 /**
  * Which sound an alert makes, and how the user changes it.
@@ -20,10 +21,36 @@ import app.dozecam.data.AppSettings
 object AlarmSound {
 
     /** The chosen tone, or the phone's own alarm sound if no choice has been made. */
-    fun uriFor(settings: AppSettings): Uri =
-        settings.alertSoundUri?.toUri()
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+    fun uriFor(settings: AppSettings): Uri = settings.alertSoundUri?.toUri() ?: default
+
+    /**
+     * The phone's own alarm sound: the one tone that needs no permission and no
+     * storage to be mounted, and so the only safe thing to fall back to.
+     */
+    val default: Uri
+        get() = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
             ?: Settings.System.DEFAULT_ALARM_ALERT_URI
+
+    /**
+     * Whether a tone can actually be opened by this app.
+     *
+     * The picker hands back bare `content://media/external/...` URIs for a file
+     * the user dropped in `Alarms/` themselves, with no permission grant
+     * attached and no `READ_MEDIA_AUDIO` on our side to fall back on. Opening it
+     * is the only way to find out, and it is far better to find out in daylight,
+     * at the moment of choosing, than at 3am.
+     */
+    fun isPlayable(context: Context, uri: Uri): Boolean =
+        try {
+            context.contentResolver.openInputStream(uri).use { it != null }
+        } catch (_: SecurityException) {
+            false
+        } catch (_: IOException) {
+            false
+        } catch (_: IllegalArgumentException) {
+            // A malformed or unroutable URI; unusable for the same purposes.
+            false
+        }
 
     /**
      * The system picker, asked for alarm tones so the list a parent chooses from

@@ -54,14 +54,28 @@ class MediaPlayerAlarmPlayer(private val context: Context) : AlarmPlayer {
 
     override fun start(uri: Uri, volume: Float) {
         stop()
+        open(uri, volume, mayFallBack = uri != AlarmSound.default)
+    }
+
+    /**
+     * A tone can fail here for reasons that have nothing to do with the user:
+     * a file on storage that is no longer mounted, or — for anything they added
+     * to `Alarms/` themselves — a `content://media/external` URI the picker
+     * handed over without a permission grant to read it with.
+     *
+     * Whatever the cause, a burst that cannot open its sound falls back to the
+     * phone's own alarm tone rather than going quiet. An alert nobody can hear
+     * is the single failure this whole feature exists to prevent, and 3am is not
+     * the moment to be strict about which sound it is.
+     */
+    private fun open(uri: Uri, volume: Float, mayFallBack: Boolean) {
         val next = MediaPlayer()
         next.setAudioAttributes(AlarmAudio.ATTRIBUTES)
         next.setVolume(volume, volume)
         next.setOnErrorListener { _, _, _ ->
-            // A sound that has gone missing (an SD card ringtone, a revoked
-            // grant) must not take the alarm down with it: the vibration and the
-            // next burst carry on.
+            val wasCurrent = player === next
             release(next)
+            if (wasCurrent && mayFallBack) open(AlarmSound.default, volume, mayFallBack = false)
             true
         }
         next.setOnPreparedListener { prepared ->
@@ -75,9 +89,11 @@ class MediaPlayerAlarmPlayer(private val context: Context) : AlarmPlayer {
             next.setDataSource(context, uri)
             next.prepareAsync()
         } catch (_: Exception) {
-            // setDataSource throws for an unreadable or malformed URI, and
-            // prepareAsync for a player the failure left in a bad state.
+            // setDataSource throws SecurityException for a URI we hold no grant
+            // for, IOException for one that has gone missing, and prepareAsync
+            // throws for a player the failure left in a bad state.
             release(next)
+            if (mayFallBack) open(AlarmSound.default, volume, mayFallBack = false)
         }
     }
 

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -16,6 +17,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import app.dozecam.R
 import app.dozecam.appContainer
 import app.dozecam.monitoring.AlarmSound
 import app.dozecam.monitoring.AlertDnd
@@ -59,6 +61,14 @@ class SettingsActivity : ComponentActivity() {
                 RingtoneManager.EXTRA_RINGTONE_PICKED_URI,
                 Uri::class.java,
             )
+        }
+        // A tone the user added themselves comes back as a bare media URI with
+        // no grant attached, and would fail silently at 3am. Refused here, awake
+        // and with the picker still fresh in mind, rather than stored and
+        // discovered later by not going off.
+        if (picked != null && !AlarmSound.isPlayable(this, picked)) {
+            Toast.makeText(this, R.string.alert_sound_unreadable, Toast.LENGTH_LONG).show()
+            return@registerForActivityResult
         }
         lifecycleScope.launch {
             appContainer.appSettings.update { it.copy(alertSoundUri = picked?.toString()) }
