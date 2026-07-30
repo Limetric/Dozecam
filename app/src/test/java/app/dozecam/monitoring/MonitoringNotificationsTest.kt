@@ -70,6 +70,25 @@ class MonitoringNotificationsTest {
     }
 
     /**
+     * The tap and the unattended wake must be separate PendingIntents, or the
+     * tap could not be told apart from Android launching the viewer on its own.
+     * They differ by request code as well as extras, because PendingIntent
+     * equality ignores extras entirely.
+     */
+    @Test
+    fun `tapping the alert is distinguishable from the screen being woken by it`() {
+        MonitoringNotifications.ensureChannels(context)
+
+        val notification = MonitoringNotifications.alertNotification(context, "cam-a", "Nursery")
+        val tapped = shadowOf(notification.contentIntent).savedIntent
+        val woken = shadowOf(notification.fullScreenIntent).savedIntent
+
+        assertTrue(tapped.getBooleanExtra("alert_tapped", false))
+        assertEquals(false, woken.getBooleanExtra("alert_tapped", false))
+        assertEquals("cam-a", tapped.getStringExtra("alert_camera_id"))
+    }
+
+    /**
      * The dismiss half of the acknowledgement: without this the alarm would keep
      * ringing with nothing on screen left to explain why.
      */

@@ -264,6 +264,21 @@ class MainActivity : ComponentActivity() {
         // past the lock screen is not the risk, so a second tap on the alert
         // still opens the right camera even though it can no longer wake.
         alertCameraId.value = cameraId
+
+        // A tap on the notification is a person, and the tap itself lands in
+        // System UI's window rather than ours, so it never reaches
+        // onUserInteraction. Only the notification's own content intent carries
+        // this; the full-screen launch is unattended by definition and must not
+        // be read as anyone having arrived.
+        if (intent.getBooleanExtra(EXTRA_ALERT_TAPPED, false)) {
+            // Named-camera match as well as the flag: a forged launch would have
+            // to know the id of the camera currently sounding, which is a UUID
+            // that never leaves this process, and the worst it could otherwise
+            // do is silence an alert the user wanted.
+            if (appContainer.alertSignaler.alarmingCameraId.value == cameraId) {
+                appContainer.alertSignaler.acknowledge()
+            }
+        }
     }
 
     /**
@@ -334,6 +349,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val EXTRA_ALERT_CAMERA_ID = "alert_camera_id"
         private const val EXTRA_ALERT_TOKEN = "alert_token"
+        private const val EXTRA_ALERT_TAPPED = "alert_tapped"
 
         /**
          * Proves an alert intent came from this process, once. Never persisted,
@@ -353,5 +369,15 @@ class MainActivity : ComponentActivity() {
                 .putExtra(EXTRA_ALERT_CAMERA_ID, cameraId)
                 .putExtra(EXTRA_ALERT_TOKEN, alertToken)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        /**
+         * The same target, for the tap on the notification rather than the
+         * unattended full-screen launch. It goes straight to this activity
+         * rather than through a receiver that would then start it: that shape is
+         * the notification trampoline Android 12 blocks outright, and this app
+         * starts at 12.
+         */
+        fun alertTapIntent(context: Context, cameraId: String): Intent =
+            alertIntent(context, cameraId).putExtra(EXTRA_ALERT_TAPPED, true)
     }
 }

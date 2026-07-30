@@ -130,6 +130,47 @@ class MainActivityAlertIntentTest {
         signaler.stop()
     }
 
+    /**
+     * The tap lands in System UI's window, so it never reaches
+     * onUserInteraction — but it is unmistakably a person, and without this the
+     * alarm would go on ringing while they watched the camera they just opened.
+     */
+    @Test
+    fun `tapping the alert notification silences the alarm`() {
+        val signaler = context.appContainer.alertSignaler
+        signaler.signal("cam-a", silentAlarmSettings)
+        val tap = MainActivity.alertTapIntent(context, "cam-a")
+
+        Robolectric.buildActivity(MainActivity::class.java, tap).create().start().resume()
+
+        assertFalse(signaler.isAlarming)
+    }
+
+    @Test
+    fun `the unattended full-screen launch is still not an acknowledgement`() {
+        val signaler = context.appContainer.alertSignaler
+        signaler.signal("cam-a", silentAlarmSettings)
+        val fullScreen = MainActivity.alertIntent(context, "cam-a")
+
+        Robolectric.buildActivity(MainActivity::class.java, fullScreen).create().start().resume()
+
+        assertTrue(signaler.isAlarming)
+        signaler.stop()
+    }
+
+    /** A forged tap would have to name the camera that is actually sounding. */
+    @Test
+    fun `a tap naming a different camera does not silence the alarm`() {
+        val signaler = context.appContainer.alertSignaler
+        signaler.signal("cam-a", silentAlarmSettings)
+        val tap = MainActivity.alertTapIntent(context, "cam-b")
+
+        Robolectric.buildActivity(MainActivity::class.java, tap).create().start().resume()
+
+        assertTrue(signaler.isAlarming)
+        signaler.stop()
+    }
+
     @Test
     fun `ordinary use of the viewer costs nothing`() {
         val signaler = context.appContainer.alertSignaler
