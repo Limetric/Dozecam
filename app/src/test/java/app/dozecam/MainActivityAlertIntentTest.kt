@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
 import app.dozecam.data.AppSettings
+import app.dozecam.data.CameraRepository
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -158,13 +159,58 @@ class MainActivityAlertIntentTest {
         signaler.stop()
     }
 
-    /** A forged tap would have to name the camera that is actually sounding. */
+    /**
+     * A camera id is no barrier: this activity is exported, and an install
+     * migrated from v0.4 has exactly one camera whose id is the literal
+     * "legacy". Silencing an alert has to require a secret, not a guess.
+     */
     @Test
-    fun `a tap naming a different camera does not silence the alarm`() {
+    fun `another app cannot silence an alarm by naming the camera`() {
+        val signaler = context.appContainer.alertSignaler
+        signaler.signal(CameraRepository.LEGACY_ID, silentAlarmSettings)
+        val forged = Intent(context, MainActivity::class.java)
+            .putExtra("alert_camera_id", CameraRepository.LEGACY_ID)
+            .putExtra("alert_tapped", true)
+            .putExtra("alert_tap_key", "guessed")
+
+        Robolectric.buildActivity(MainActivity::class.java, forged).create().start().resume()
+
+        assertTrue(signaler.isAlarming)
+        signaler.stop()
+    }
+
+    /**
+     * The wake token is spent the moment Android launches the viewer by itself,
+     * so the tap that follows carries a stale one. Without its own key that tap
+     * would revoke the privilege it arrived on and let the keyguard cover the
+     * camera the user had just tapped to see.
+     */
+    @Test
+    fun `tapping after the screen was woken keeps the viewer over the keyguard`() {
         val signaler = context.appContainer.alertSignaler
         signaler.signal("cam-a", silentAlarmSettings)
-        val tap = MainActivity.alertTapIntent(context, "cam-b")
+        val woken = MainActivity.alertIntent(context, "cam-a")
+        val tapped = MainActivity.alertTapIntent(context, "cam-a")
 
+        // Android launches the viewer on its own, spending the wake token.
+        val controller = Robolectric.buildActivity(MainActivity::class.java, woken)
+            .create().start().resume()
+        // The user then opens the notification from the lock screen.
+        controller.newIntent(tapped)
+
+        val shadow = shadowOf(controller.get())
+        assertTrue(shadow.getShowWhenLocked())
+        assertFalse(signaler.isAlarming)
+    }
+
+    /** And the tap key is spent once, like the wake token. */
+    @Test
+    fun `a tap key cannot be replayed`() {
+        val signaler = context.appContainer.alertSignaler
+        val tap = MainActivity.alertTapIntent(context, "cam-a")
+        Robolectric.buildActivity(MainActivity::class.java, tap).create()
+
+        signaler.signal("cam-a", silentAlarmSettings)
         Robolectric.buildActivity(MainActivity::class.java, tap).create().start().resume()
 
         assertTrue(signaler.isAlarming)

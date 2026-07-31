@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import app.dozecam.MainActivity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -83,8 +84,8 @@ class MonitoringNotificationsTest {
         val tapped = shadowOf(notification.contentIntent).savedIntent
         val woken = shadowOf(notification.fullScreenIntent).savedIntent
 
-        assertTrue(tapped.getBooleanExtra("alert_tapped", false))
-        assertEquals(false, woken.getBooleanExtra("alert_tapped", false))
+        assertNotNull("the tap must carry its own key", tapped.getStringExtra("alert_tap_key"))
+        assertNull("the unattended wake must not", woken.getStringExtra("alert_tap_key"))
         assertEquals("cam-a", tapped.getStringExtra("alert_camera_id"))
     }
 

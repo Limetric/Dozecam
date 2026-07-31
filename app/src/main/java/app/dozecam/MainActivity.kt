@@ -257,28 +257,34 @@ class MainActivity : ComponentActivity() {
         // with its original launch intent.
         val fromOurAlert = intent.getStringExtra(EXTRA_ALERT_TOKEN) == alertToken
         if (fromOurAlert) alertToken = newAlertToken()
-        setShowWhenLocked(fromOurAlert)
-        setTurnScreenOn(fromOurAlert)
+
+        // A tap on the notification is a person, and the tap lands in System
+        // UI's window rather than ours, so it never reaches onUserInteraction.
+        // It carries its own secret rather than a flag anyone could set: this
+        // activity is exported, and a camera id is no barrier at all — an
+        // install migrated from v0.4 has exactly one camera, called "legacy".
+        // Only the content intent of a notification we posted carries this.
+        val fromOurTap = intent.getStringExtra(EXTRA_ALERT_TAP_KEY)
+            ?.let { it == alertTapKey } == true
+        if (fromOurTap) alertTapKey = newAlertToken()
+
+        // Either secret authorises the lock screen, and for the same reason: it
+        // proves the launch came from our own alert. Without the tap key here,
+        // opening the notification after the full-screen intent had already
+        // spent the wake token would *revoke* the privilege and let the keyguard
+        // cover the very camera the user had just tapped to see.
+        val fromUs = fromOurAlert || fromOurTap
+        setShowWhenLocked(fromUs)
+        setTurnScreenOn(fromUs)
 
         // Deliberately outside that check: showing a camera to someone already
         // past the lock screen is not the risk, so a second tap on the alert
         // still opens the right camera even though it can no longer wake.
         alertCameraId.value = cameraId
 
-        // A tap on the notification is a person, and the tap itself lands in
-        // System UI's window rather than ours, so it never reaches
-        // onUserInteraction. Only the notification's own content intent carries
-        // this; the full-screen launch is unattended by definition and must not
-        // be read as anyone having arrived.
-        if (intent.getBooleanExtra(EXTRA_ALERT_TAPPED, false)) {
-            // Named-camera match as well as the flag: a forged launch would have
-            // to know the id of the camera currently sounding, which is a UUID
-            // that never leaves this process, and the worst it could otherwise
-            // do is silence an alert the user wanted.
-            if (appContainer.alertSignaler.alarmingCameraId.value == cameraId) {
-                appContainer.alertSignaler.acknowledge()
-            }
-        }
+        // The full-screen launch is unattended by definition and must never be
+        // read as anyone having arrived.
+        if (fromOurTap) appContainer.alertSignaler.acknowledge()
     }
 
     /**
@@ -349,7 +355,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val EXTRA_ALERT_CAMERA_ID = "alert_camera_id"
         private const val EXTRA_ALERT_TOKEN = "alert_token"
-        private const val EXTRA_ALERT_TAPPED = "alert_tapped"
+        private const val EXTRA_ALERT_TAP_KEY = "alert_tap_key"
 
         /**
          * Proves an alert intent came from this process, once. Never persisted,
@@ -360,6 +366,15 @@ class MainActivity : ComponentActivity() {
          */
         @Volatile
         private var alertToken: String = newAlertToken()
+
+        /**
+         * The same idea for the tap, and separate from the wake token because
+         * the two are spent at different moments: the full-screen intent burns
+         * the wake token the instant Android launches the viewer by itself, and
+         * the tap that follows must still be able to prove where it came from.
+         */
+        @Volatile
+        private var alertTapKey: String = newAlertToken()
 
         private fun newAlertToken(): String = UUID.randomUUID().toString()
 
@@ -378,6 +393,6 @@ class MainActivity : ComponentActivity() {
          * starts at 12.
          */
         fun alertTapIntent(context: Context, cameraId: String): Intent =
-            alertIntent(context, cameraId).putExtra(EXTRA_ALERT_TAPPED, true)
+            alertIntent(context, cameraId).putExtra(EXTRA_ALERT_TAP_KEY, alertTapKey)
     }
 }
