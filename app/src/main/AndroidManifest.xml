@@ -56,6 +56,11 @@
             android:name=".ui.onboarding.OnboardingActivity"
             android:exported="false" />
 
+        <!-- Dismissing the alert is an acknowledgement; it silences the alarm. -->
+        <receiver
+            android:name=".monitoring.AlertDismissReceiver"
+            android:exported="false" />
+
         <service
             android:name=".monitoring.MonitoringService"
             android:exported="false"

@@ -211,6 +211,24 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Being looked at is the acknowledgement — but only when a person is doing
+     * the looking.
+     *
+     * The alert's own full-screen intent puts this activity on the lock screen
+     * showing the camera that got loud, with nobody awake, so the viewer merely
+     * being up cannot be the signal: taken as one it would silence the alarm a
+     * second in, before the ramp had climbed at all. A real touch or key press
+     * — including the volume rocker someone gropes for in the dark — is the
+     * first thing that only a person can produce.
+     */
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        // A no-op unless an alarm is actually sounding, so ordinary use of the
+        // viewer costs nothing.
+        appContainer.alertSignaler.acknowledge()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         // singleTask: a wake alert reuses this activity rather than stacking a
@@ -239,13 +257,34 @@ class MainActivity : ComponentActivity() {
         // with its original launch intent.
         val fromOurAlert = intent.getStringExtra(EXTRA_ALERT_TOKEN) == alertToken
         if (fromOurAlert) alertToken = newAlertToken()
-        setShowWhenLocked(fromOurAlert)
-        setTurnScreenOn(fromOurAlert)
+
+        // A tap on the notification is a person, and the tap lands in System
+        // UI's window rather than ours, so it never reaches onUserInteraction.
+        // It carries its own secret rather than a flag anyone could set: this
+        // activity is exported, and a camera id is no barrier at all — an
+        // install migrated from v0.4 has exactly one camera, called "legacy".
+        // Only the content intent of a notification we posted carries this.
+        val fromOurTap = intent.getStringExtra(EXTRA_ALERT_TAP_KEY)
+            ?.let { it == alertTapKey } == true
+        if (fromOurTap) alertTapKey = newAlertToken()
+
+        // Either secret authorises the lock screen, and for the same reason: it
+        // proves the launch came from our own alert. Without the tap key here,
+        // opening the notification after the full-screen intent had already
+        // spent the wake token would *revoke* the privilege and let the keyguard
+        // cover the very camera the user had just tapped to see.
+        val fromUs = fromOurAlert || fromOurTap
+        setShowWhenLocked(fromUs)
+        setTurnScreenOn(fromUs)
 
         // Deliberately outside that check: showing a camera to someone already
         // past the lock screen is not the risk, so a second tap on the alert
         // still opens the right camera even though it can no longer wake.
         alertCameraId.value = cameraId
+
+        // The full-screen launch is unattended by definition and must never be
+        // read as anyone having arrived.
+        if (fromOurTap) appContainer.alertSignaler.acknowledge()
     }
 
     /**
@@ -316,6 +355,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val EXTRA_ALERT_CAMERA_ID = "alert_camera_id"
         private const val EXTRA_ALERT_TOKEN = "alert_token"
+        private const val EXTRA_ALERT_TAP_KEY = "alert_tap_key"
 
         /**
          * Proves an alert intent came from this process, once. Never persisted,
@@ -327,6 +367,15 @@ class MainActivity : ComponentActivity() {
         @Volatile
         private var alertToken: String = newAlertToken()
 
+        /**
+         * The same idea for the tap, and separate from the wake token because
+         * the two are spent at different moments: the full-screen intent burns
+         * the wake token the instant Android launches the viewer by itself, and
+         * the tap that follows must still be able to prove where it came from.
+         */
+        @Volatile
+        private var alertTapKey: String = newAlertToken()
+
         private fun newAlertToken(): String = UUID.randomUUID().toString()
 
         /** Full-screen wake target for [app.dozecam.monitoring.MonitoringNotifications]. */
@@ -335,5 +384,15 @@ class MainActivity : ComponentActivity() {
                 .putExtra(EXTRA_ALERT_CAMERA_ID, cameraId)
                 .putExtra(EXTRA_ALERT_TOKEN, alertToken)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        /**
+         * The same target, for the tap on the notification rather than the
+         * unattended full-screen launch. It goes straight to this activity
+         * rather than through a receiver that would then start it: that shape is
+         * the notification trampoline Android 12 blocks outright, and this app
+         * starts at 12.
+         */
+        fun alertTapIntent(context: Context, cameraId: String): Intent =
+            alertIntent(context, cameraId).putExtra(EXTRA_ALERT_TAP_KEY, alertTapKey)
     }
 }

@@ -1,13 +1,17 @@
 package app.dozecam.ui.settings
 
+import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.test.core.app.ApplicationProvider
+import app.dozecam.R
 import app.dozecam.data.AppSettings
 import app.dozecam.data.Camera
 import app.dozecam.data.DetectorSettings
@@ -55,6 +59,8 @@ class SettingsScreenTest {
         onDetectorChange: ((DetectorSettings) -> DetectorSettings) -> Unit = {},
         onOpenOnboarding: () -> Unit = {},
         onBack: () -> Unit = {},
+        onPickAlertSound: () -> Unit = {},
+        onPreviewAlertSound: () -> Unit = {},
     ) {
         DozecamTheme {
             SettingsScreen(
@@ -77,6 +83,8 @@ class SettingsScreenTest {
                 onDetectorChange = onDetectorChange,
                 onOpenOnboarding = onOpenOnboarding,
                 onBack = onBack,
+                onPickAlertSound = onPickAlertSound,
+                onPreviewAlertSound = onPreviewAlertSound,
             )
         }
     }
@@ -121,6 +129,58 @@ class SettingsScreenTest {
         composeRule.onNodeWithTag("chime-switch").performScrollTo().performClick()
 
         assertEquals(false, changed?.alertChime)
+    }
+
+    @Test
+    fun `the alert sound row opens the picker`() {
+        var picked = false
+        composeRule.setContent { Screen(onPickAlertSound = { picked = true }) }
+
+        composeRule.onNodeWithTag("alert-sound-row").performScrollTo().performClick()
+
+        assertEquals(true, picked)
+    }
+
+    /** Nobody should first hear their alert sound at 3am. */
+    @Test
+    fun `the alert sound can be previewed without leaving settings`() {
+        var previewed = false
+        composeRule.setContent { Screen(onPreviewAlertSound = { previewed = true }) }
+
+        composeRule.onNodeWithTag("alert-sound-preview").performScrollTo().performClick()
+
+        assertEquals(true, previewed)
+    }
+
+    @Test
+    fun `switching the ramp off reports the change`() {
+        var changed: AppSettings? = null
+        composeRule.setContent {
+            Screen(
+                settings = AppSettings(alertRamp = true),
+                onSettingsChange = { changed = it(AppSettings(alertRamp = true)) },
+            )
+        }
+
+        composeRule.onNodeWithTag("alert-ramp-switch").performScrollTo().performClick()
+
+        assertEquals(false, changed?.alertRamp)
+    }
+
+    @Test
+    fun `the alert volume and repeat interval are settable`() {
+        var changed: AppSettings? = null
+        composeRule.setContent {
+            Screen(onSettingsChange = { changed = it(AppSettings()) })
+        }
+
+        composeRule.onNodeWithTag("alert-volume-slider").performScrollTo()
+            .performSemanticsAction(SemanticsActions.SetProgress) { it(0.5f) }
+        assertEquals(0.5f, changed?.alertVolume)
+
+        composeRule.onNodeWithTag("alert-repeat-slider").performScrollTo()
+            .performSemanticsAction(SemanticsActions.SetProgress) { it(15f) }
+        assertEquals(15_000L, changed?.alertRepeatIntervalMs)
     }
 
     @Test

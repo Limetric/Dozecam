@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import app.dozecam.MainActivity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -67,6 +68,58 @@ class MonitoringNotificationsTest {
             "Sound detected — Nursery",
             notification.extras.getString(android.app.Notification.EXTRA_TITLE),
         )
+    }
+
+    /**
+     * The tap and the unattended wake must be separate PendingIntents, or the
+     * tap could not be told apart from Android launching the viewer on its own.
+     * They differ by request code as well as extras, because PendingIntent
+     * equality ignores extras entirely.
+     */
+    @Test
+    fun `tapping the alert is distinguishable from the screen being woken by it`() {
+        MonitoringNotifications.ensureChannels(context)
+
+        val notification = MonitoringNotifications.alertNotification(context, "cam-a", "Nursery")
+        val tapped = shadowOf(notification.contentIntent).savedIntent
+        val woken = shadowOf(notification.fullScreenIntent).savedIntent
+
+        assertNotNull("the tap must carry its own key", tapped.getStringExtra("alert_tap_key"))
+        assertNull("the unattended wake must not", woken.getStringExtra("alert_tap_key"))
+        assertEquals("cam-a", tapped.getStringExtra("alert_camera_id"))
+    }
+
+    /**
+     * The dismiss half of the acknowledgement: without this the alarm would keep
+     * ringing with nothing on screen left to explain why.
+     */
+    @Test
+    fun `dismissing the alert reaches the receiver that silences the alarm`() {
+        MonitoringNotifications.ensureChannels(context)
+
+        val notification = MonitoringNotifications.alertNotification(context, "cam-a", "Nursery")
+        val intent = shadowOf(notification.deleteIntent).savedIntent
+
+        assertEquals(
+            AlertDismissReceiver::class.java.name,
+            intent.component?.className,
+        )
+    }
+
+    /**
+     * The channel stays silent so the in-app alarm is the single audible
+     * surface — and channel settings are immutable once created, so a sound set
+     * here could never be changed again.
+     */
+    @Test
+    fun `the alert channel makes no noise of its own`() {
+        MonitoringNotifications.ensureChannels(context)
+
+        val channel = context.getSystemService(NotificationManager::class.java)
+            .getNotificationChannel(MonitoringNotifications.ALERT_CHANNEL_ID)
+
+        assertEquals(null, channel.sound)
+        assertEquals(false, channel.shouldVibrate())
     }
 
     @Test

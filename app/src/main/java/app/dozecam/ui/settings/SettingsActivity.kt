@@ -2,18 +2,24 @@ package app.dozecam.ui.settings
 
 import android.content.Context
 import android.content.Intent
+import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
+import androidx.core.content.IntentCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import app.dozecam.R
 import app.dozecam.appContainer
+import app.dozecam.monitoring.AlarmSound
 import app.dozecam.monitoring.MonitoringService
 import app.dozecam.monitoring.MonitoringStarter
 import app.dozecam.monitoring.shouldArmMonitoring
@@ -34,6 +40,33 @@ class SettingsActivity : ComponentActivity() {
     private val localNetworkPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted -> if (granted) armIfNeeded() }
+
+    private val alertSoundPicker = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode != RESULT_OK) return@registerForActivityResult
+        // Null only comes back for "Silent", which the picker is not asked to
+        // offer — but if a device offers it anyway, it has to mean the phone's
+        // own alarm sound rather than an alert nobody can hear.
+        val picked = result.data?.let {
+            IntentCompat.getParcelableExtra(
+                it,
+                RingtoneManager.EXTRA_RINGTONE_PICKED_URI,
+                Uri::class.java,
+            )
+        }
+        // A tone the user added themselves comes back as a bare media URI with
+        // no grant attached, and would fail silently at 3am. Refused here, awake
+        // and with the picker still fresh in mind, rather than stored and
+        // discovered later by not going off.
+        if (picked != null && !AlarmSound.isPlayable(this, picked)) {
+            Toast.makeText(this, R.string.alert_sound_unreadable, Toast.LENGTH_LONG).show()
+            return@registerForActivityResult
+        }
+        lifecycleScope.launch {
+            appContainer.appSettings.update { it.copy(alertSoundUri = picked?.toString()) }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -119,11 +152,24 @@ class SettingsActivity : ComponentActivity() {
                     onDetectorChange = settingsViewModel::onDetectorChange,
                     onOpenOnboarding = { startActivity(OnboardingActivity.intent(this)) },
                     onBack = { finish() },
+                    onPickAlertSound = { pickAlertSound(settings.alertSoundUri) },
+                    onPreviewAlertSound = { appContainer.alertSignaler.preview(settings) },
                 )
             }
         }
     }
 
+
+    /** A preview belongs to this screen; leaving it takes the sound with it. */
+    override fun onStop() {
+        super.onStop()
+        appContainer.alertSignaler.stopPreview()
+    }
+
+    /** Not every device ships a picker; without one the current sound stays as it was. */
+    private fun pickAlertSound(current: String?) {
+        runCatching { alertSoundPicker.launch(AlarmSound.pickerIntent(this, current)) }
+    }
 
     /** Through the same gate as auto-arming, so a manual start cannot misfire. */
     private fun armIfNeeded() {

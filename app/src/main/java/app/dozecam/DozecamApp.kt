@@ -6,6 +6,7 @@ import app.dozecam.data.AppSettingsRepository
 import app.dozecam.data.CameraRepository
 import app.dozecam.data.DetectorSettingsRepository
 import app.dozecam.data.dozecamDataStore
+import app.dozecam.monitoring.AlertSignaler
 import app.dozecam.monitoring.MonitoringState
 import app.dozecam.player.VlcRuntime
 import app.dozecam.protect.EncryptedCredentialsStore
@@ -33,6 +34,13 @@ class AppContainer(context: Context) {
     val appSettings = AppSettingsRepository(dataStore)
     val monitoringState = MonitoringState()
     val tofuTrustStore = TofuTrustStore(dataStore)
+
+    /**
+     * App-scoped rather than service-owned: the viewer has to be able to
+     * acknowledge an alarm the service started, and settings has to be able to
+     * preview the sound with no service running at all.
+     */
+    val alertSignaler by lazy { AlertSignaler(context.applicationContext) }
 
     /** Shared by every RTSP tile on screen; builds its native instance on first use. */
     val vlcRuntime = VlcRuntime(context.applicationContext)

@@ -60,6 +60,17 @@
     <string name="setting_alert_chime_description">Play a sound when a wake alert fires</string>
     <string name="setting_alert_vibrate">Alert vibration</string>
     <string name="setting_alert_vibrate_description">Vibrate when a wake alert fires</string>
+    <string name="setting_alert_sound">Alert sound</string>
+    <string name="setting_alert_sound_default">Your phone\'s alarm sound</string>
+    <string name="setting_alert_sound_unknown">Chosen sound</string>
+    <string name="setting_alert_preview">Preview the alert sound</string>
+    <string name="alert_sound_unreadable">Dozecam cannot open that sound, so it would leave an alert silent. Your previous alert sound has been kept.</string>
+    <string name="setting_alert_ramp">Escalate volume</string>
+    <string name="setting_alert_ramp_description">Start gently and build over a few seconds</string>
+    <string name="alert_tuning_hint">Alerts play at alarm volume, so a silent ringer will not silence them. They can be quieter than your alarm volume, never louder.</string>
+    <string name="alert_volume_label">Alert volume: %1$d%% of your alarm volume</string>
+    <string name="alert_repeat_label">Repeat every: %1$d s</string>
+    <string name="alert_repeat_footnote">An alert repeats until you touch the screen, and gives up on its own after five minutes.</string>
     <string name="setting_orientation">Monitor orientation</string>
     <string name="orientation_auto">Follow the sensor</string>
     <string name="orientation_portrait">Lock to portrait</string>

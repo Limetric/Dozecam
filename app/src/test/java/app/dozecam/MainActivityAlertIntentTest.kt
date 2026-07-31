@@ -3,6 +3,8 @@ package app.dozecam
 import android.content.Context
 import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
+import app.dozecam.data.AppSettings
+import app.dozecam.data.CameraRepository
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -22,6 +24,10 @@ import org.robolectric.Shadows.shadowOf
 class MainActivityAlertIntentTest {
 
     private val context: Context = ApplicationProvider.getApplicationContext()
+
+    /** The alarm's own noise is beside the point here; only the latch is. */
+    private val silentAlarmSettings =
+        AppSettings(alertChime = false, alertVibrate = false)
 
     @Test
     fun `our own alert may wake the screen over the lock screen`() {
@@ -91,6 +97,135 @@ class MainActivityAlertIntentTest {
         // Only waking is gated; showing a camera to someone already past the
         // lock screen is not the risk being defended against.
         assertEquals("cam-a", replayed.intent.getStringExtra("alert_camera_id"))
+    }
+
+    /**
+     * The other half of the alert: the viewer appearing cannot be the
+     * acknowledgement, because our own full-screen intent is what put it there.
+     */
+    @Test
+    fun `a touch on the woken viewer silences the alarm`() {
+        val signaler = context.appContainer.alertSignaler
+        signaler.signal("cam-a", silentAlarmSettings)
+        val intent = MainActivity.alertIntent(context, "cam-a")
+        val activity = Robolectric.buildActivity(MainActivity::class.java, intent)
+            .create().start().resume().get()
+
+        assertTrue("the alarm should survive the screen coming on", signaler.isAlarming)
+
+        activity.onUserInteraction()
+
+        assertFalse(signaler.isAlarming)
+    }
+
+    @Test
+    fun `the viewer coming up on its own does not silence the alarm`() {
+        val signaler = context.appContainer.alertSignaler
+        signaler.signal("cam-a", silentAlarmSettings)
+        val intent = MainActivity.alertIntent(context, "cam-a")
+
+        Robolectric.buildActivity(MainActivity::class.java, intent).create().start().resume()
+
+        // A screen nobody has their eyes open for is not an acknowledgement.
+        assertTrue(signaler.isAlarming)
+        signaler.stop()
+    }
+
+    /**
+     * The tap lands in System UI's window, so it never reaches
+     * onUserInteraction — but it is unmistakably a person, and without this the
+     * alarm would go on ringing while they watched the camera they just opened.
+     */
+    @Test
+    fun `tapping the alert notification silences the alarm`() {
+        val signaler = context.appContainer.alertSignaler
+        signaler.signal("cam-a", silentAlarmSettings)
+        val tap = MainActivity.alertTapIntent(context, "cam-a")
+
+        Robolectric.buildActivity(MainActivity::class.java, tap).create().start().resume()
+
+        assertFalse(signaler.isAlarming)
+    }
+
+    @Test
+    fun `the unattended full-screen launch is still not an acknowledgement`() {
+        val signaler = context.appContainer.alertSignaler
+        signaler.signal("cam-a", silentAlarmSettings)
+        val fullScreen = MainActivity.alertIntent(context, "cam-a")
+
+        Robolectric.buildActivity(MainActivity::class.java, fullScreen).create().start().resume()
+
+        assertTrue(signaler.isAlarming)
+        signaler.stop()
+    }
+
+    /**
+     * A camera id is no barrier: this activity is exported, and an install
+     * migrated from v0.4 has exactly one camera whose id is the literal
+     * "legacy". Silencing an alert has to require a secret, not a guess.
+     */
+    @Test
+    fun `another app cannot silence an alarm by naming the camera`() {
+        val signaler = context.appContainer.alertSignaler
+        signaler.signal(CameraRepository.LEGACY_ID, silentAlarmSettings)
+        val forged = Intent(context, MainActivity::class.java)
+            .putExtra("alert_camera_id", CameraRepository.LEGACY_ID)
+            .putExtra("alert_tapped", true)
+            .putExtra("alert_tap_key", "guessed")
+
+        Robolectric.buildActivity(MainActivity::class.java, forged).create().start().resume()
+
+        assertTrue(signaler.isAlarming)
+        signaler.stop()
+    }
+
+    /**
+     * The wake token is spent the moment Android launches the viewer by itself,
+     * so the tap that follows carries a stale one. Without its own key that tap
+     * would revoke the privilege it arrived on and let the keyguard cover the
+     * camera the user had just tapped to see.
+     */
+    @Test
+    fun `tapping after the screen was woken keeps the viewer over the keyguard`() {
+        val signaler = context.appContainer.alertSignaler
+        signaler.signal("cam-a", silentAlarmSettings)
+        val woken = MainActivity.alertIntent(context, "cam-a")
+        val tapped = MainActivity.alertTapIntent(context, "cam-a")
+
+        // Android launches the viewer on its own, spending the wake token.
+        val controller = Robolectric.buildActivity(MainActivity::class.java, woken)
+            .create().start().resume()
+        // The user then opens the notification from the lock screen.
+        controller.newIntent(tapped)
+
+        val shadow = shadowOf(controller.get())
+        assertTrue(shadow.getShowWhenLocked())
+        assertFalse(signaler.isAlarming)
+    }
+
+    /** And the tap key is spent once, like the wake token. */
+    @Test
+    fun `a tap key cannot be replayed`() {
+        val signaler = context.appContainer.alertSignaler
+        val tap = MainActivity.alertTapIntent(context, "cam-a")
+        Robolectric.buildActivity(MainActivity::class.java, tap).create()
+
+        signaler.signal("cam-a", silentAlarmSettings)
+        Robolectric.buildActivity(MainActivity::class.java, tap).create().start().resume()
+
+        assertTrue(signaler.isAlarming)
+        signaler.stop()
+    }
+
+    @Test
+    fun `ordinary use of the viewer costs nothing`() {
+        val signaler = context.appContainer.alertSignaler
+        val activity = Robolectric.buildActivity(MainActivity::class.java)
+            .create().start().resume().get()
+
+        activity.onUserInteraction()
+
+        assertFalse(signaler.isAlarming)
     }
 
     @Test

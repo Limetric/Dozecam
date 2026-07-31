@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import app.dozecam.MainActivity
@@ -19,6 +20,9 @@ object MonitoringNotifications {
     const val ALERT_CHANNEL_ID = "sound_alerts_2"
     const val STATUS_NOTIFICATION_ID = 1
     const val ALERT_NOTIFICATION_ID = 2
+
+    private const val REQUEST_ALERT_FULL_SCREEN = 0
+    private const val REQUEST_ALERT_TAP = 1
 
     fun ensureChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -60,7 +64,7 @@ object MonitoringNotifications {
     fun alertNotification(context: Context, cameraId: String, cameraName: String): Notification {
         val fullScreenIntent = PendingIntent.getActivity(
             context,
-            0,
+            REQUEST_ALERT_FULL_SCREEN,
             MainActivity.alertIntent(context, cameraId),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -71,11 +75,33 @@ object MonitoringNotifications {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setAutoCancel(true)
+            .setDeleteIntent(
+                PendingIntent.getBroadcast(
+                    context,
+                    0,
+                    Intent(context, AlertDismissReceiver::class.java),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                ),
+            )
             .setFullScreenIntent(fullScreenIntent, true)
             // When Android suppresses the full-screen launch (screen already
             // on, or 14+ special access denied) the heads-up fallback must
             // still open the live view on tap.
-            .setContentIntent(fullScreenIntent)
+            //
+            // A separate PendingIntent, and a separate request code, because the
+            // tap has to be distinguishable from the unattended launch: the
+            // person doing the tapping is acknowledging the alert, and their tap
+            // lands in System UI rather than in our window, so nothing else will
+            // tell us they arrived. The request codes must differ or these two
+            // would be the same PendingIntent — equality ignores extras.
+            .setContentIntent(
+                PendingIntent.getActivity(
+                    context,
+                    REQUEST_ALERT_TAP,
+                    MainActivity.alertTapIntent(context, cameraId),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                ),
+            )
             .build()
     }
 
