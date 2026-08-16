@@ -4,6 +4,7 @@ import app.dozecam.MainDispatcherRule
 import app.dozecam.data.Camera
 import app.dozecam.data.CameraStore
 import app.dozecam.data.ProtectStream
+import app.dozecam.monitoring.MonitoringState
 import app.dozecam.player.StreamSource
 import app.dozecam.protect.CredentialsStore
 import app.dozecam.protect.ProtectCredentials
@@ -50,9 +51,11 @@ class MonitorViewModelTest {
     private fun viewModel(
         cameras: List<Camera>,
         consoleHost: String? = "console.lan",
+        monitoringState: MonitoringState = MonitoringState(),
     ) = MonitorViewModel(
         FakeCameraStore(cameras),
         MutableCredentials(consoleHost),
+        monitoringState,
         ioDispatcher = mainDispatcher.dispatcher,
     )
 
@@ -141,6 +144,7 @@ class MonitorViewModelTest {
                 ),
             ),
             credentials,
+            MonitoringState(),
             ioDispatcher = mainDispatcher.dispatcher,
         )
         runCurrent()
@@ -189,8 +193,59 @@ class MonitorViewModelTest {
         assertEquals(emptyList<String>(), model.unmonitorable.value.map { it.id })
     }
 
+    @Test
+    fun `the viewer follows whether the monitor is actually listening`() = runTest {
+        val monitoring = MonitoringState()
+        val model = viewModel(
+            listOf(Camera("a", "Nursery", "rtsp://cam:7447/a")),
+            monitoringState = monitoring,
+        )
+        runCurrent()
+        assertFalse(model.monitoringRunning.value)
 
+        monitoring.serviceRunning.value = true
 
+        assertTrue(model.monitoringRunning.value)
+    }
+
+    @Test
+    fun `a camera that can be heard is a reason to offer to start`() = runTest {
+        val model = viewModel(listOf(Camera("a", "Nursery", "rtsp://cam:7447/a")))
+        runCurrent()
+
+        assertTrue(model.canMonitor.value)
+    }
+
+    /**
+     * The mirror of [unmonitorable]: offering to start a monitor that would
+     * have nothing to listen to is the same lie the notice exists to prevent,
+     * told as a button instead.
+     */
+    @Test
+    fun `nothing listenable is nothing to offer`() = runTest {
+        val model = viewModel(
+            listOf(Camera("a", "Nursery", "rtsps://cam:7441/a")),
+            consoleHost = null,
+        )
+        runCurrent()
+
+        assertEquals(listOf("a"), model.unmonitorable.value.map { it.id })
+        assertFalse(model.canMonitor.value)
+    }
+
+    @Test
+    fun `one listenable camera among several is enough`() = runTest {
+        val model = viewModel(
+            listOf(
+                Camera("a", "Nursery", "rtsps://cam:7441/a"),
+                Camera("b", "Play room", "rtsp://cam:7447/b"),
+            ),
+            consoleHost = null,
+        )
+        runCurrent()
+
+        assertTrue(model.canMonitor.value)
+    }
 
 
 

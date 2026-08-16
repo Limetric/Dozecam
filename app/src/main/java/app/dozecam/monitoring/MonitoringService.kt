@@ -272,8 +272,11 @@ class MonitoringService : Service() {
         val state = appContainer.monitoringState
         state.serviceRunning.value = false
         // Monitoring ending takes its alert with it: an alarm still sounding for
-        // a camera nobody is listening to any more has nothing left to mean.
+        // a camera nobody is listening to any more has nothing left to mean —
+        // and neither does the card offering to open a live view of it.
         appContainer.alertSignaler.stop()
+        NotificationManagerCompat.from(this)
+            .cancel(MonitoringNotifications.ALERT_NOTIFICATION_ID)
         monitors.values.forEach { it.stop() }
         monitors.clear()
         monitorTransports.clear()

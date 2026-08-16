@@ -23,6 +23,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import app.dozecam.audio.ViewerAudioFocus
 import app.dozecam.data.AppSettings
 import app.dozecam.data.OrientationLock
+import app.dozecam.monitoring.MonitoringService
 import app.dozecam.monitoring.MonitoringStarter
 import app.dozecam.monitoring.shouldArmMonitoring
 import app.dozecam.network.NetworkMonitor
@@ -71,7 +72,11 @@ class MainActivity : ComponentActivity() {
     // than letting the first console or stream connection time out.
     private val localNetworkPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { /* Denial is surfaced where the connection fails, not here. */ }
+    ) {
+        // No arming here, unlike SettingsActivity's: the prompt is an activity,
+        // so answering it resumes this one, and the RESUMED autoArm below picks
+        // a grant up on its own. Denial is surfaced where the connection fails.
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -153,12 +158,16 @@ class MainActivity : ComponentActivity() {
                     factory = MonitorViewModel.factory(
                         container.cameras,
                         container.protectCredentials,
+                        container.monitoringState,
                     ),
                 )
                 val cameras by viewModel.cameras.collectAsStateWithLifecycle()
                 val sources by viewModel.sources.collectAsStateWithLifecycle()
                 val unmonitorable by viewModel.unmonitorable.collectAsStateWithLifecycle()
                 val disabledOnly by viewModel.hasDisabledOnly.collectAsStateWithLifecycle()
+                val monitoring by viewModel.monitoringRunning.collectAsStateWithLifecycle()
+                val canMonitor by viewModel.canMonitor.collectAsStateWithLifecycle()
+                val stoppedByUser by viewModel.stoppedByUser.collectAsStateWithLifecycle()
                 val online by networkOnline.collectAsStateWithLifecycle()
                 val alertCamera by alertCameraId.collectAsStateWithLifecycle()
                 val soundGranted by audioFocus.granted.collectAsStateWithLifecycle()
@@ -190,6 +199,11 @@ class MainActivity : ComponentActivity() {
                     hasDisabledOnly = disabledOnly,
                     onOpenSettings = { startActivity(SettingsActivity.intent(this)) },
                     onOpenOnboarding = { startActivity(OnboardingActivity.intent(this)) },
+                    monitoringRunning = monitoring,
+                    canMonitor = canMonitor,
+                    stoppedByUser = stoppedByUser,
+                    onStopMonitoring = ::stopMonitoring,
+                    onStartMonitoring = ::startMonitoring,
                     soundEnabled = appSettings.viewerSound,
                     onSoundEnabledChange = ::setViewerSound,
                     // The cameras follow the focus we actually hold, not the
@@ -326,6 +340,35 @@ class MainActivity : ComponentActivity() {
         if (appContainer.shouldArmMonitoring(this)) monitoringStarter.startWithAlertPermissions()
     }
 
+    /**
+     * Stopping by hand, from the badge over the cameras.
+     *
+     * The intent is recorded before the service is asked to go, and for the
+     * same reason the settings switch records it: [autoArm] runs on every
+     * resume, so without it the next glance at the viewer would start again
+     * what the user just ended.
+     */
+    private fun stopMonitoring() {
+        appContainer.monitoringState.userStopped.value = true
+        MonitoringService.stop(this)
+    }
+
+    /**
+     * Back on, through the gate auto-arming uses so a manual start cannot
+     * misfire — except that the gate refuses outright without local-network
+     * access, which would make this the one control on screen that visibly
+     * does nothing when tapped and never says why. Asked for here instead, the
+     * way the settings switch asks, with [autoArm] left to the answer.
+     */
+    private fun startMonitoring() {
+        appContainer.monitoringState.userStopped.value = false
+        if (LocalNetworkPermission.isGranted(this)) {
+            lifecycleScope.launch { autoArm() }
+        } else {
+            localNetworkPermission.launch(LocalNetworkPermission.name)
+        }
+    }
+
     /** Remembered, so the viewer opens the way it was last left. */
     private fun setViewerSound(enabled: Boolean) {
         lifecycleScope.launch {
@@ -377,6 +420,19 @@ class MainActivity : ComponentActivity() {
         private var alertTapKey: String = newAlertToken()
 
         private fun newAlertToken(): String = UUID.randomUUID().toString()
+
+        /**
+         * The way back in from the ongoing monitoring notification: the viewer
+         * as the user left it, and nothing more.
+         *
+         * Pointedly not an [alertIntent] with the extras left off. It carries
+         * no camera to open and neither secret, so the keyguard stays exactly
+         * where it is — a notification that is up all night must never be a
+         * standing invitation to put the nursery on a locked screen.
+         */
+        fun viewerIntent(context: Context): Intent =
+            Intent(context, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
         /** Full-screen wake target for [app.dozecam.monitoring.MonitoringNotifications]. */
         fun alertIntent(context: Context, cameraId: String): Intent =

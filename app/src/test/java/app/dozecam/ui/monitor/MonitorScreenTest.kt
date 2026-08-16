@@ -123,6 +123,12 @@ class MonitorScreenTest {
         hasDisabledOnly: Boolean = false,
         onOpenSettings: () -> Unit = {},
         onOpenOnboarding: () -> Unit = {},
+        monitoringRunning: Boolean = false,
+        canMonitor: Boolean = false,
+        stoppedByUser: Boolean = false,
+        onStopMonitoring: () -> Unit = {},
+        onStartMonitoring: () -> Unit = {},
+        armingGraceMs: Long = ARMING_GRACE_MS,
         soundEnabled: Boolean = false,
         onSoundEnabledChange: (Boolean) -> Unit = {},
         soundGranted: Boolean = true,
@@ -144,6 +150,12 @@ class MonitorScreenTest {
                 hasDisabledOnly = hasDisabledOnly,
                 onOpenSettings = onOpenSettings,
                 onOpenOnboarding = onOpenOnboarding,
+                monitoringRunning = monitoringRunning,
+                canMonitor = canMonitor,
+                stoppedByUser = stoppedByUser,
+                onStopMonitoring = onStopMonitoring,
+                onStartMonitoring = onStartMonitoring,
+                armingGraceMs = armingGraceMs,
                 soundEnabled = soundEnabled,
                 onSoundEnabledChange = onSoundEnabledChange,
                 soundGranted = soundGranted,
@@ -240,9 +252,210 @@ class MonitorScreenTest {
 
         composeRule.onNodeWithTag("open-settings").assertExists()
         composeRule.onNodeWithTag("toggle-sound").assertExists()
-        // Arming lives in settings now; the viewer is for watching.
+        // Tuning the monitor still lives in settings; the viewer says what it
+        // is doing and offers to stop it, and nothing more than that.
         composeRule.onNodeWithTag("monitoring-switch").assertDoesNotExist()
         composeRule.onNodeWithTag("audio-level-meter").assertDoesNotExist()
+    }
+
+    /**
+     * Live cameras are not evidence of anything: the grid looks the same
+     * whether or not a service is listening behind it, so the one screen that
+     * is always up has to say which it is.
+     */
+    @Test
+    fun `the viewer says when it is listening`() {
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery), monitoringRunning = true, canMonitor = true)
+        }
+
+        composeRule.onNodeWithTag("monitoring-badge").assertTextEquals("Listening")
+    }
+
+    /**
+     * The badge earns its place by being read, so it has to fit next to the
+     * other two controls on the narrowest phone this app supports rather than
+     * pushing itself off the edge of the row.
+     */
+    @Test
+    @Config(qualifiers = NARROW_PHONE)
+    fun `the chrome still fits on a narrow phone`() {
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery), monitoringRunning = true, canMonitor = true)
+        }
+
+        composeRule.onNodeWithTag("monitoring-badge").assertIsDisplayed()
+        composeRule.onNodeWithTag("toggle-sound").assertIsDisplayed()
+        composeRule.onNodeWithTag("open-settings").assertIsDisplayed()
+    }
+
+    @Test
+    fun `a monitor that has been stopped says that too`() {
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery),
+                monitoringRunning = false,
+                canMonitor = true,
+                stoppedByUser = true,
+            )
+        }
+
+        composeRule.onNodeWithTag("monitoring-badge").assertTextEquals("Not monitoring")
+    }
+
+    /**
+     * Arming happens behind the first frame — a permission check, a settings
+     * read and a service launch — so the viewer always opens on a monitor that
+     * is not running yet. A badge that cried "not monitoring" every launch
+     * would be ignored by the night it was telling the truth.
+     */
+    @Test
+    fun `a monitor still starting is not accused of being off`() {
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery),
+                monitoringRunning = false,
+                canMonitor = true,
+                stoppedByUser = false,
+            )
+        }
+
+        composeRule.onNodeWithTag("monitoring-badge").assertDoesNotExist()
+    }
+
+    /** But a start that never lands must not stay a secret either. */
+    @Test
+    fun `a start that never arrives is owned up to`() {
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery),
+                monitoringRunning = false,
+                canMonitor = true,
+                stoppedByUser = false,
+            )
+        }
+
+        composeRule.mainClock.advanceTimeBy(ARMING_GRACE_MS + 1)
+
+        composeRule.onNodeWithTag("monitoring-badge").assertTextEquals("Not monitoring")
+    }
+
+    /** No such patience for a stop the user asked for: it is true on the spot. */
+    @Test
+    fun `a deliberate stop shows without waiting`() {
+        var running by mutableStateOf(true)
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery),
+                monitoringRunning = running,
+                canMonitor = true,
+                stoppedByUser = !running,
+            )
+        }
+        composeRule.onNodeWithTag("monitoring-badge").assertTextEquals("Listening")
+
+        running = false
+
+        composeRule.onNodeWithTag("monitoring-badge").assertTextEquals("Not monitoring")
+    }
+
+    /**
+     * The unmonitorable notice already explains this case; a badge offering to
+     * start what cannot start would only be a second thing to read past.
+     */
+    @Test
+    fun `nothing listenable is nothing to badge`() {
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery),
+                unmonitorable = listOf(nursery),
+                monitoringRunning = false,
+                canMonitor = false,
+            )
+        }
+
+        composeRule.onNodeWithTag("monitoring-badge").assertDoesNotExist()
+    }
+
+    /**
+     * A stray tap over live video must not disarm the monitor: the cameras
+     * would go on playing exactly as before, and nothing on screen would say
+     * that the night had stopped being watched.
+     */
+    @Test
+    fun `stopping asks before it stops`() {
+        var stopped = false
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery),
+                monitoringRunning = true,
+                canMonitor = true,
+                onStopMonitoring = { stopped = true },
+            )
+        }
+
+        composeRule.onNodeWithTag("monitoring-badge").performClick()
+
+        composeRule.onNodeWithTag("confirm-stop-monitoring").assertIsDisplayed()
+        assertFalse("the badge alone must not stop anything", stopped)
+    }
+
+    @Test
+    fun `confirming stops the monitor`() {
+        var stopped = false
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery),
+                monitoringRunning = true,
+                canMonitor = true,
+                onStopMonitoring = { stopped = true },
+            )
+        }
+
+        composeRule.onNodeWithTag("monitoring-badge").performClick()
+        composeRule.onNodeWithTag("confirm-stop-monitoring").performClick()
+
+        assertTrue(stopped)
+        composeRule.onNodeWithTag("confirm-stop-monitoring").assertDoesNotExist()
+    }
+
+    @Test
+    fun `backing out of the question leaves the monitor listening`() {
+        var stopped = false
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery),
+                monitoringRunning = true,
+                canMonitor = true,
+                onStopMonitoring = { stopped = true },
+            )
+        }
+
+        composeRule.onNodeWithTag("monitoring-badge").performClick()
+        composeRule.onNodeWithTag("keep-monitoring").performClick()
+
+        assertFalse(stopped)
+        composeRule.onNodeWithTag("confirm-stop-monitoring").assertDoesNotExist()
+    }
+
+    /** Starting again needs no ceremony: the risk is all in the other direction. */
+    @Test
+    fun `the same badge starts a stopped monitor again`() {
+        var started = false
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery),
+                monitoringRunning = false,
+                canMonitor = true,
+                stoppedByUser = true,
+                onStartMonitoring = { started = true },
+            )
+        }
+
+        composeRule.onNodeWithTag("monitoring-badge").performClick()
+
+        assertTrue(started)
+        composeRule.onNodeWithTag("confirm-stop-monitoring").assertDoesNotExist()
     }
 
     @Test
@@ -1059,6 +1272,12 @@ class MonitorScreenTest {
 
         /** One column, and only room for two 16:9 tiles: the third must scroll. */
         const val SHORT_SCREEN = "w400dp-h400dp"
+
+        /** About as little width as a phone in portrait ever offers. */
+        const val NARROW_PHONE = "w320dp-h640dp"
+
+        /** Long enough to be waited past on purpose, short enough not to be slow. */
+        const val ARMING_GRACE_MS = 500L
 
         /** Wide enough for three columns. */
         const val TABLET_SCREEN = "w1200dp-h900dp"

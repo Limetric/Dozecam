@@ -23,6 +23,8 @@ object MonitoringNotifications {
 
     private const val REQUEST_ALERT_FULL_SCREEN = 0
     private const val REQUEST_ALERT_TAP = 1
+    private const val REQUEST_STATUS_TAP = 2
+    private const val REQUEST_STATUS_STOP = 3
 
     fun ensureChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -47,6 +49,12 @@ object MonitoringNotifications {
         )
     }
 
+    /**
+     * The ongoing notification, and — while the phone listens with its screen
+     * off — the whole of Dozecam's presence. So it carries the two things a
+     * person reaching for it wants: the way back into the viewer, and the way
+     * to stop.
+     */
     fun statusNotification(context: Context, text: String): Notification =
         NotificationCompat.Builder(context, STATUS_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
@@ -55,6 +63,30 @@ object MonitoringNotifications {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            // Deliberately the plain viewer rather than an alert intent: this is
+            // nobody being woken, so it names no camera and carries none of the
+            // secrets that would let the nursery appear over a lock screen.
+            .setContentIntent(
+                PendingIntent.getActivity(
+                    context,
+                    REQUEST_STATUS_TAP,
+                    MainActivity.viewerIntent(context),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                ),
+            )
+            // A broadcast rather than an activity: stopping is the whole of what
+            // the button means, and routing it through the viewer would put the
+            // cameras on screen at the moment the user asked for the opposite.
+            .addAction(
+                R.drawable.ic_stop,
+                context.getString(R.string.notification_monitoring_stop),
+                PendingIntent.getBroadcast(
+                    context,
+                    REQUEST_STATUS_STOP,
+                    Intent(context, StopMonitoringReceiver::class.java),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                ),
+            )
             .build()
 
     /**
