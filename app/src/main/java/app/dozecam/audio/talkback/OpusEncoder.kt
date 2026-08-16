@@ -2,7 +2,6 @@ package app.dozecam.audio.talkback
 
 import android.media.MediaCodec
 import android.media.MediaFormat
-import java.io.Closeable
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -21,7 +20,7 @@ import java.nio.ByteOrder
 class OpusEncoder(
     sampleRate: Int,
     bitRate: Int = DEFAULT_BIT_RATE,
-) : Closeable {
+) : FrameEncoder {
 
     private val codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_OPUS)
     private val info = MediaCodec.BufferInfo()
@@ -44,7 +43,7 @@ class OpusEncoder(
      * encoder was ready to part with — usually one, occasionally none while it
      * primes, never a partial frame.
      */
-    fun encode(pcm: ShortArray, presentationTimeUs: Long): List<ByteArray> {
+    override fun encode(pcm: ShortArray, presentationTimeUs: Long): List<ByteArray> {
         val inputIndex = codec.dequeueInputBuffer(DEQUEUE_TIMEOUT_US)
         if (inputIndex >= 0) {
             val input = codec.getInputBuffer(inputIndex)!!
@@ -65,7 +64,7 @@ class OpusEncoder(
      * final word; the tail of silence that follows has nothing to push them out
      * with, because that silence is queued after them.
      */
-    fun finish(): List<ByteArray> {
+    override fun finish(): List<ByteArray> {
         val inputIndex = codec.dequeueInputBuffer(DEQUEUE_TIMEOUT_US)
         if (inputIndex >= 0) {
             codec.queueInputBuffer(

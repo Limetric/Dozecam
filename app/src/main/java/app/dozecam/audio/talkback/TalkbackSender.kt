@@ -18,17 +18,21 @@ class TalkbackSender(
     host: String,
     private val port: Int,
     private val packetiser: RtpPacketiser,
-) : Closeable {
+) : Closeable, FrameSink {
 
     private val address: InetAddress = InetAddress.getByName(host)
     private val socket = DatagramSocket()
 
-    /** Sends one encoded frame. Returns the datagram size, for logging. */
-    fun send(opusFrame: ByteArray): Int {
+    /** Sends one encoded frame. */
+    override fun send(opusFrame: ByteArray) {
         val packet = packetiser.packetise(opusFrame)
         socket.send(DatagramPacket(packet, packet.size, address, port))
-        return packet.size
+        bytesSent += packet.size
     }
+
+    /** Total bytes handed to the socket, for logging. Not proof of arrival. */
+    var bytesSent: Int = 0
+        private set
 
     override fun close() {
         socket.close()

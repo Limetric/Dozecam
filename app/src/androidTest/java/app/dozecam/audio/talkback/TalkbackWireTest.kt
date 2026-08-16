@@ -111,13 +111,13 @@ class TalkbackWireTest {
     ): Int {
         val frameSamples = rate * TalkbackFormat.FRAME_MILLIS / 1000
         val toneFrames = TONE_MILLIS / TalkbackFormat.FRAME_MILLIS
+        var bytes = 0
         val packetiser = RtpPacketiser(
             ssrc = ssrc,
             timestampIncrement = 48_000 * TalkbackFormat.FRAME_MILLIS / 1000,
         )
         val pacer = TalkbackPacer(System.nanoTime())
         var sent = 0
-        var bytes = 0
 
         OpusEncoder(rate).use { encoder ->
             TalkbackSender(host, port, packetiser).use { sender ->
@@ -138,17 +138,18 @@ class TalkbackWireTest {
                     }
 
                     encoder.encode(pcm, presentationTimeUs = index * 20_000L).forEach { frame ->
-                        bytes += sender.send(frame)
+                        sender.send(frame)
                         sent++
                     }
                     index++
                 }
                 if (flush) {
                     encoder.finish().forEach { frame ->
-                        bytes += sender.send(frame)
+                        sender.send(frame)
                         sent++
                     }
                 }
+                bytes = sender.bytesSent
             }
         }
 
