@@ -21,13 +21,25 @@
     <string name="monitoring_status_nothing">No camera is switched on</string>
     <string name="monitoring_status_offline">Offline — waiting for network</string>
     <string name="monitoring_status_partial">%1$s · %2$d not monitorable</string>
-    <string name="monitoring_toggle">Wake on sound</string>
+    <!--
+        The switch for monitoring itself, not a preference about how it behaves.
+        "Wake on sound" is the feature's name and reads as the latter, which is
+        why the master switch is named after the thing it turns off.
+    -->
+    <string name="monitoring_toggle">Monitoring</string>
     <string name="monitoring_listening">Listening for sound</string>
     <string name="monitoring_idle">Not monitoring</string>
     <string name="monitoring_unavailable">No camera is switched on that can be listened to</string>
     <string name="viewer_no_cameras">No cameras yet. Connect your UniFi Protect console to add them.</string>
     <string name="viewer_all_disabled">Every camera is switched off. Turn one on in settings to watch and monitor it.</string>
     <string name="viewer_add_manually">Add one manually</string>
+    <string name="viewer_monitoring_on">Listening</string>
+    <string name="viewer_monitoring_off">Not monitoring</string>
+    <string name="viewer_stop_monitoring">Stop monitoring</string>
+    <string name="viewer_start_monitoring">Start monitoring</string>
+    <string name="viewer_stop_monitoring_title">Stop monitoring?</string>
+    <string name="viewer_stop_monitoring_body">The cameras stay on screen, but Dozecam will stop listening — nothing will wake you if a room gets loud.</string>
+    <string name="viewer_keep_monitoring">Keep listening</string>
     <string name="viewer_sound_on">Turn sound on</string>
     <string name="viewer_sound_off">Turn sound off</string>
     <string name="viewer_audible_camera">Sound from %1$s</string>

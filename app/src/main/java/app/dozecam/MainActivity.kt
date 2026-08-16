@@ -23,6 +23,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import app.dozecam.audio.ViewerAudioFocus
 import app.dozecam.data.AppSettings
 import app.dozecam.data.OrientationLock
+import app.dozecam.monitoring.MonitoringService
 import app.dozecam.monitoring.MonitoringStarter
 import app.dozecam.monitoring.shouldArmMonitoring
 import app.dozecam.network.NetworkMonitor
@@ -153,12 +154,16 @@ class MainActivity : ComponentActivity() {
                     factory = MonitorViewModel.factory(
                         container.cameras,
                         container.protectCredentials,
+                        container.monitoringState,
                     ),
                 )
                 val cameras by viewModel.cameras.collectAsStateWithLifecycle()
                 val sources by viewModel.sources.collectAsStateWithLifecycle()
                 val unmonitorable by viewModel.unmonitorable.collectAsStateWithLifecycle()
                 val disabledOnly by viewModel.hasDisabledOnly.collectAsStateWithLifecycle()
+                val monitoring by viewModel.monitoringRunning.collectAsStateWithLifecycle()
+                val canMonitor by viewModel.canMonitor.collectAsStateWithLifecycle()
+                val stoppedByUser by viewModel.stoppedByUser.collectAsStateWithLifecycle()
                 val online by networkOnline.collectAsStateWithLifecycle()
                 val alertCamera by alertCameraId.collectAsStateWithLifecycle()
                 val soundGranted by audioFocus.granted.collectAsStateWithLifecycle()
@@ -190,6 +195,11 @@ class MainActivity : ComponentActivity() {
                     hasDisabledOnly = disabledOnly,
                     onOpenSettings = { startActivity(SettingsActivity.intent(this)) },
                     onOpenOnboarding = { startActivity(OnboardingActivity.intent(this)) },
+                    monitoringRunning = monitoring,
+                    canMonitor = canMonitor,
+                    stoppedByUser = stoppedByUser,
+                    onStopMonitoring = ::stopMonitoring,
+                    onStartMonitoring = ::startMonitoring,
                     soundEnabled = appSettings.viewerSound,
                     onSoundEnabledChange = ::setViewerSound,
                     // The cameras follow the focus we actually hold, not the
@@ -324,6 +334,25 @@ class MainActivity : ComponentActivity() {
      */
     private suspend fun autoArm() {
         if (appContainer.shouldArmMonitoring(this)) monitoringStarter.startWithAlertPermissions()
+    }
+
+    /**
+     * Stopping by hand, from the badge over the cameras.
+     *
+     * The intent is recorded before the service is asked to go, and for the
+     * same reason the settings switch records it: [autoArm] runs on every
+     * resume, so without it the next glance at the viewer would start again
+     * what the user just ended.
+     */
+    private fun stopMonitoring() {
+        appContainer.monitoringState.userStopped.value = true
+        MonitoringService.stop(this)
+    }
+
+    /** Back on, through the gate auto-arming uses so a manual start cannot misfire. */
+    private fun startMonitoring() {
+        appContainer.monitoringState.userStopped.value = false
+        lifecycleScope.launch { autoArm() }
     }
 
     /** Remembered, so the viewer opens the way it was last left. */

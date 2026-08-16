@@ -8,11 +8,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -20,6 +23,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalIconButton
@@ -51,12 +55,21 @@ import app.dozecam.player.CameraStreams
 import app.dozecam.player.StreamSource
 import app.dozecam.player.VideoPlayerController
 import app.dozecam.player.rememberCameraStreams
+import kotlinx.coroutines.delay
 
 /** Below this there is only room for one camera across; above it, two. */
 private val TWO_COLUMN_BREAKPOINT = 600.dp
 
 /** Above this, a third column still leaves each tile big enough to read. */
 private val THREE_COLUMN_BREAKPOINT = 1000.dp
+
+/**
+ * How long the viewer gives monitoring to start before it says out loud that it
+ * has not. Long enough to cover a cold start's permission check, settings read
+ * and service launch; short enough that a start which genuinely failed is not
+ * a secret for long.
+ */
+private const val ARMING_GRACE_MS = 3_000L
 
 /**
  * The viewer: every enabled camera, live, and nothing else. Arming the monitor
@@ -74,6 +87,24 @@ fun MonitorScreen(
     onOpenSettings: () -> Unit,
     onOpenOnboarding: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * Whether the monitor is listening. Shown rather than assumed: the grid
+     * looks exactly the same either way, so a viewer that stayed silent about
+     * it would let a stopped monitor pass for a running one all night.
+     */
+    monitoringRunning: Boolean = false,
+    /** Whether starting it would achieve anything — some camera can be heard. */
+    canMonitor: Boolean = false,
+    /**
+     * Whether it is off because the user said so, as opposed to not having
+     * started yet. The badge needs the difference: one is a fact to state at
+     * once, the other is a race it should wait out.
+     */
+    stoppedByUser: Boolean = false,
+    onStopMonitoring: () -> Unit = {},
+    onStartMonitoring: () -> Unit = {},
+    /** Injectable so tests need not wait out a real arming attempt. */
+    armingGraceMs: Long = ARMING_GRACE_MS,
     /**
      * Whether the viewer is allowed to make noise at all. Off until asked for:
      * this screen comes up on its own when a room gets loud, sometimes over a
@@ -318,6 +349,11 @@ fun MonitorScreen(
         return
     }
 
+    // Stopping is the one control here that can quietly undo the whole point of
+    // the app, and the viewer is a screen people prop up and brush past at
+    // night. So the badge opens the question and this answers it.
+    var confirmingStop by rememberSaveable { mutableStateOf(false) }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -354,7 +390,16 @@ fun MonitorScreen(
                 .safeDrawingPadding()
                 .padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
+            MonitoringBadge(
+                running = monitoringRunning,
+                canMonitor = canMonitor,
+                stoppedByUser = stoppedByUser,
+                armingGraceMs = armingGraceMs,
+                onStop = { confirmingStop = true },
+                onStart = onStartMonitoring,
+            )
             // Nothing to listen to yet: an empty viewer offers setup, not a
             // switch for sound that has no camera to come from.
             if (cameras.isNotEmpty()) {
@@ -374,7 +419,132 @@ fun MonitorScreen(
                 )
             }
         }
+
+        if (confirmingStop) {
+            StopMonitoringDialog(
+                onConfirm = {
+                    confirmingStop = false
+                    onStopMonitoring()
+                },
+                onDismiss = { confirmingStop = false },
+            )
+        }
     }
+}
+
+/**
+ * What the monitor is doing, and the way to change it — the control the viewer
+ * had no home for until now.
+ *
+ * It says the state rather than offering a switch, because the state is the
+ * part that is hard to know: monitoring runs in a service with no window, and
+ * the only other place it ever appears is a notification behind the lock
+ * screen. Reading "Listening" over the cameras is the whole point; being able
+ * to end it from there is what follows from being told.
+ */
+@Composable
+private fun MonitoringBadge(
+    running: Boolean,
+    canMonitor: Boolean,
+    stoppedByUser: Boolean,
+    armingGraceMs: Long,
+    onStop: () -> Unit,
+    onStart: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // Nothing listenable and nothing running: the empty state and the
+    // unmonitorable notice already explain why, and an offer to start what
+    // cannot start would only be a third thing to read.
+    if (!running && !canMonitor) return
+
+    // Off, and not because anyone asked. A viewer that has just opened is
+    // almost always a monitor part-way through starting — arming is a
+    // permission check, a settings read and a service launch behind the first
+    // frame. Saying "not monitoring" into that gap would make the badge cry
+    // wolf on every single launch, and a warning that is usually wrong is not
+    // read at all by the night it is right. So it waits, and speaks up only if
+    // the start never lands.
+    var armingFailed by remember { mutableStateOf(false) }
+    LaunchedEffect(running, stoppedByUser, armingGraceMs) {
+        armingFailed = false
+        if (!running && !stoppedByUser) {
+            delay(armingGraceMs)
+            armingFailed = true
+        }
+    }
+    // A stop the user asked for needs none of that patience: it is already true
+    // the instant they confirm it, and the badge has to show for the tap that
+    // starts monitoring again.
+    if (!running && !stoppedByUser && !armingFailed) return
+
+    Button(
+        onClick = if (running) onStop else onStart,
+        shapes = ButtonDefaults.shapes(),
+        colors = if (running) {
+            ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+        } else {
+            // Not an idle state to be styled quietly: a baby monitor that is
+            // not monitoring is the one thing on this screen worth alarm.
+            ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+            )
+        },
+        contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+        modifier = modifier.testTag("monitoring-badge"),
+    ) {
+        Icon(
+            painter = painterResource(
+                if (running) R.drawable.ic_graphic_eq else R.drawable.ic_do_not_disturb,
+            ),
+            // The label says what is happening; the action a tap performs is
+            // the part a screen reader would otherwise have to guess.
+            contentDescription = stringResource(
+                if (running) R.string.viewer_stop_monitoring else R.string.viewer_start_monitoring,
+            ),
+            modifier = Modifier.size(ButtonDefaults.IconSize),
+        )
+        Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+        Text(
+            stringResource(
+                if (running) R.string.viewer_monitoring_on else R.string.viewer_monitoring_off,
+            ),
+        )
+    }
+}
+
+/**
+ * Stopping is deliberate or it is a mistake — there is no third case. The badge
+ * sits over live video on a screen that stays on all night, and a stray tap
+ * that disarmed the monitor would not announce itself: the cameras would go on
+ * playing exactly as they had a second earlier.
+ */
+@Composable
+private fun StopMonitoringDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.viewer_stop_monitoring_title)) },
+        text = { Text(stringResource(R.string.viewer_stop_monitoring_body)) },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                modifier = Modifier.testTag("confirm-stop-monitoring"),
+            ) {
+                Text(stringResource(R.string.viewer_stop_monitoring))
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.testTag("keep-monitoring"),
+            ) {
+                Text(stringResource(R.string.viewer_keep_monitoring))
+            }
+        },
+    )
 }
 
 /**
