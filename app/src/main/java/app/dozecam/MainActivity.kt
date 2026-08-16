@@ -72,7 +72,11 @@ class MainActivity : ComponentActivity() {
     // than letting the first console or stream connection time out.
     private val localNetworkPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { /* Denial is surfaced where the connection fails, not here. */ }
+    ) {
+        // No arming here, unlike SettingsActivity's: the prompt is an activity,
+        // so answering it resumes this one, and the RESUMED autoArm below picks
+        // a grant up on its own. Denial is surfaced where the connection fails.
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -349,10 +353,20 @@ class MainActivity : ComponentActivity() {
         MonitoringService.stop(this)
     }
 
-    /** Back on, through the gate auto-arming uses so a manual start cannot misfire. */
+    /**
+     * Back on, through the gate auto-arming uses so a manual start cannot
+     * misfire — except that the gate refuses outright without local-network
+     * access, which would make this the one control on screen that visibly
+     * does nothing when tapped and never says why. Asked for here instead, the
+     * way the settings switch asks, with [autoArm] left to the answer.
+     */
     private fun startMonitoring() {
         appContainer.monitoringState.userStopped.value = false
-        lifecycleScope.launch { autoArm() }
+        if (LocalNetworkPermission.isGranted(this)) {
+            lifecycleScope.launch { autoArm() }
+        } else {
+            localNetworkPermission.launch(LocalNetworkPermission.name)
+        }
     }
 
     /** Remembered, so the viewer opens the way it was last left. */
