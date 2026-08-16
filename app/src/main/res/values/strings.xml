@@ -55,6 +55,24 @@
     <string name="viewer_stay">Stay</string>
     <string name="viewer_off_wifi">On mobile data. Your cameras are on the home network, so nothing here can reach them.</string>
     <string name="viewer_no_network">No network. Your cameras are on the home network, so nothing here can reach them until this device is back on it.</string>
+
+    <string name="talkback_hold">Hold to talk</string>
+    <string name="talkback_talking">Talking</string>
+    <string name="talkback_unavailable">Talk-back unavailable</string>
+    <string name="talkback_why_no_speaker">This camera has no speaker</string>
+    <string name="talkback_why_no_api_key">Sign in to the console again to enable talk-back</string>
+    <string name="talkback_why_codec">This camera asks for audio this phone cannot produce</string>
+    <string name="talkback_why_rate">This camera asks for a sample rate this phone cannot produce</string>
+    <string name="talkback_why_address">The console did not say where to send audio</string>
+    <!--
+        The honest version of the VLAN failure: the picture proves nothing about
+        whether the camera itself can be reached, and saying so is the whole
+        reason this state exists.
+    -->
+    <string name="talkback_why_unreachable">This camera can\'t be reached from this network, even though its picture can</string>
+    <string name="talkback_why_permission">Dozecam needs the microphone to talk to this camera</string>
+    <string name="talkback_why_unlock">Unlock the phone to set up talk-back</string>
+    <string name="talkback_failed">Talk-back stopped unexpectedly</string>
     <string name="camera_not_monitorable">Can be watched but not monitored — re-add this camera to fix it</string>
     <string name="detector_applies_to_all">Applies to every camera that is switched on.</string>
     <string name="section_monitoring">Monitoring</string>
