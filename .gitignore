@@ -38,3 +38,6 @@ keystore_dozecam_upload.properties
 
 # Diff scaffolding written by the automated PR review workflows
 .review-scope/
+
+# Talk-back spike credentials (see tools/talkback-spike/)
+tools/talkback-spike/talkback-spike.properties
