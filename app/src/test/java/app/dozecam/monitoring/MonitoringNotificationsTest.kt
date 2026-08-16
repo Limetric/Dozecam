@@ -130,4 +130,49 @@ class MonitoringNotificationsTest {
 
         assertTrue(notification.flags and android.app.Notification.FLAG_ONGOING_EVENT != 0)
     }
+
+    /**
+     * With the screen off the ongoing notification is the only Dozecam there
+     * is, so a tap on it has to lead back to the cameras rather than nowhere.
+     */
+    @Test
+    fun `tapping the ongoing notification opens the viewer`() {
+        MonitoringNotifications.ensureChannels(context)
+
+        val notification = MonitoringNotifications.statusNotification(context, "Listening")
+        val intent = shadowOf(notification.contentIntent).savedIntent
+
+        assertEquals(MainActivity::class.java.name, intent.component?.className)
+    }
+
+    /**
+     * It sits in the shade all night, which is exactly why it must not be able
+     * to do what an alert can: no camera to open, and neither of the secrets
+     * that authorise the viewer to appear over the keyguard.
+     */
+    @Test
+    fun `the ongoing notification cannot wake the screen`() {
+        MonitoringNotifications.ensureChannels(context)
+
+        val notification = MonitoringNotifications.statusNotification(context, "Listening")
+        val intent = shadowOf(notification.contentIntent).savedIntent
+
+        assertNull(intent.getStringExtra("alert_camera_id"))
+        assertNull(intent.getStringExtra("alert_token"))
+        assertNull(intent.getStringExtra("alert_tap_key"))
+    }
+
+    @Test
+    fun `the ongoing notification offers a way to stop monitoring`() {
+        MonitoringNotifications.ensureChannels(context)
+
+        val notification = MonitoringNotifications.statusNotification(context, "Listening")
+        val action = notification.actions.single()
+
+        assertEquals("Stop monitoring", action.title)
+        assertEquals(
+            StopMonitoringReceiver::class.java.name,
+            shadowOf(action.actionIntent).savedIntent.component?.className,
+        )
+    }
 }

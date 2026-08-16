@@ -378,6 +378,19 @@ class MainActivity : ComponentActivity() {
 
         private fun newAlertToken(): String = UUID.randomUUID().toString()
 
+        /**
+         * The way back in from the ongoing monitoring notification: the viewer
+         * as the user left it, and nothing more.
+         *
+         * Pointedly not an [alertIntent] with the extras left off. It carries
+         * no camera to open and neither secret, so the keyguard stays exactly
+         * where it is — a notification that is up all night must never be a
+         * standing invitation to put the nursery on a locked screen.
+         */
+        fun viewerIntent(context: Context): Intent =
+            Intent(context, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
         /** Full-screen wake target for [app.dozecam.monitoring.MonitoringNotifications]. */
         fun alertIntent(context: Context, cameraId: String): Intent =
             Intent(context, MainActivity::class.java)

@@ -13,6 +13,7 @@
     <string name="channel_alerts_name">Sound alerts</string>
     <string name="channel_alerts_description">Wakes the screen when sustained sound is detected</string>
     <string name="notification_monitoring_title">Dozecam monitoring</string>
+    <string name="notification_monitoring_stop">Stop monitoring</string>
     <string name="notification_alert_title">Sound detected — %1$s</string>
     <string name="notification_alert_text">Opening the live view…</string>
     <string name="monitoring_status_starting">Connecting to the cameras…</string>
