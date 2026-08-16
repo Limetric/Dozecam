@@ -1,11 +1,13 @@
 package app.dozecam.monitoring
 
+import android.app.NotificationManager
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import app.dozecam.DozecamApp
 import app.dozecam.data.Camera
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -60,6 +62,25 @@ class MonitoringServiceTest {
 
         assertFalse(container.monitoringState.serviceRunning.value)
         assertTrue(container.monitoringState.cameras.value.isEmpty())
+    }
+
+    /**
+     * Stopping monitoring from the notification's own action leaves the shade
+     * showing whatever the last alert posted; a card still offering a live view
+     * of a camera nobody is listening to any more is a lie by the time it is
+     * tapped.
+     */
+    @Test
+    fun `stopping takes any alert notification with it`() = runTest {
+        val controller = Robolectric.buildService(MonitoringService::class.java).create()
+        MonitoringNotifications.postAlert(context, "a", "Nursery")
+
+        controller.destroy()
+
+        assertNull(
+            shadowOf(context.getSystemService(NotificationManager::class.java))
+                .getNotification(MonitoringNotifications.ALERT_NOTIFICATION_ID),
+        )
     }
 
     @Test
