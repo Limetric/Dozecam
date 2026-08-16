@@ -39,5 +39,16 @@ class TalkbackPacer(
          * ahead of them.
          */
         const val LEAD_IN_FRAMES = 10
+
+        /**
+         * 300 ms of silence after the microphone closes.
+         *
+         * A stream that simply stops leaves the camera's decoder asked for
+         * audio that never arrives, and Opus answers such questions by
+         * extrapolating from the last frame it did receive. On a held button
+         * the last frame is the end of a sentence, so the invented audio lands
+         * on the final word. Silence gives the buffer something real to drain.
+         */
+        const val LEAD_OUT_FRAMES = 15
     }
 }

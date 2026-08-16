@@ -69,4 +69,19 @@ class TalkbackPacerTest {
             pacer.dueAtNanos(TalkbackPacer.LEAD_IN_FRAMES.toLong()) - pacer.dueAtNanos(0),
         )
     }
+
+    /**
+     * Longer than the lead-in on purpose. The click it covers is the camera's
+     * buffer starting up and is over quickly; the silence after a release has
+     * to outlast whatever the decoder would otherwise invent.
+     */
+    @Test
+    fun `the lead-out is three tenths of a second of silence`() {
+        val pacer = TalkbackPacer(start)
+
+        assertEquals(
+            300_000_000L,
+            pacer.dueAtNanos(TalkbackPacer.LEAD_OUT_FRAMES.toLong()) - pacer.dueAtNanos(0),
+        )
+    }
 }
