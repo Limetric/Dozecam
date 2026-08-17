@@ -61,6 +61,7 @@
     <string name="talkback_unavailable">Talk-back unavailable</string>
     <string name="talkback_why_no_speaker">This camera has no speaker</string>
     <string name="talkback_why_no_api_key">Sign in to the console again to enable talk-back</string>
+    <string name="talkback_why_no_console">This camera has no Protect console behind it</string>
     <string name="talkback_why_codec">This camera asks for audio this phone cannot produce</string>
     <string name="talkback_why_rate">This camera asks for a sample rate this phone cannot produce</string>
     <string name="talkback_why_address">The console did not say where to send audio</string>

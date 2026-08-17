@@ -39,6 +39,12 @@ sealed interface TalkbackAvailability {
         /** No console API key, so there is nothing to ask where to send audio. */
         NO_API_KEY,
 
+        /**
+         * A camera added by hand, or one left behind by a console that is no
+         * longer the signed-in one. Either way nothing can be asked about it.
+         */
+        NO_CONSOLE,
+
         /** vorbis, or anything else the platform cannot encode. */
         CODEC,
 

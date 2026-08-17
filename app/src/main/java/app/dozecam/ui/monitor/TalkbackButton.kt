@@ -160,6 +160,7 @@ private fun TalkbackAvailability.explanation(): Int? = when (this) {
     is TalkbackAvailability.Unsupported -> when (reason) {
         TalkbackAvailability.Reason.NO_SPEAKER -> R.string.talkback_why_no_speaker
         TalkbackAvailability.Reason.NO_API_KEY -> R.string.talkback_why_no_api_key
+        TalkbackAvailability.Reason.NO_CONSOLE -> R.string.talkback_why_no_console
         TalkbackAvailability.Reason.CODEC -> R.string.talkback_why_codec
         TalkbackAvailability.Reason.RATE -> R.string.talkback_why_rate
         TalkbackAvailability.Reason.ADDRESS -> R.string.talkback_why_address
