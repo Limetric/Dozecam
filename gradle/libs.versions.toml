@@ -4,15 +4,15 @@ kotlin = "2.4.10"
 coreKtx = "1.19.0"
 lifecycle = "2.11.0"
 activityCompose = "1.13.0"
-composeBom = "2026.06.01"
+composeBom = "2026.08.00"
 # The BOM still pins material3 1.4.0, where the Material 3 Expressive surface
 # (MaterialExpressiveTheme, ButtonGroup, ToggleButton, LoadingIndicator,
 # MaterialShapes) is internal. Pinned ahead of the BOM until 1.5.0 is stable.
 material3 = "1.5.0-alpha24"
 datastore = "1.2.1"
 libvlc = "3.7.5"
-media3 = "1.10.1"
-fragment = "1.8.9"
+media3 = "1.11.0"
+fragment = "1.9.0"
 serializationJson = "1.11.0"
 okhttp = "5.4.0"
 securityCrypto = "1.1.0"
