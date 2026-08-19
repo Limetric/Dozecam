@@ -27,6 +27,7 @@ import app.dozecam.monitoring.MonitoringService
 import app.dozecam.monitoring.MonitoringStarter
 import app.dozecam.monitoring.shouldArmMonitoring
 import app.dozecam.network.NetworkMonitor
+import app.dozecam.network.NetworkReach
 import app.dozecam.permissions.LocalNetworkPermission
 import app.dozecam.player.LivestreamVideoPlayerController
 import app.dozecam.player.StreamSource
@@ -54,7 +55,9 @@ import kotlinx.coroutines.launch
  */
 class MainActivity : ComponentActivity() {
 
-    private val networkOnline = MutableStateFlow(true)
+    // Optimistic until the monitor says otherwise: the viewer must not open
+    // on a warning it is about to take back a frame later.
+    private val networkReach = MutableStateFlow(NetworkReach.LOCAL)
 
     /** Camera to open fullscreen, delivered by a wake alert. */
     private val alertCameraId = MutableStateFlow<String?>(null)
@@ -96,7 +99,7 @@ class MainActivity : ComponentActivity() {
         val networkMonitor = NetworkMonitor(applicationContext)
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                networkMonitor.isOnline.collect { networkOnline.value = it }
+                networkMonitor.reach.collect { networkReach.value = it }
             }
         }
 
@@ -168,7 +171,7 @@ class MainActivity : ComponentActivity() {
                 val monitoring by viewModel.monitoringRunning.collectAsStateWithLifecycle()
                 val canMonitor by viewModel.canMonitor.collectAsStateWithLifecycle()
                 val stoppedByUser by viewModel.stoppedByUser.collectAsStateWithLifecycle()
-                val online by networkOnline.collectAsStateWithLifecycle()
+                val reach by networkReach.collectAsStateWithLifecycle()
                 val alertCamera by alertCameraId.collectAsStateWithLifecycle()
                 val soundGranted by audioFocus.granted.collectAsStateWithLifecycle()
 
@@ -194,7 +197,7 @@ class MainActivity : ComponentActivity() {
                     cameras = cameras,
                     sources = sources,
                     controllerFactory = ::controllerFor,
-                    networkOnline = online,
+                    networkReach = reach,
                     unmonitorable = unmonitorable,
                     hasDisabledOnly = disabledOnly,
                     onOpenSettings = { startActivity(SettingsActivity.intent(this)) },
