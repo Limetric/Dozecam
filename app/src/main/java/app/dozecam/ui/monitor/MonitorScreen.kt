@@ -48,9 +48,13 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.dozecam.R
 import app.dozecam.data.Camera
+import app.dozecam.network.NetworkReach
 import app.dozecam.player.CameraStreams
 import app.dozecam.player.StreamSource
 import app.dozecam.player.VideoPlayerController
@@ -81,7 +85,13 @@ fun MonitorScreen(
     cameras: List<Camera>,
     sources: Map<String, StreamSource>,
     controllerFactory: (StreamSource) -> VideoPlayerController,
-    networkOnline: Boolean,
+    /**
+     * Whether this device is on a network its cameras could be on. The
+     * sessions need only the online half of it; the viewer says the rest out
+     * loud, because a phone that has wandered onto mobile data looks exactly
+     * like a console that has died.
+     */
+    networkReach: NetworkReach,
     unmonitorable: List<Camera>,
     hasDisabledOnly: Boolean,
     onOpenSettings: () -> Unit,
@@ -138,7 +148,10 @@ fun MonitorScreen(
      */
     onAlertDismissed: () -> Unit = {},
 ) {
-    val streams = rememberCameraStreams(controllerFactory, networkOnline)
+    val streams = rememberCameraStreams(
+        controllerFactory,
+        networkOnline = networkReach != NetworkReach.OFFLINE,
+    )
     val gridState = rememberLazyGridState()
 
     /**
@@ -420,6 +433,17 @@ fun MonitorScreen(
             }
         }
 
+        // Bottom-aligned, unlike the notices above the grid: the top of this
+        // screen is already spoken for by the controls, and a message about the
+        // whole device belongs where nothing is competing with it.
+        NetworkNotice(
+            reach = networkReach,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .safeDrawingPadding()
+                .padding(16.dp),
+        )
+
         if (confirmingStop) {
             StopMonitoringDialog(
                 onConfirm = {
@@ -684,6 +708,40 @@ private fun EmptyState(
             }
         }
     }
+}
+
+/**
+ * Says out loud that this device is not where its cameras are.
+ *
+ * Dozecam only ever talks to a console on the house's own network, so a phone
+ * carried out to the car is not a monitor any more — but nothing on screen
+ * would say so. The tiles would sit at OFFLINE looking exactly as they do when
+ * a console has died or a camera has been unplugged, and the one explanation
+ * that costs nothing to check is the one the viewer is in a position to give.
+ *
+ * Stated rather than toasted, and it stays for as long as it is true. This is a
+ * screen people prop up and walk away from; a message that had already faded by
+ * the time anyone looked would be no message at all.
+ */
+@Composable
+private fun NetworkNotice(reach: NetworkReach, modifier: Modifier = Modifier) {
+    val message = when (reach) {
+        NetworkReach.LOCAL -> return
+        NetworkReach.OFFLINE -> R.string.viewer_no_network
+        NetworkReach.MOBILE_DATA -> R.string.viewer_off_wifi
+    }
+    Text(
+        text = stringResource(message),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onErrorContainer,
+        modifier = modifier
+            .background(MaterialTheme.colorScheme.errorContainer, MaterialTheme.shapes.large)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            // Worth interrupting for, and only ever a sentence — nothing like
+            // the countdown next door, which changes every second.
+            .semantics { liveRegion = LiveRegionMode.Polite }
+            .testTag("network-notice"),
+    )
 }
 
 /** Enabled but not listenable: say so rather than imply full coverage. */

@@ -19,6 +19,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.dozecam.data.Camera
+import app.dozecam.network.NetworkReach
 import app.dozecam.player.PlayerEvent
 import app.dozecam.player.StreamSource
 import app.dozecam.player.VideoPlayerController
@@ -119,6 +120,7 @@ class MonitorScreenTest {
     @Composable
     private fun Screen(
         cameras: List<Camera>,
+        networkReach: NetworkReach = NetworkReach.LOCAL,
         unmonitorable: List<Camera> = emptyList(),
         hasDisabledOnly: Boolean = false,
         onOpenSettings: () -> Unit = {},
@@ -145,7 +147,7 @@ class MonitorScreenTest {
                 cameras = cameras,
                 sources = sourcesFor(*cameras.toTypedArray()),
                 controllerFactory = { FakeController().also { controllers += it } },
-                networkOnline = true,
+                networkReach = networkReach,
                 unmonitorable = unmonitorable,
                 hasDisabledOnly = hasDisabledOnly,
                 onOpenSettings = onOpenSettings,
@@ -1253,6 +1255,62 @@ class MonitorScreenTest {
         // viewer has to be able to build them again on the way back in.
         composeRule.waitUntil { controllers.size == 4 }
         composeRule.waitUntil { controllers.takeLast(2).all { it.plays == 1 } }
+    }
+
+    @Test
+    fun `mobile data says the cameras are out of reach`() {
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery), networkReach = NetworkReach.MOBILE_DATA)
+        }
+
+        // The tiles would say OFFLINE either way; only the screen knows the
+        // reason is the device rather than the console.
+        composeRule.onNodeWithTag("network-notice").assertIsDisplayed()
+    }
+
+    @Test
+    fun `no network at all says so too`() {
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery), networkReach = NetworkReach.OFFLINE)
+        }
+
+        composeRule.onNodeWithTag("network-notice").assertIsDisplayed()
+    }
+
+    @Test
+    fun `a viewer on the home network says nothing about it`() {
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery), networkReach = NetworkReach.LOCAL)
+        }
+
+        composeRule.onNodeWithTag("network-notice").assertDoesNotExist()
+    }
+
+    @Test
+    fun `an empty viewer still says the device is off the network`() {
+        composeRule.setContent {
+            Screen(cameras = emptyList(), networkReach = NetworkReach.MOBILE_DATA)
+        }
+
+        // Setup needs the console as much as watching does, so "add a camera"
+        // on its own would send the user round a loop that cannot close.
+        composeRule.onNodeWithTag("network-notice").assertIsDisplayed()
+    }
+
+    @Test
+    fun `wandering off the home network raises the notice without a reload`() {
+        var reach by mutableStateOf(NetworkReach.LOCAL)
+        composeRule.setContent { Screen(cameras = listOf(nursery), networkReach = reach) }
+        composeRule.onNodeWithTag("network-notice").assertDoesNotExist()
+
+        composeRule.runOnUiThread { reach = NetworkReach.MOBILE_DATA }
+
+        composeRule.onNodeWithTag("network-notice").assertIsDisplayed()
+
+        // And goes again on the way back, rather than lingering over a viewer
+        // that has been streaming happily for an hour.
+        composeRule.runOnUiThread { reach = NetworkReach.LOCAL }
+        composeRule.onNodeWithTag("network-notice").assertDoesNotExist()
     }
 
     @Test
