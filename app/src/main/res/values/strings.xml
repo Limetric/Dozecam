@@ -107,7 +107,7 @@
     <string name="fingerprint_explanation">The console presented a self-signed certificate. Compare this fingerprint with the one shown in your console\'s settings before trusting it. If it ever changes, Dozecam will stop and ask you before connecting again.</string>
     <string name="fingerprint_trust">Trust this console</string>
     <string name="fingerprint_title_changed">This console\'s certificate changed</string>
-    <string name="fingerprint_explanation_changed">The console is presenting a different certificate from the one you trusted. Consoles reissue theirs after a firmware update, a reset, or when remote access is switched on — but so would something impersonating your console. Compare the new fingerprint with the one in your console\'s settings before trusting it.</string>
+    <string name="fingerprint_explanation_changed">The console is presenting a different certificate from the one you trusted. Consoles reissue theirs after a firmware update, a reset, or when remote access is switched on — but so would something impersonating your console. Compare the new fingerprint with the one in your console\'s settings before trusting it. Trusting it also lets Dozecam learn the camera streams\' certificates again, since a console that reissues one reissues those too.</string>
     <string name="fingerprint_previous">Trusted until now</string>
     <string name="fingerprint_presented">Presented now</string>
     <string name="fingerprint_trust_changed">Trust the new certificate</string>

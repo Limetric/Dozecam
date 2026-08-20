@@ -303,6 +303,64 @@ class OnboardingViewModelTest {
     }
 
     @Test
+    fun `a confirmed certificate is not pinned until a sign-in goes through`() = runTest {
+        console.routes[LOGIN] = { status(401) }
+        val trustStore = trustStore()
+        trustStore.pin("127.0.0.1", "AA:BB")
+        trustStore.pin("127.0.0.1:7441", "CC:DD")
+        val viewModel = viewModel(FakeCameraStore(), trustStore)
+
+        viewModel.connect()
+        val prompt = viewModel.state
+            .first { it.step is OnboardingStep.ConfirmFingerprint }
+            .step as OnboardingStep.ConfirmFingerprint
+        viewModel.confirmFingerprint(prompt.fingerprint)
+
+        // Back at the form with the password to correct, and the console still
+        // pinned to what it was: a confirmation spent on a sign-in that never
+        // happened would leave the retry looking like an ordinary one, with the
+        // media pins the reissue stranded never forgotten.
+        viewModel.state.first { it.step == OnboardingStep.Form && it.error != null }
+        assertEquals("AA:BB", trustStore.fingerprintFor("127.0.0.1").first())
+        assertEquals("CC:DD", trustStore.fingerprintFor("127.0.0.1:7441").first())
+    }
+
+    @Test
+    fun `a corrected password after confirming still forgets the stranded media pins`() = runTest {
+        publicConsole()
+        console.routes[LOGIN] = { status(401) }
+        val trustStore = trustStore()
+        trustStore.pin("127.0.0.1", "AA:BB")
+        trustStore.pin("127.0.0.1:7441", "CC:DD")
+        val viewModel = viewModel(FakeCameraStore(), trustStore)
+
+        viewModel.connect()
+        val prompt = viewModel.state
+            .first { it.step is OnboardingStep.ConfirmFingerprint }
+            .step as OnboardingStep.ConfirmFingerprint
+        viewModel.confirmFingerprint(prompt.fingerprint)
+        viewModel.state.first { it.step == OnboardingStep.Form && it.error != null }
+
+        // The password is fixed and the prompt comes back, because nothing was
+        // pinned; confirming it this time both pins and clears what was
+        // stranded below.
+        console.routes[LOGIN] = { loginResponse() }
+        viewModel.connect()
+        val retry = viewModel.state
+            .first { it.step is OnboardingStep.ConfirmFingerprint }
+            .step as OnboardingStep.ConfirmFingerprint
+        assertEquals("AA:BB", retry.replacing)
+        viewModel.confirmFingerprint(retry.fingerprint)
+
+        viewModel.state.first { it.step is OnboardingStep.PickCameras }
+        assertEquals(
+            heldCertificate.certificate.sha256Fingerprint(),
+            trustStore.fingerprintFor("127.0.0.1").first(),
+        )
+        assertNull(trustStore.fingerprintFor("127.0.0.1:7441").first())
+    }
+
+    @Test
     fun `an ordinary sign-in keeps the media endpoints it already trusts`() = runTest {
         publicConsole()
         val trustStore = pinnedTrustStore()

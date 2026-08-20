@@ -137,19 +137,17 @@ class OnboardingViewModel(
     }
 
     /**
-     * User confirmed the console certificate fingerprint; pin it and retry.
-     * Pinning overwrites whatever was there, which is what makes a console that
-     * has reissued its certificate reachable again once the user says so.
+     * User confirmed the console certificate fingerprint; sign in behind it and
+     * pin it if that works. Pinning overwrites whatever was there, which is
+     * what makes a console that has reissued its certificate reachable again
+     * once the user says so.
      */
     fun confirmFingerprint(fingerprint: String) {
         val baseUrl = ProtectApiClient.baseUrlFor(_state.value.host) ?: return
-        val replacedCertificate =
-            (_state.value.step as? OnboardingStep.ConfirmFingerprint)?.replacing != null
         _state.value = _state.value.copy(step = OnboardingStep.Connecting, error = null)
         viewModelScope.launch {
-            trustStore.pin(baseUrl.host, fingerprint)
             runCatching {
-                signInAndDiscover(baseUrl, fingerprint, replacedCertificate)
+                signInAndDiscover(baseUrl, fingerprint, confirmed = true)
             }.onFailure { failure -> handleConnectFailure(failure) }
         }
     }
@@ -286,21 +284,15 @@ class OnboardingViewModel(
     private suspend fun signInAndDiscover(
         baseUrl: HttpUrl,
         fingerprint: String?,
-        replacedCertificate: Boolean = false,
+        /** Whether [fingerprint] is one the user has just confirmed. */
+        confirmed: Boolean = false,
     ) {
         val http = clientFactory(fingerprint)
         val api = ProtectApiClient(baseUrl, http)
         val current = _state.value
         val newSession = api.login(current.username, current.password)
         session = newSession
-        // A console that reissued the certificate the user just re-confirmed
-        // has almost certainly reissued its media ports' too, and those pins
-        // would otherwise refuse every stream with nothing to press. Only then:
-        // an ordinary sign-in keeps them, so re-onboarding does not quietly
-        // reopen the first-use window on a port whose certificate is intact.
-        // Waiting until the login succeeds means a console that cannot be
-        // signed in to has nothing forgotten on its behalf.
-        if (replacedCertificate) trustStore.forgetLearnedEndpoints(baseUrl.host)
+        if (confirmed && fingerprint != null) pinConfirmed(baseUrl.host, fingerprint)
 
         val found = discoverPublicly(baseUrl, http, api, newSession)
             ?: Discovery.Private(api, api.bootstrap(newSession).cameras)
@@ -321,6 +313,30 @@ class OnboardingViewModel(
             step = OnboardingStep.PickCameras(cameras),
             selectedCameraIds = cameras.map { it.id }.toSet(),
         )
+    }
+
+    /**
+     * Records what the user confirmed at the prompt, now that a sign-in has
+     * gone through behind it.
+     *
+     * Not before: a wrong password would otherwise leave the console pinned to
+     * a certificate nothing has ever signed in against, and the retry — now
+     * matching, so never prompted — would look like an ordinary sign-in and
+     * leave the media ports below stranded. Reading what was there rather than
+     * remembering what the prompt said keeps that true across as many failed
+     * attempts as the user needs.
+     *
+     * Replacing a pin means the console reissued its certificate, and its media
+     * ports will have reissued theirs; those pins were learned silently, so
+     * nothing on any screen could clear them. Forgetting them here is the whole
+     * of it: an ordinary sign-in leaves them alone.
+     */
+    private suspend fun pinConfirmed(host: String, fingerprint: String) {
+        val previous = trustStore.fingerprintFor(host).first()
+        trustStore.pin(host, fingerprint)
+        if (previous != null && previous != fingerprint) {
+            trustStore.forgetLearnedEndpoints(host)
+        }
     }
 
     /**
