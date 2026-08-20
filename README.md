@@ -31,10 +31,25 @@ policy.
 Requires the Android SDK (`local.properties` with `sdk.dir`, or
 `ANDROID_HOME`). Android 12+ (minSdk 31).
 
+Two flavors: `production` (`app.dozecam`, what Play ships) and `dev`
+(`app.dozecam.dev`, labelled "Dozecam Dev"), so a working build installs
+alongside the released app.
+
+Every build is signed with the upload key. It lives in the repo encrypted;
+decrypt it once per checkout with `LIMETRIC_ENCRYPTION_SECRET` in your
+environment:
+
 ```sh
-./gradlew :app:assembleDebug        # build the dev APK (app.dozecam.dev)
-./gradlew :app:testDebugUnitTest    # run unit tests (Robolectric + Compose)
-./gradlew :app:bundleRelease        # Play bundle (signed when the keystore is present)
+./tools/signing.sh decrypt
+```
+
+Without it, debug builds fall back to the default Android debug key and release
+builds refuse to run.
+
+```sh
+./gradlew :app:assembleDevDebug              # dev APK (app.dozecam.dev)
+./gradlew :app:testProductionDebugUnitTest   # unit tests (Robolectric + Compose)
+./gradlew :app:bundleProductionRelease       # Play bundle, upload-signed
 ```
 
 Dozecam is an independent project, not affiliated with or endorsed by

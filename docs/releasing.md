@@ -1,36 +1,54 @@
 # Releasing Dozecam
 
+## Build flavors
+
+`production` builds `app.dozecam` — the Play app. `dev` builds
+`app.dozecam.dev`, labelled "Dozecam Dev" and versioned `…-dev`, so a working
+build installs beside the released one. Variants combine the flavor with the
+build type: `devDebug`, `productionDebug`, `devRelease`, `productionRelease`.
+Play only ever gets `productionRelease`.
+
+## Signing
+
+One upload key signs everything, debug included: a 4096-bit RSA key aliased
+`dozecam-upload`, `CN=Dozecam Upload, OU=Limetric, O=Limetric`, SHA-256
+fingerprint
+
+```
+28:E8:A7:F8:17:B8:44:89:43:D7:8F:10:55:78:17:A0:07:AC:F6:90:98:7A:14:31:22:FA:0B:E4:87:E9:B5:CB
+```
+
+Check an artifact against it with `apksigner verify --print-certs` (APK) or
+`keytool -printcert -jarfile` (AAB). The keystore and its
+passwords are committed encrypted — `keystore_dozecam_upload.keystore.enc` and
+`keystore_dozecam_upload.properties.enc` — and the plaintext is gitignored.
+
+```sh
+export LIMETRIC_ENCRYPTION_SECRET=…   # the Limetric org secret
+./tools/signing.sh decrypt            # writes the plaintext keystore + properties
+```
+
+Without the plaintext files a debug build falls back to the default Android
+debug key, and any release packaging task fails with a pointer to that command
+rather than producing an unsigned artifact. `.github/workflows/android-release.yml`
+runs the same decrypt with the `LIMETRIC_ENCRYPTION_SECRET` repository secret.
+
+To rotate the key: generate a new keystore, rewrite the properties file, run
+`./tools/signing.sh encrypt`, and commit the two `.enc` files. A rotated key
+only reaches Play through Play App Signing — the upload certificate has to be
+re-registered there before the next upload.
+
 ## One-time setup
 
-1. Generate the upload keystore (keep it out of git; `.gitignore` already
-   covers `*.keystore` and the properties file):
-
-   ```sh
-   keytool -genkeypair -v -keystore keystore_dozecam_upload.keystore \
-     -alias upload -keyalg RSA -keysize 4096 -validity 10000
-   ```
-
-2. Create `keystore_dozecam_upload.properties` in the repo root:
-
-   ```properties
-   storeFile=keystore_dozecam_upload.keystore
-   storePassword=…
-   keyAlias=upload
-   keyPassword=…
-   ```
-
-   When this file exists, `:app:bundleRelease` and `:app:assembleRelease`
-   produce upload-signed artifacts; without it they stay unsigned so any
-   checkout still builds.
-
-3. Publish `docs/privacy-policy.md` at a public URL and set it in the Play
+1. Publish `docs/privacy-policy.md` at a public URL and set it in the Play
    Console.
+2. Register the upload certificate with Play App Signing.
 
 ## Every release
 
 1. Bump `versionCode` and `versionName` in `app/build.gradle.kts`.
-2. `./gradlew :app:testDebugUnitTest :app:assembleDebug :app:bundleRelease`
-   — all green, no lint-vital errors.
+2. `./gradlew :app:testProductionDebugUnitTest :app:assembleDevDebug :app:bundleProductionRelease`
+   — all green.
 3. Smoke-test on a real device against a real Protect console:
    - onboarding (fingerprint prompt on first connect, camera import),
    - live view latency and the LIVE/RECONNECTING/OFFLINE overlay

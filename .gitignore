@@ -24,7 +24,8 @@ misc.xml
 deploymentTargetDropDown.xml
 render.experimental.xml
 
-# Keystore files and signing secrets
+# Keystore files and signing secrets. Only the encrypted .enc counterparts are
+# committed; tools/signing.sh decrypts them.
 *.jks
 *.keystore
 keystore_dozecam_upload.properties
