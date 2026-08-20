@@ -1,0 +1,101 @@
+name: Android Release
+
+on:
+  push:
+    branches:
+      - main
+  release:
+    types:
+      - published
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build signed APK and AAB
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ARTIFACT_VERSION: ${{ github.event.release.tag_name || github.ref_name }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK packages
+        run: |
+          set -euo pipefail
+
+          set +o pipefail
+          yes | sdkmanager --licenses >/dev/null
+          set -o pipefail
+
+          sdkmanager --install \
+            "platforms;android-37.0" \
+            "build-tools;36.0.0"
+
+      - name: Decrypt signing artifacts
+        env:
+          LIMETRIC_ENCRYPTION_SECRET: ${{ secrets.LIMETRIC_ENCRYPTION_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${LIMETRIC_ENCRYPTION_SECRET}" ]; then
+            echo "::error::LIMETRIC_ENCRYPTION_SECRET is not configured."
+            exit 1
+          fi
+
+          ./tools/signing.sh decrypt
+
+      # One flavor is enough: production and dev differ only in application id
+      # and launcher label, and two Robolectric suites at once are just slower.
+      - name: Run unit tests
+        run: ./gradlew :app:testProductionDebugUnitTest --stacktrace
+
+      - name: Build release APK and AAB
+        run: ./gradlew :app:assembleProductionRelease :app:bundleProductionRelease --stacktrace
+
+      - name: Collect release artifacts
+        run: |
+          set -euo pipefail
+
+          version="${ARTIFACT_VERSION//\//-}"
+          mkdir -p release-artifacts
+          cp app/build/outputs/apk/production/release/app-production-release.apk \
+            "release-artifacts/Dozecam-${version}.apk"
+          cp app/build/outputs/bundle/productionRelease/app-production-release.aab \
+            "release-artifacts/Dozecam-${version}.aab"
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: dozecam-release-artifacts
+          path: release-artifacts/*
+          if-no-files-found: error
+
+      - name: Attach artifacts to GitHub Release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          gh release upload "${{ github.event.release.tag_name }}" release-artifacts/* \
+            --repo "${{ github.repository }}" \
+            --clobber

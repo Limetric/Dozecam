@@ -6,8 +6,10 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
-// Play upload signing activates only when the keystore properties exist;
-// checkouts without them keep building unsigned artifacts.
+// Every build is signed with the upload key, which lives in the repo encrypted
+// (tools/signing.sh, decrypted in CI before release builds). A checkout without
+// the decryption secret still builds and tests: debug falls back to the default
+// debug key, and release packaging fails loudly rather than shipping unsigned.
 val signingPropertiesFile = rootProject.file("keystore_dozecam_upload.properties")
 val hasSigningProperties = signingPropertiesFile.isFile
 val signingProperties = Properties().apply {
@@ -44,11 +46,27 @@ android {
         }
     }
 
-    buildTypes {
-        debug {
-            // Installs alongside the Play build, mirroring CloudMount's dev-flavor convention.
+    flavorDimensions += "environment"
+
+    productFlavors {
+        create("production") {
+            dimension = "environment"
+        }
+
+        // Installs alongside the Play build and says so on the launcher;
+        // see app/src/dev/res/values/strings.xml.
+        create("dev") {
+            dimension = "environment"
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"
+        }
+    }
+
+    buildTypes {
+        debug {
+            if (hasSigningProperties) {
+                signingConfig = signingConfigs.getByName("upload")
+            }
         }
         release {
             isMinifyEnabled = true
@@ -75,6 +93,18 @@ android {
         unitTests {
             isIncludeAndroidResources = true
         }
+    }
+}
+
+gradle.taskGraph.whenReady {
+    val packagesRelease = allTasks.any { task ->
+        task.name.matches(Regex("(assemble|bundle|package).*Release"))
+    }
+    if (packagesRelease && !hasSigningProperties) {
+        throw org.gradle.api.GradleException(
+            "Missing ${signingPropertiesFile.name}. " +
+                "Run tools/signing.sh decrypt before building release artifacts.",
+        )
     }
 }
 

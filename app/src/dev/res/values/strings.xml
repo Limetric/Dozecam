@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The dev flavor installs beside the Play build (app.dozecam.dev); the
+         launcher has to say which one you are opening. -->
+    <string name="app_name">Dozecam Dev</string>
+</resources>
