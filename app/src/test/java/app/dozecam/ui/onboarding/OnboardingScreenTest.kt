@@ -2,6 +2,7 @@ package app.dozecam.ui.onboarding
 
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -78,6 +79,25 @@ class OnboardingScreenTest {
         composeRule.onNodeWithTag("fingerprint-confirm").performScrollTo().performClick()
 
         assertEquals("AA:BB", confirmed)
+    }
+
+    @Test
+    fun `a changed certificate shows both fingerprints and confirms with the new one`() {
+        var confirmed: String? = null
+        setScreen(
+            OnboardingUiState(
+                step = OnboardingStep.ConfirmFingerprint("CC:DD", replacing = "AA:BB"),
+            ),
+            onConfirmFingerprint = { confirmed = it },
+        )
+
+        composeRule.onNodeWithTag("fingerprint-previous").performScrollTo()
+            .assertTextEquals("AA:BB")
+        composeRule.onNodeWithTag("fingerprint-value").performScrollTo()
+            .assertTextEquals("CC:DD")
+        composeRule.onNodeWithTag("fingerprint-confirm").performScrollTo().performClick()
+
+        assertEquals("CC:DD", confirmed)
     }
 
     @Test

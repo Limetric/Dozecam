@@ -24,6 +24,19 @@ import okhttp3.OkHttpClient
 class UntrustedCertificateException(val fingerprint: String) :
     CertificateException("Unpinned certificate: $fingerprint")
 
+/**
+ * Thrown when an endpoint presents a certificate other than the pinned one.
+ *
+ * Carries both fingerprints because the user has to be able to tell the two
+ * apart: a console reissues its certificate for ordinary reasons — a firmware
+ * update, a factory reset, remote access handing it a real certificate — and
+ * an impostor on the network looks exactly the same from here.
+ */
+class ChangedCertificateException(
+    val pinnedFingerprint: String,
+    val fingerprint: String,
+) : CertificateException("Certificate changed: pinned $pinnedFingerprint, presented $fingerprint")
+
 /** SHA-256 fingerprint, uppercase hex pairs joined with ':'. */
 fun X509Certificate.sha256Fingerprint(): String =
     MessageDigest.getInstance("SHA-256")
@@ -46,9 +59,7 @@ class TofuTrustManager(private val pinnedFingerprint: String?) : X509TrustManage
         when (pinnedFingerprint) {
             null -> throw UntrustedCertificateException(fingerprint)
             fingerprint -> Unit
-            else -> throw CertificateException(
-                "Certificate changed: pinned $pinnedFingerprint, presented $fingerprint",
-            )
+            else -> throw ChangedCertificateException(pinnedFingerprint, fingerprint)
         }
     }
 
@@ -72,7 +83,30 @@ class TofuTrustStore(private val dataStore: DataStore<Preferences>) {
         dataStore.edit { it[keyFor(endpoint)] = fingerprint }
     }
 
-    private fun keyFor(endpoint: String) = stringPreferencesKey("tofu_fingerprint_$endpoint")
+    /**
+     * Forgets the media endpoints learned on [host], leaving the console's own
+     * pin — the one the user confirmed — alone.
+     *
+     * For the console that has just reissued its certificate: its media ports
+     * will have reissued theirs too, and those pins were never shown to anyone,
+     * so nothing on screen could clear them. Not for an ordinary sign-in, which
+     * would drop pins that are still good and put every media port back through
+     * a first sighting that trusts whatever answers.
+     */
+    suspend fun forgetLearnedEndpoints(host: String) {
+        val prefix = "$KEY_PREFIX$host:"
+        dataStore.edit { preferences ->
+            preferences.asMap().keys
+                .filter { it.name.startsWith(prefix) }
+                .forEach { preferences -= it }
+        }
+    }
+
+    private fun keyFor(endpoint: String) = stringPreferencesKey("$KEY_PREFIX$endpoint")
+
+    private companion object {
+        const val KEY_PREFIX = "tofu_fingerprint_"
+    }
 }
 
 /** `host:port`, the key identifying one TLS endpoint on a console. */

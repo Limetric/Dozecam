@@ -1,6 +1,5 @@
 package app.dozecam.protect
 
-import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
 import okhttp3.tls.HeldCertificate
 import org.junit.Assert.assertEquals
@@ -32,14 +31,15 @@ class TofuTrustManagerTest {
     }
 
     @Test
-    fun `a changed certificate is rejected`() {
+    fun `a changed certificate is rejected with both fingerprints`() {
         val manager = TofuTrustManager("AA:BB:CC")
 
-        val thrown = assertThrows(CertificateException::class.java) {
+        val thrown = assertThrows(ChangedCertificateException::class.java) {
             manager.checkServerTrusted(arrayOf(certificate), "RSA")
         }
 
-        assertTrue(thrown !is UntrustedCertificateException)
+        assertEquals("AA:BB:CC", thrown.pinnedFingerprint)
+        assertEquals(certificate.sha256Fingerprint(), thrown.fingerprint)
     }
 
     @Test

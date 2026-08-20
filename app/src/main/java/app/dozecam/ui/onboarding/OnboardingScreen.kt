@@ -11,6 +11,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -129,6 +130,7 @@ fun OnboardingScreen(
 
                 is OnboardingStep.ConfirmFingerprint -> FingerprintPrompt(
                     fingerprint = step.fingerprint,
+                    replacing = step.replacing,
                     onConfirm = { onConfirmFingerprint(step.fingerprint) },
                     onReject = onRejectFingerprint,
                 )
@@ -254,19 +256,35 @@ private fun ConsoleForm(
 /**
  * Trusting a certificate is the one irreversible step here, so it gets its own
  * tonal card rather than sitting in the run of body text.
+ *
+ * A [replacing] fingerprint means the console has reissued its certificate
+ * since the user trusted it. The question is the same one — trust this
+ * certificate or not — but it is asked in the error colours and shows both
+ * fingerprints, because here the answer can also be that something is wrong.
  */
 @Composable
 private fun FingerprintPrompt(
     fingerprint: String,
+    replacing: String?,
     onConfirm: () -> Unit,
     onReject: () -> Unit,
 ) {
+    val changed = replacing != null
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.extraLarge,
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                containerColor = if (changed) {
+                    MaterialTheme.colorScheme.errorContainer
+                } else {
+                    MaterialTheme.colorScheme.tertiaryContainer
+                },
+                contentColor = if (changed) {
+                    MaterialTheme.colorScheme.onErrorContainer
+                } else {
+                    MaterialTheme.colorScheme.onTertiaryContainer
+                },
             ),
         ) {
             Column(
@@ -277,36 +295,103 @@ private fun FingerprintPrompt(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Icon(imageVector = Icons.Default.Lock, contentDescription = null)
+                    Icon(
+                        imageVector = if (changed) {
+                            Icons.Default.Warning
+                        } else {
+                            Icons.Default.Lock
+                        },
+                        contentDescription = null,
+                    )
                     Text(
-                        text = stringResource(R.string.fingerprint_title),
+                        text = stringResource(
+                            if (changed) {
+                                R.string.fingerprint_title_changed
+                            } else {
+                                R.string.fingerprint_title
+                            },
+                        ),
                         style = MaterialTheme.typography.titleMediumEmphasized,
                     )
                 }
                 Text(
-                    text = stringResource(R.string.fingerprint_explanation),
+                    text = stringResource(
+                        if (changed) {
+                            R.string.fingerprint_explanation_changed
+                        } else {
+                            R.string.fingerprint_explanation
+                        },
+                    ),
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                Text(
-                    text = fingerprint,
-                    fontFamily = FontFamily.Monospace,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.testTag("fingerprint-value"),
-                )
+                replacing?.let { previous ->
+                    LabelledFingerprint(
+                        label = stringResource(R.string.fingerprint_previous),
+                        fingerprint = previous,
+                        testTag = "fingerprint-previous",
+                    )
+                }
+                if (changed) {
+                    LabelledFingerprint(
+                        label = stringResource(R.string.fingerprint_presented),
+                        fingerprint = fingerprint,
+                        testTag = "fingerprint-value",
+                    )
+                } else {
+                    Text(
+                        text = fingerprint,
+                        fontFamily = FontFamily.Monospace,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.testTag("fingerprint-value"),
+                    )
+                }
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
                 onClick = onConfirm,
                 shapes = ButtonDefaults.shapes(),
+                colors = if (changed) {
+                    ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError,
+                    )
+                } else {
+                    ButtonDefaults.buttonColors()
+                },
                 modifier = Modifier.testTag("fingerprint-confirm"),
             ) {
-                Text(stringResource(R.string.fingerprint_trust))
+                Text(
+                    stringResource(
+                        if (changed) {
+                            R.string.fingerprint_trust_changed
+                        } else {
+                            R.string.fingerprint_trust
+                        },
+                    ),
+                )
             }
             OutlinedButton(onClick = onReject, shapes = ButtonDefaults.shapes()) {
                 Text(stringResource(R.string.cancel))
             }
         }
+    }
+}
+
+/** One fingerprint under the word for which of the two it is. */
+@Composable
+private fun LabelledFingerprint(label: String, fingerprint: String, testTag: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+        )
+        Text(
+            text = fingerprint,
+            fontFamily = FontFamily.Monospace,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.testTag(testTag),
+        )
     }
 }
 
