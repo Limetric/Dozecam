@@ -8,7 +8,7 @@ composeBom = "2026.06.01"
 # The BOM still pins material3 1.4.0, where the Material 3 Expressive surface
 # (MaterialExpressiveTheme, ButtonGroup, ToggleButton, LoadingIndicator,
 # MaterialShapes) is internal. Pinned ahead of the BOM until 1.5.0 is stable.
-material3 = "1.5.0-alpha24"
+material3 = "1.5.0-alpha25"
 datastore = "1.2.1"
 libvlc = "3.7.5"
 media3 = "1.10.1"
