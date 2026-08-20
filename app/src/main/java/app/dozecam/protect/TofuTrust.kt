@@ -87,11 +87,11 @@ class TofuTrustStore(private val dataStore: DataStore<Preferences>) {
      * Forgets the media endpoints learned on [host], leaving the console's own
      * pin — the one the user confirmed — alone.
      *
-     * Those pins were never shown to anyone: they were learned silently on the
-     * strength of a console connection that had already been verified. So the
-     * moment to learn them again is a sign-in that verifies the console again.
-     * Without this, a media port that reissues its certificate refuses every
-     * stream for good, and no screen in the app can clear it.
+     * For the console that has just reissued its certificate: its media ports
+     * will have reissued theirs too, and those pins were never shown to anyone,
+     * so nothing on screen could clear them. Not for an ordinary sign-in, which
+     * would drop pins that are still good and put every media port back through
+     * a first sighting that trusts whatever answers.
      */
     suspend fun forgetLearnedEndpoints(host: String) {
         val prefix = "$KEY_PREFIX$host:"

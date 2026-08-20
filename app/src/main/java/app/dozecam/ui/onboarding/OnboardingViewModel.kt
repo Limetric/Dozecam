@@ -143,11 +143,13 @@ class OnboardingViewModel(
      */
     fun confirmFingerprint(fingerprint: String) {
         val baseUrl = ProtectApiClient.baseUrlFor(_state.value.host) ?: return
+        val replacedCertificate =
+            (_state.value.step as? OnboardingStep.ConfirmFingerprint)?.replacing != null
         _state.value = _state.value.copy(step = OnboardingStep.Connecting, error = null)
         viewModelScope.launch {
             trustStore.pin(baseUrl.host, fingerprint)
             runCatching {
-                signInAndDiscover(baseUrl, fingerprint)
+                signInAndDiscover(baseUrl, fingerprint, replacedCertificate)
             }.onFailure { failure -> handleConnectFailure(failure) }
         }
     }
@@ -281,18 +283,24 @@ class OnboardingViewModel(
         block(renewed)
     }
 
-    private suspend fun signInAndDiscover(baseUrl: HttpUrl, fingerprint: String?) {
+    private suspend fun signInAndDiscover(
+        baseUrl: HttpUrl,
+        fingerprint: String?,
+        replacedCertificate: Boolean = false,
+    ) {
         val http = clientFactory(fingerprint)
         val api = ProtectApiClient(baseUrl, http)
         val current = _state.value
         val newSession = api.login(current.username, current.password)
         session = newSession
-        // Signing in proved the console is the one we pinned, which is the only
-        // authority the media ports' certificates ever had. Dropping what was
-        // learned under it lets a console that has reissued them be streamed
-        // from again, and re-learning is a fresh probe behind this same
-        // verified connection.
-        trustStore.forgetLearnedEndpoints(baseUrl.host)
+        // A console that reissued the certificate the user just re-confirmed
+        // has almost certainly reissued its media ports' too, and those pins
+        // would otherwise refuse every stream with nothing to press. Only then:
+        // an ordinary sign-in keeps them, so re-onboarding does not quietly
+        // reopen the first-use window on a port whose certificate is intact.
+        // Waiting until the login succeeds means a console that cannot be
+        // signed in to has nothing forgotten on its behalf.
+        if (replacedCertificate) trustStore.forgetLearnedEndpoints(baseUrl.host)
 
         val found = discoverPublicly(baseUrl, http, api, newSession)
             ?: Discovery.Private(api, api.bootstrap(newSession).cameras)
