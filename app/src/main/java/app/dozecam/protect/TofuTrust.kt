@@ -24,6 +24,19 @@ import okhttp3.OkHttpClient
 class UntrustedCertificateException(val fingerprint: String) :
     CertificateException("Unpinned certificate: $fingerprint")
 
+/**
+ * Thrown when an endpoint presents a certificate other than the pinned one.
+ *
+ * Carries both fingerprints because the user has to be able to tell the two
+ * apart: a console reissues its certificate for ordinary reasons — a firmware
+ * update, a factory reset, remote access handing it a real certificate — and
+ * an impostor on the network looks exactly the same from here.
+ */
+class ChangedCertificateException(
+    val pinnedFingerprint: String,
+    val fingerprint: String,
+) : CertificateException("Certificate changed: pinned $pinnedFingerprint, presented $fingerprint")
+
 /** SHA-256 fingerprint, uppercase hex pairs joined with ':'. */
 fun X509Certificate.sha256Fingerprint(): String =
     MessageDigest.getInstance("SHA-256")
@@ -46,9 +59,7 @@ class TofuTrustManager(private val pinnedFingerprint: String?) : X509TrustManage
         when (pinnedFingerprint) {
             null -> throw UntrustedCertificateException(fingerprint)
             fingerprint -> Unit
-            else -> throw CertificateException(
-                "Certificate changed: pinned $pinnedFingerprint, presented $fingerprint",
-            )
+            else -> throw ChangedCertificateException(pinnedFingerprint, fingerprint)
         }
     }
 
@@ -72,7 +83,30 @@ class TofuTrustStore(private val dataStore: DataStore<Preferences>) {
         dataStore.edit { it[keyFor(endpoint)] = fingerprint }
     }
 
-    private fun keyFor(endpoint: String) = stringPreferencesKey("tofu_fingerprint_$endpoint")
+    /**
+     * Forgets the media endpoints learned on [host], leaving the console's own
+     * pin — the one the user confirmed — alone.
+     *
+     * Those pins were never shown to anyone: they were learned silently on the
+     * strength of a console connection that had already been verified. So the
+     * moment to learn them again is a sign-in that verifies the console again.
+     * Without this, a media port that reissues its certificate refuses every
+     * stream for good, and no screen in the app can clear it.
+     */
+    suspend fun forgetLearnedEndpoints(host: String) {
+        val prefix = "$KEY_PREFIX$host:"
+        dataStore.edit { preferences ->
+            preferences.asMap().keys
+                .filter { it.name.startsWith(prefix) }
+                .forEach { preferences -= it }
+        }
+    }
+
+    private fun keyFor(endpoint: String) = stringPreferencesKey("$KEY_PREFIX$endpoint")
+
+    private companion object {
+        const val KEY_PREFIX = "tofu_fingerprint_"
+    }
 }
 
 /** `host:port`, the key identifying one TLS endpoint on a console. */

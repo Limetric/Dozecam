@@ -8,6 +8,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import app.dozecam.data.Camera
 import app.dozecam.data.CameraStore
 import app.dozecam.data.ProtectStream
+import app.dozecam.protect.ChangedCertificateException
 import app.dozecam.protect.CredentialsStore
 import app.dozecam.protect.ProtectApiClient
 import app.dozecam.protect.ProtectApiException
@@ -38,7 +39,17 @@ data class DiscoveredCamera(
 sealed interface OnboardingStep {
     data object Form : OnboardingStep
     data object Connecting : OnboardingStep
-    data class ConfirmFingerprint(val fingerprint: String) : OnboardingStep
+
+    /**
+     * The console's certificate, waiting on the user's word. [replacing] is
+     * null on first contact and carries the pinned fingerprint when the console
+     * has since presented a different one.
+     */
+    data class ConfirmFingerprint(
+        val fingerprint: String,
+        val replacing: String? = null,
+    ) : OnboardingStep
+
     data class PickCameras(val cameras: List<DiscoveredCamera>) : OnboardingStep
     data object Importing : OnboardingStep
     data class Done(val importedCount: Int) : OnboardingStep
@@ -125,7 +136,11 @@ class OnboardingViewModel(
         }
     }
 
-    /** User confirmed the console certificate fingerprint; pin it and retry. */
+    /**
+     * User confirmed the console certificate fingerprint; pin it and retry.
+     * Pinning overwrites whatever was there, which is what makes a console that
+     * has reissued its certificate reachable again once the user says so.
+     */
     fun confirmFingerprint(fingerprint: String) {
         val baseUrl = ProtectApiClient.baseUrlFor(_state.value.host) ?: return
         _state.value = _state.value.copy(step = OnboardingStep.Connecting, error = null)
@@ -272,6 +287,12 @@ class OnboardingViewModel(
         val current = _state.value
         val newSession = api.login(current.username, current.password)
         session = newSession
+        // Signing in proved the console is the one we pinned, which is the only
+        // authority the media ports' certificates ever had. Dropping what was
+        // learned under it lets a console that has reissued them be streamed
+        // from again, and re-learning is a fresh probe behind this same
+        // verified connection.
+        trustStore.forgetLearnedEndpoints(baseUrl.host)
 
         val found = discoverPublicly(baseUrl, http, api, newSession)
             ?: Discovery.Private(api, api.bootstrap(newSession).cameras)
@@ -348,9 +369,22 @@ class OnboardingViewModel(
     }
 
     private fun handleConnectFailure(failure: Throwable) {
-        val untrusted = generateSequence(failure) { it.cause }
-            .filterIsInstance<UntrustedCertificateException>()
-            .firstOrNull()
+        val certificate = generateSequence(failure) { it.cause }
+            .firstNotNullOfOrNull { cause ->
+                when (cause) {
+                    is UntrustedCertificateException ->
+                        OnboardingStep.ConfirmFingerprint(cause.fingerprint)
+                    // A changed certificate asks the same question as a first
+                    // sighting, with more to weigh: refusing outright would be
+                    // safe and unusable, since the console would then be
+                    // unreachable from every screen in the app.
+                    is ChangedCertificateException -> OnboardingStep.ConfirmFingerprint(
+                        fingerprint = cause.fingerprint,
+                        replacing = cause.pinnedFingerprint,
+                    )
+                    else -> null
+                }
+            }
         _state.value = when {
             // Checked first: without the permission the connection is dropped
             // before any TLS happens, and the socket timeout that surfaces
@@ -360,9 +394,7 @@ class OnboardingViewModel(
                 error = "Dozecam needs local network access to reach the console. " +
                     "Grant it under Permissions → Nearby devices in the app's system settings.",
             )
-            untrusted != null -> _state.value.copy(
-                step = OnboardingStep.ConfirmFingerprint(untrusted.fingerprint),
-            )
+            certificate != null -> _state.value.copy(step = certificate)
             failure is SSLHandshakeException || failure is SSLException ->
                 _state.value.copy(
                     step = OnboardingStep.Form,

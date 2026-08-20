@@ -248,6 +248,60 @@ class OnboardingViewModelTest {
     }
 
     @Test
+    fun `a changed console certificate offers the new fingerprint`() = runTest {
+        val trustStore = trustStore()
+        trustStore.pin("127.0.0.1", "AA:BB")
+        val viewModel = viewModel(FakeCameraStore(), trustStore)
+
+        viewModel.connect()
+
+        val step = viewModel.state
+            .first { it.step is OnboardingStep.ConfirmFingerprint }
+            .step as OnboardingStep.ConfirmFingerprint
+        assertEquals(heldCertificate.certificate.sha256Fingerprint(), step.fingerprint)
+        assertEquals("AA:BB", step.replacing)
+    }
+
+    @Test
+    fun `confirming a changed fingerprint repins it and signs in`() = runTest {
+        publicConsole()
+        val trustStore = trustStore()
+        trustStore.pin("127.0.0.1", "AA:BB")
+        val viewModel = viewModel(FakeCameraStore(), trustStore)
+
+        viewModel.connect()
+        val prompt = viewModel.state
+            .first { it.step is OnboardingStep.ConfirmFingerprint }
+            .step as OnboardingStep.ConfirmFingerprint
+        viewModel.confirmFingerprint(prompt.fingerprint)
+
+        viewModel.state.first { it.step is OnboardingStep.PickCameras }
+        assertEquals(
+            heldCertificate.certificate.sha256Fingerprint(),
+            trustStore.fingerprintFor("127.0.0.1").first(),
+        )
+    }
+
+    @Test
+    fun `signing in forgets the media endpoints learned on that console`() = runTest {
+        publicConsole()
+        val trustStore = pinnedTrustStore()
+        // Learned silently behind an earlier sign-in; a console that has since
+        // reissued them would otherwise refuse every stream for good.
+        trustStore.pin("127.0.0.1:7441", "AA:BB")
+        val viewModel = viewModel(FakeCameraStore(), trustStore)
+
+        viewModel.connect()
+
+        viewModel.state.first { it.step is OnboardingStep.PickCameras }
+        assertNull(trustStore.fingerprintFor("127.0.0.1:7441").first())
+        assertEquals(
+            heldCertificate.certificate.sha256Fingerprint(),
+            trustStore.fingerprintFor("127.0.0.1").first(),
+        )
+    }
+
+    @Test
     fun `discovery mints an api key and reads the public integration api`() = runTest {
         publicConsole()
         val credentials = FakeCredentialsStore()
