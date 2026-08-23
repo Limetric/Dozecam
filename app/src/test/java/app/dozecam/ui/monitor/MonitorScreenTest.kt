@@ -11,8 +11,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -133,6 +135,8 @@ class MonitorScreenTest {
         armingGraceMs: Long = ARMING_GRACE_MS,
         soundEnabled: Boolean = false,
         onSoundEnabledChange: (Boolean) -> Unit = {},
+        keepScreenOn: Boolean = true,
+        onKeepScreenOnChange: (Boolean) -> Unit = {},
         soundGranted: Boolean = true,
         soundRotationIntervalMs: Long = ROTATION_MS,
         inactivityTimeoutMs: Long = INACTIVITY_MS,
@@ -160,6 +164,8 @@ class MonitorScreenTest {
                 armingGraceMs = armingGraceMs,
                 soundEnabled = soundEnabled,
                 onSoundEnabledChange = onSoundEnabledChange,
+                keepScreenOn = keepScreenOn,
+                onKeepScreenOnChange = onKeepScreenOnChange,
                 soundGranted = soundGranted,
                 soundRotationIntervalMs = soundRotationIntervalMs,
                 inactivityTimeoutMs = inactivityTimeoutMs,
@@ -249,11 +255,12 @@ class MonitorScreenTest {
     }
 
     @Test
-    fun `the viewer offers settings and sound and nothing else`() {
+    fun `the viewer offers settings, sound, the screen switch and nothing else`() {
         composeRule.setContent { Screen(cameras = listOf(nursery)) }
 
         composeRule.onNodeWithTag("open-settings").assertExists()
         composeRule.onNodeWithTag("toggle-sound").assertExists()
+        composeRule.onNodeWithTag("toggle-keep-screen").assertExists()
         // Tuning the monitor still lives in settings; the viewer says what it
         // is doing and offers to stop it, and nothing more than that.
         composeRule.onNodeWithTag("monitoring-switch").assertDoesNotExist()
@@ -288,7 +295,63 @@ class MonitorScreenTest {
 
         composeRule.onNodeWithTag("monitoring-badge").assertIsDisplayed()
         composeRule.onNodeWithTag("toggle-sound").assertIsDisplayed()
+        composeRule.onNodeWithTag("toggle-keep-screen").assertIsDisplayed()
         composeRule.onNodeWithTag("open-settings").assertIsDisplayed()
+    }
+
+    /**
+     * The same fit, with the badge at its widest: "Not monitoring". Checked by
+     * bounds rather than assertIsDisplayed, which is content to see a sliver
+     * of a control the row has pushed halfway off the edge.
+     */
+    @Test
+    @Config(qualifiers = NARROW_PHONE)
+    fun `the chrome still fits on a narrow phone when stopped`() {
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery),
+                monitoringRunning = false,
+                canMonitor = true,
+                stoppedByUser = true,
+            )
+        }
+
+        val root = composeRule.onRoot().getBoundsInRoot()
+        for (tag in listOf("monitoring-badge", "toggle-sound", "toggle-keep-screen")) {
+            val bounds = composeRule.onNodeWithTag(tag).getBoundsInRoot()
+            assertTrue("$tag runs past the edge", bounds.right <= root.right)
+            assertTrue("$tag starts before the screen", bounds.left >= root.left)
+        }
+        val settings = composeRule.onNodeWithTag("open-settings").getBoundsInRoot()
+        assertTrue("settings runs past the edge", settings.right <= root.right)
+        assertTrue("settings starts before the screen", settings.left >= root.left)
+    }
+
+    /**
+     * Real fonts are wider than the test renderer's, so on a real narrow phone
+     * the widest badge and three buttons can outgrow the line even though the
+     * fit test above passes. What matters is what happens then: the control
+     * that no longer fits steps down a line rather than being squeezed off the
+     * edge of the screen.
+     */
+    @Test
+    @Config(qualifiers = TOO_NARROW_FOR_ONE_LINE)
+    fun `chrome that outgrows its line steps down instead of clipping`() {
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery),
+                monitoringRunning = false,
+                canMonitor = true,
+                stoppedByUser = true,
+            )
+        }
+
+        val root = composeRule.onRoot().getBoundsInRoot()
+        val keepScreen = composeRule.onNodeWithTag("toggle-keep-screen").getBoundsInRoot()
+        val settings = composeRule.onNodeWithTag("open-settings").getBoundsInRoot()
+        assertTrue("settings runs past the edge", settings.right <= root.right)
+        assertTrue("settings starts before the screen", settings.left >= root.left)
+        assertTrue("settings should have wrapped below", settings.top >= keepScreen.bottom)
     }
 
     @Test
@@ -873,6 +936,41 @@ class MonitorScreenTest {
     }
 
     @Test
+    fun `the keep-screen button hands the choice back rather than deciding`() {
+        var asked: Boolean? = null
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery),
+                keepScreenOn = true,
+                onKeepScreenOnChange = { asked = it },
+            )
+        }
+
+        composeRule.onNodeWithTag("toggle-keep-screen").performClick()
+
+        assertEquals(false, asked)
+    }
+
+    @Test
+    fun `the keep-screen button offers the way back from a sleeping screen`() {
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery), keepScreenOn = false)
+        }
+
+        composeRule.onNodeWithTag("toggle-keep-screen")
+            .assertContentDescriptionEquals("Keep the screen awake")
+    }
+
+    @Test
+    fun `an empty viewer offers no screen switch`() {
+        composeRule.setContent { Screen(cameras = emptyList()) }
+
+        // The empty viewer never holds the display awake, so a switch for it
+        // would be a control that does nothing.
+        composeRule.onNodeWithTag("toggle-keep-screen").assertDoesNotExist()
+    }
+
+    @Test
     fun `the sound button is reachable on a single camera too`() {
         var asked: Boolean? = null
         composeRule.setContent {
@@ -1333,6 +1431,13 @@ class MonitorScreenTest {
 
         /** About as little width as a phone in portrait ever offers. */
         const val NARROW_PHONE = "w320dp-h640dp"
+
+        /**
+         * Narrower than any real phone. Robolectric measures text well short of
+         * what real fonts take, so forcing the chrome to actually outgrow its
+         * line — as a real narrow phone can — needs a width no device has.
+         */
+        const val TOO_NARROW_FOR_ONE_LINE = "w240dp-h640dp"
 
         /** Long enough to be waited past on purpose, short enough not to be slow. */
         const val ARMING_GRACE_MS = 500L

@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -80,6 +82,7 @@ private const val ARMING_GRACE_MS = 3_000L
  * and everything about how a camera is set up live in settings, so the only
  * chrome here is the way to get there.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MonitorScreen(
     cameras: List<Camera>,
@@ -123,6 +126,13 @@ fun MonitorScreen(
      */
     soundEnabled: Boolean = false,
     onSoundEnabledChange: (Boolean) -> Unit = {},
+    /**
+     * Whether the viewer asks the system to hold the display awake. Shown as a
+     * switch here because this is where the cost lands: the screen that would
+     * otherwise go dark is the one these cameras are on.
+     */
+    keepScreenOn: Boolean = true,
+    onKeepScreenOnChange: (Boolean) -> Unit = {},
     /**
      * Whether the system is letting the viewer make a sound this instant —
      * audio focus held, and nothing else borrowing the speaker.
@@ -396,14 +406,18 @@ fun MonitorScreen(
         }
 
         // Floated over the video rather than given a bar of its own: on a phone
-        // an app bar costs a camera's worth of height to hold two buttons.
-        Row(
+        // an app bar costs a camera's worth of height to hold a few buttons.
+        // A flow rather than a row: on the narrowest phones the widest badge
+        // plus three buttons is more than one line holds, and a row would
+        // squeeze whatever came last instead of letting it step down a line.
+        FlowRow(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .safeDrawingPadding()
                 .padding(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            itemVerticalAlignment = Alignment.CenterVertically,
         ) {
             MonitoringBadge(
                 running = monitoringRunning,
@@ -414,11 +428,16 @@ fun MonitorScreen(
                 onStart = onStartMonitoring,
             )
             // Nothing to listen to yet: an empty viewer offers setup, not a
-            // switch for sound that has no camera to come from.
+            // switch for sound that has no camera to come from — nor one for a
+            // display it never holds awake in the first place.
             if (cameras.isNotEmpty()) {
                 SoundToggle(
                     soundEnabled = soundEnabled,
                     onSoundEnabledChange = onSoundEnabledChange,
+                )
+                KeepScreenToggle(
+                    keepScreenOn = keepScreenOn,
+                    onKeepScreenOnChange = onKeepScreenOnChange,
                 )
             }
             FilledTonalIconButton(
@@ -593,6 +612,34 @@ private fun SoundToggle(
             ),
             contentDescription = stringResource(
                 if (soundEnabled) R.string.viewer_sound_off else R.string.viewer_sound_on,
+            ),
+        )
+    }
+}
+
+/**
+ * Whether a propped-up monitor may go dark at the system timeout. Also in
+ * settings with room for an explanation; it lives here too because the moment
+ * the choice matters — the phone being set down for the night, or picked up
+ * for a glance — is a moment spent on this screen.
+ */
+@Composable
+private fun KeepScreenToggle(
+    keepScreenOn: Boolean,
+    onKeepScreenOnChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    FilledTonalIconButton(
+        onClick = { onKeepScreenOnChange(!keepScreenOn) },
+        shapes = IconButtonDefaults.shapes(),
+        modifier = modifier.testTag("toggle-keep-screen"),
+    ) {
+        Icon(
+            painter = painterResource(
+                if (keepScreenOn) R.drawable.ic_aod else R.drawable.ic_screen_lock_portrait,
+            ),
+            contentDescription = stringResource(
+                if (keepScreenOn) R.string.viewer_keep_screen_off else R.string.viewer_keep_screen_on,
             ),
         )
     }

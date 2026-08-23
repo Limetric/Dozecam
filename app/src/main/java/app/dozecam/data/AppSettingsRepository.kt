@@ -38,6 +38,13 @@ data class AppSettings(
      * the alert that woke the screen — is a surprise nobody asked for twice.
      */
     val viewerSound: Boolean = false,
+    /**
+     * Whether the viewer holds the display awake while cameras are showing.
+     * On by default: a monitor propped up for the night that went dark at the
+     * system timeout would be a broken baby monitor, so sleeping is the choice
+     * that has to be asked for.
+     */
+    val keepScreenOn: Boolean = true,
 )
 
 interface AppSettingsStore {
@@ -67,6 +74,7 @@ class AppSettingsRepository(private val dataStore: DataStore<Preferences>) : App
             prefs[KEY_ALERT_VOLUME] = next.alertVolume
             prefs[KEY_ORIENTATION] = next.orientationLock.name
             prefs[KEY_VIEWER_SOUND] = next.viewerSound
+            prefs[KEY_KEEP_SCREEN_ON] = next.keepScreenOn
         }
     }
 
@@ -84,6 +92,7 @@ class AppSettingsRepository(private val dataStore: DataStore<Preferences>) : App
                 ?.let { stored -> OrientationLock.entries.firstOrNull { it.name == stored } }
                 ?: defaults.orientationLock,
             viewerSound = prefs[KEY_VIEWER_SOUND] ?: defaults.viewerSound,
+            keepScreenOn = prefs[KEY_KEEP_SCREEN_ON] ?: defaults.keepScreenOn,
         )
     }
 
@@ -97,5 +106,6 @@ class AppSettingsRepository(private val dataStore: DataStore<Preferences>) : App
         val KEY_ALERT_VOLUME = floatPreferencesKey("alert_volume")
         val KEY_ORIENTATION = stringPreferencesKey("orientation_lock")
         val KEY_VIEWER_SOUND = booleanPreferencesKey("viewer_sound")
+        val KEY_KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
     }
 }

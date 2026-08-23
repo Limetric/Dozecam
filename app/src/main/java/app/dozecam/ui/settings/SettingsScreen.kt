@@ -178,6 +178,19 @@ fun SettingsScreen(
             )
 
             Section(title = stringResource(R.string.section_monitor)) {
+                // The same switch that floats over the cameras; this copy is
+                // where it gets a name and an explanation.
+                SettingSwitchRow(
+                    label = stringResource(R.string.setting_keep_screen),
+                    description = stringResource(R.string.setting_keep_screen_description),
+                    iconRes = R.drawable.ic_aod,
+                    checked = settings.keepScreenOn,
+                    onCheckedChange = { checked ->
+                        onSettingsChange { it.copy(keepScreenOn = checked) }
+                    },
+                    shape = GroupSingleShape,
+                    tag = "keep-screen-switch",
+                )
                 GroupRow(
                     headline = stringResource(R.string.setting_orientation),
                     supporting = stringResource(settings.orientationLock.descriptionRes()),
