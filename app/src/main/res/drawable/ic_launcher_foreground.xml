@@ -1,16 +1,49 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Placeholder launcher art: a crescent moon over a camera-lens ring. -->
+<!-- A camera lens holding a night scene: crescent moon and stars inside the ring. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- Lens glass -->
     <path
-        android:fillColor="#F5F0E6"
-        android:pathData="M62,34 A20,20 0 1,0 62,74 A16,16 0 1,1 62,34 Z" />
+        android:fillColor="#0E1526"
+        android:pathData="M54,54 m-28,0 a28,28 0 1,0 56,0 a28,28 0 1,0 -56,0" />
+    <!-- Inner aperture ring -->
     <path
-        android:strokeColor="#8FA3C8"
-        android:strokeWidth="3"
+        android:strokeColor="#2E3D63"
+        android:strokeWidth="1.75"
         android:fillColor="#00000000"
-        android:pathData="M54,54 m-26,0 a26,26 0 1,0 52,0 a26,26 0 1,0 -52,0" />
+        android:pathData="M54,54 m-22.5,0 a22.5,22.5 0 1,0 45,0 a22.5,22.5 0 1,0 -45,0" />
+    <!-- Crescent moon, tilted so it opens toward the stars -->
+    <group
+        android:rotation="-40"
+        android:pivotX="54"
+        android:pivotY="54">
+        <path
+            android:fillColor="#F5E3AF"
+            android:pathData="M62,39 A17,17 0 1,0 62,69 A15,15 0 1,1 62,39 Z" />
+    </group>
+    <!-- Star sparkles in the moon's hollow -->
+    <path
+        android:fillColor="#D7E2F8"
+        android:pathData="M65,36.4 Q65,41 69.6,41 Q65,41 65,45.6 Q65,41 60.4,41 Q65,41 65,36.4 Z" />
+    <path
+        android:fillColor="#B9C9EE"
+        android:pathData="M57.5,44.9 Q57.5,47.5 60.1,47.5 Q57.5,47.5 57.5,50.1 Q57.5,47.5 54.9,47.5 Q57.5,47.5 57.5,44.9 Z" />
+    <path
+        android:fillColor="#93A8D8"
+        android:pathData="M68,50.2 Q68,52 69.8,52 Q68,52 68,53.8 Q68,52 66.2,52 Q68,52 68,50.2 Z" />
+    <!-- Lens barrel ring with a glint at the top-left -->
+    <path
+        android:strokeColor="#A9BCE4"
+        android:strokeWidth="4"
+        android:fillColor="#00000000"
+        android:pathData="M54,54 m-28,0 a28,28 0 1,0 56,0 a28,28 0 1,0 -56,0" />
+    <path
+        android:strokeColor="#EAF0FC"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M28.6,42.2 A28,28 0 0,1 37.9,31.1" />
 </vector>

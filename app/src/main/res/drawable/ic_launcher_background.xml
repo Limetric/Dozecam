@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Night-sky backdrop: a soft glow behind the lens fading to deep navy at the edges. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M0,0 H108 V108 H0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="47"
+                android:centerY="47"
+                android:gradientRadius="86"
+                android:startColor="#2C3C66"
+                android:endColor="#111830" />
+        </aapt:attr>
+    </path>
+</vector>
