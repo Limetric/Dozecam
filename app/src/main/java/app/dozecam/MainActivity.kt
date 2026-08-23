@@ -183,13 +183,15 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Watching a camera should hold the display; an empty viewer
-                // pointing at console setup has no business doing so.
-                LaunchedEffect(cameras.isEmpty()) {
-                    if (cameras.isEmpty()) {
-                        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                    } else {
+                // Watching a camera holds the display, unless the user has
+                // switched that off; an empty viewer pointing at console setup
+                // has no business doing so either way.
+                val keepAwake = cameras.isNotEmpty() && appSettings.keepScreenOn
+                LaunchedEffect(keepAwake) {
+                    if (keepAwake) {
                         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    } else {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     }
                 }
 
@@ -209,6 +211,8 @@ class MainActivity : ComponentActivity() {
                     onStartMonitoring = ::startMonitoring,
                     soundEnabled = appSettings.viewerSound,
                     onSoundEnabledChange = ::setViewerSound,
+                    keepScreenOn = appSettings.keepScreenOn,
+                    onKeepScreenOnChange = ::setKeepScreenOn,
                     // The cameras follow the focus we actually hold, not the
                     // switch: a call or a navigation prompt silences them
                     // without touching it, and they come back on their own
@@ -376,6 +380,13 @@ class MainActivity : ComponentActivity() {
     private fun setViewerSound(enabled: Boolean) {
         lifecycleScope.launch {
             appContainer.appSettings.update { it.copy(viewerSound = enabled) }
+        }
+    }
+
+    /** Remembered for the same reason the sound switch is. */
+    private fun setKeepScreenOn(enabled: Boolean) {
+        lifecycleScope.launch {
+            appContainer.appSettings.update { it.copy(keepScreenOn = enabled) }
         }
     }
 

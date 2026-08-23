@@ -30,6 +30,9 @@ class AppSettingsRepositoryTest {
         // Stated outright rather than left to the round-trip: a viewer that
         // starts audible would talk over a sleeping room the moment it opens.
         assertFalse(repository.settings.first().viewerSound)
+        // Likewise: a monitor that went dark at the system timeout on the
+        // first night would look like a dead app, so sleeping is opt-in.
+        assertTrue(repository.settings.first().keepScreenOn)
 
         val custom = AppSettings(
             nightTheme = true,
@@ -41,6 +44,7 @@ class AppSettingsRepositoryTest {
             alertVolume = 0.6f,
             orientationLock = OrientationLock.LANDSCAPE,
             viewerSound = true,
+            keepScreenOn = false,
         )
         repository.update { custom }
 

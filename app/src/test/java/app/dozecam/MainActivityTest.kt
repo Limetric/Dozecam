@@ -2,6 +2,7 @@ package app.dozecam
 
 import android.media.AudioManager
 import android.view.WindowInsets
+import android.view.WindowManager
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.core.view.WindowCompat
@@ -39,6 +40,19 @@ class MainActivityTest {
         // the default routing follows whatever happens to be playing — so the
         // rocker would silently adjust the ringer between turns.
         assertEquals(AudioManager.STREAM_MUSIC, composeRule.activity.volumeControlStream)
+    }
+
+    private fun holdingScreenAwake(): Boolean =
+        composeRule.activity.window.attributes.flags and
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0
+
+    @Test
+    fun `an empty viewer lets the screen sleep`() {
+        // Console setup is a screen someone is actively touching; only cameras
+        // being watched earn the display — and only while keep-screen-on says
+        // so, which cannot be exercised here: a camera in the real activity
+        // means a real VLC decoder underneath it.
+        assertFalse(holdingScreenAwake())
     }
 
     @Test

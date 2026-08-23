@@ -105,6 +105,21 @@ class SettingsScreenTest {
     }
 
     @Test
+    fun `toggling keep screen awake reports the change`() {
+        var changed: AppSettings? = null
+        composeRule.setContent {
+            Screen(
+                settings = AppSettings(keepScreenOn = true),
+                onSettingsChange = { changed = it(AppSettings(keepScreenOn = true)) },
+            )
+        }
+
+        composeRule.onNodeWithTag("keep-screen-switch").performScrollTo().performClick()
+
+        assertEquals(false, changed?.keepScreenOn)
+    }
+
+    @Test
     fun `choosing an orientation lock reports the change`() {
         var changed: AppSettings? = null
         composeRule.setContent {

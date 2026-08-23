@@ -42,6 +42,8 @@
     <string name="viewer_keep_monitoring">Keep listening</string>
     <string name="viewer_sound_on">Turn sound on</string>
     <string name="viewer_sound_off">Turn sound off</string>
+    <string name="viewer_keep_screen_on">Keep the screen awake</string>
+    <string name="viewer_keep_screen_off">Let the screen sleep</string>
     <string name="viewer_audible_camera">Sound from %1$s</string>
     <string name="viewer_returning_in">All cameras in %1$ds</string>
     <string name="viewer_stay">Stay</string>
@@ -86,6 +88,8 @@
     <string name="alert_volume_label">Alert volume: %1$d%% of your alarm volume</string>
     <string name="alert_repeat_label">Repeat every: %1$d s</string>
     <string name="alert_repeat_footnote">An alert repeats until you touch the screen, and gives up on its own after five minutes.</string>
+    <string name="setting_keep_screen">Keep the screen awake</string>
+    <string name="setting_keep_screen_description">The display stays on while cameras are showing</string>
     <string name="setting_orientation">Monitor orientation</string>
     <string name="orientation_auto">Follow the sensor</string>
     <string name="orientation_portrait">Lock to portrait</string>
