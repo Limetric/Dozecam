@@ -63,6 +63,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENCODE_AUTH_CONTENT: ${{ secrets.OPENCODE_ACCESS_JSON }}
+          # CI-only permissions. opencode defaults external_directory to "ask",
+          # which nobody can answer on a runner: a subagent that greps outside
+          # the checkout blocks until the job timeout.
+          # Everything interactive is resolved to allow or deny here.
+          # This lives in .github/ rather than the repo root so it applies only
+          # to this workflow -- opencode discovers project config as
+          # ./opencode.json, so local runs are unaffected.
+          OPENCODE_CONFIG: ${{ github.workspace }}/.github/opencode-review.json
         with:
           model: openai/gpt-5.6-sol
           variant: medium
