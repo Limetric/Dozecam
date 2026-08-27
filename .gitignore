@@ -35,3 +35,6 @@ keystore_dozecam_upload.properties
 
 # Codegraph local index
 .codegraph/
+
+# Diff scaffolding written by the automated PR review workflows
+.review-scope/
