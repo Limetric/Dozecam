@@ -14,6 +14,7 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.lifecycle.Lifecycle
@@ -959,6 +960,68 @@ class MonitorScreenTest {
 
         composeRule.onNodeWithTag("toggle-keep-screen")
             .assertContentDescriptionEquals("Keep the screen awake")
+    }
+
+    /**
+     * The two icons flip between states that look alike at a glance — the
+     * screen one especially — so a press has to say in words what it did.
+     */
+    @Test
+    fun `the keep-screen button says what it just did`() {
+        var keepScreenOn by mutableStateOf(true)
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery),
+                keepScreenOn = keepScreenOn,
+                onKeepScreenOnChange = { keepScreenOn = it },
+            )
+        }
+
+        composeRule.onNodeWithTag("toggle-keep-screen").performClick()
+        composeRule.onNodeWithText("The screen will sleep as usual").assertIsDisplayed()
+
+        // A second press replaces the first message rather than queueing
+        // behind it: what is on screen is always the current state.
+        composeRule.onNodeWithTag("toggle-keep-screen").performClick()
+        composeRule.onNodeWithText("The screen will sleep as usual").assertDoesNotExist()
+        composeRule.onNodeWithText("The screen will stay awake while cameras are showing")
+            .assertIsDisplayed()
+    }
+
+    @Test
+    fun `the sound button says what it just did`() {
+        var soundEnabled by mutableStateOf(false)
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery),
+                soundEnabled = soundEnabled,
+                onSoundEnabledChange = { soundEnabled = it },
+            )
+        }
+
+        composeRule.onNodeWithTag("toggle-sound").performClick()
+        composeRule.onNodeWithText("Sound on").assertIsDisplayed()
+
+        composeRule.onNodeWithTag("toggle-sound").performClick()
+        composeRule.onNodeWithText("Sound on").assertDoesNotExist()
+        composeRule.onNodeWithText("Sound off").assertIsDisplayed()
+    }
+
+    @Test
+    fun `the sound button confirms itself on a single camera too`() {
+        var soundEnabled by mutableStateOf(false)
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery),
+                soundEnabled = soundEnabled,
+                onSoundEnabledChange = { soundEnabled = it },
+            )
+        }
+        composeRule.onNodeWithTag("camera-tile-${nursery.name}").performClick()
+
+        composeRule.onNodeWithTag("toggle-sound").performClick()
+
+        composeRule.onNodeWithText("Sound on").assertIsDisplayed()
     }
 
     @Test

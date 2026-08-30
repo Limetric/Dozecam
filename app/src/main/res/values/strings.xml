@@ -44,6 +44,10 @@
     <string name="viewer_sound_off">Turn sound off</string>
     <string name="viewer_keep_screen_on">Keep the screen awake</string>
     <string name="viewer_keep_screen_off">Let the screen sleep</string>
+    <string name="viewer_sound_on_confirmed">Sound on</string>
+    <string name="viewer_sound_off_confirmed">Sound off</string>
+    <string name="viewer_keep_screen_on_confirmed">The screen will stay awake while cameras are showing</string>
+    <string name="viewer_keep_screen_off_confirmed">The screen will sleep as usual</string>
     <string name="viewer_audible_camera">Sound from %1$s</string>
     <string name="viewer_returning_in">All cameras in %1$ds</string>
     <string name="viewer_stay">Stay</string>

@@ -32,6 +32,9 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -41,11 +44,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
@@ -58,6 +63,7 @@ import app.dozecam.R
 import app.dozecam.data.Camera
 import app.dozecam.network.NetworkReach
 import app.dozecam.player.CameraStreams
+import kotlinx.coroutines.launch
 import app.dozecam.player.StreamSource
 import app.dozecam.player.VideoPlayerController
 import app.dozecam.player.rememberCameraStreams
@@ -305,6 +311,17 @@ fun MonitorScreen(
         intervalMs = soundRotationIntervalMs,
     )
 
+    // The two toggles are icons that flip between two states, and neither
+    // icon says which state a tap just put them in — least of all the screen
+    // one, whose "awake" and "asleep" glyphs read alike at a glance. So every
+    // press says in words what it did.
+    val snackbarHostState = remember { SnackbarHostState() }
+    val announce = rememberAnnouncer(snackbarHostState)
+    val soundToggleAnnounced = { enabled: Boolean ->
+        announce(if (enabled) R.string.viewer_sound_on_confirmed else R.string.viewer_sound_off_confirmed)
+        onSoundEnabledChange(enabled)
+    }
+
     if (fullscreen != null) {
         // Watching one room is a detour the viewer takes itself back from. The
         // alerted camera is no exception: the alert bought a look, and once
@@ -353,21 +370,23 @@ fun MonitorScreen(
                 // there as touching the picture is.
                 onSoundEnabledChange = {
                     countdown.reset()
-                    onSoundEnabledChange(it)
+                    soundToggleAnnounced(it)
                 },
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .safeDrawingPadding()
                     .padding(12.dp),
             )
-            InactivityNotice(
-                countdown = countdown,
-                onStay = countdown::reset,
+            Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .safeDrawingPadding()
                     .padding(16.dp),
-            )
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                InactivityNotice(countdown = countdown, onStay = countdown::reset)
+                ToggleSnackbarHost(snackbarHostState)
+            }
         }
         return
     }
@@ -433,11 +452,17 @@ fun MonitorScreen(
             if (cameras.isNotEmpty()) {
                 SoundToggle(
                     soundEnabled = soundEnabled,
-                    onSoundEnabledChange = onSoundEnabledChange,
+                    onSoundEnabledChange = soundToggleAnnounced,
                 )
                 KeepScreenToggle(
                     keepScreenOn = keepScreenOn,
-                    onKeepScreenOnChange = onKeepScreenOnChange,
+                    onKeepScreenOnChange = { enabled ->
+                        announce(
+                            if (enabled) R.string.viewer_keep_screen_on_confirmed
+                            else R.string.viewer_keep_screen_off_confirmed,
+                        )
+                        onKeepScreenOnChange(enabled)
+                    },
                 )
             }
             FilledTonalIconButton(
@@ -455,13 +480,17 @@ fun MonitorScreen(
         // Bottom-aligned, unlike the notices above the grid: the top of this
         // screen is already spoken for by the controls, and a message about the
         // whole device belongs where nothing is competing with it.
-        NetworkNotice(
-            reach = networkReach,
+        Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .safeDrawingPadding()
                 .padding(16.dp),
-        )
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            NetworkNotice(reach = networkReach)
+            ToggleSnackbarHost(snackbarHostState)
+        }
 
         if (confirmingStop) {
             StopMonitoringDialog(
@@ -643,6 +672,36 @@ private fun KeepScreenToggle(
             ),
         )
     }
+}
+
+/**
+ * A short, replaceable confirmation for a button press. Each new press cuts
+ * off whatever the last one was saying: someone tapping twice to undo a slip
+ * should read the outcome, not a queue of everything that happened on the way.
+ */
+@Composable
+private fun rememberAnnouncer(hostState: SnackbarHostState): (Int) -> Unit {
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    return remember(hostState, context) {
+        { message: Int ->
+            hostState.currentSnackbarData?.dismiss()
+            scope.launch {
+                hostState.showSnackbar(
+                    message = context.getString(message),
+                    duration = SnackbarDuration.Short,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToggleSnackbarHost(hostState: SnackbarHostState, modifier: Modifier = Modifier) {
+    SnackbarHost(
+        hostState = hostState,
+        modifier = modifier.testTag("toggle-feedback"),
+    )
 }
 
 /**
