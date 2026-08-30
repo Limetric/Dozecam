@@ -311,7 +311,9 @@ class OnboardingViewModel(
         }
         _state.value = _state.value.copy(
             step = OnboardingStep.PickCameras(cameras),
-            selectedCameraIds = cameras.map { it.id }.toSet(),
+            // Nothing is pre-selected: importing a camera is opt-in, and any
+            // selection left over from an earlier discovery is stale.
+            selectedCameraIds = emptySet(),
         )
     }
 

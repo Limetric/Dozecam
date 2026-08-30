@@ -243,8 +243,8 @@ class OnboardingViewModelTest {
         // can listen to changes here, and onboarding can be left at the picker
         // without a single camera being imported.
         assertEquals(1, consoleChanges)
-        // All discovered cameras are pre-selected.
-        assertEquals(setOf("cam1"), viewModel.state.value.selectedCameraIds)
+        // Nothing is pre-selected: importing a camera is opt-in.
+        assertEquals(emptySet<String>(), viewModel.state.value.selectedCameraIds)
     }
 
     @Test
@@ -418,6 +418,7 @@ class OnboardingViewModelTest {
 
         viewModel.connect()
         viewModel.state.first { it.step is OnboardingStep.PickCameras }
+        viewModel.toggleCamera("cam1")
         viewModel.import()
 
         val done = viewModel.state
@@ -455,6 +456,7 @@ class OnboardingViewModelTest {
 
         viewModel.connect()
         viewModel.state.first { it.step is OnboardingStep.PickCameras }
+        viewModel.toggleCamera("cam1")
         viewModel.import()
         viewModel.state.first { it.step is OnboardingStep.Done }
 
@@ -474,6 +476,7 @@ class OnboardingViewModelTest {
 
         viewModel.connect()
         viewModel.state.first { it.step is OnboardingStep.PickCameras }
+        viewModel.toggleCamera("cam1")
         viewModel.import()
         viewModel.state.first { it.step is OnboardingStep.Done }
 
@@ -488,6 +491,7 @@ class OnboardingViewModelTest {
 
         viewModel.connect()
         viewModel.state.first { it.step is OnboardingStep.PickCameras }
+        viewModel.toggleCamera("cam1")
         viewModel.import()
 
         viewModel.state.first { it.step is OnboardingStep.Done }
@@ -547,6 +551,7 @@ class OnboardingViewModelTest {
 
         viewModel.connect()
         viewModel.state.first { it.step is OnboardingStep.PickCameras }
+        viewModel.toggleCamera("cam1")
         viewModel.import()
 
         val done = viewModel.state
@@ -606,6 +611,7 @@ class OnboardingViewModelTest {
 
         viewModel.connect()
         viewModel.state.first { it.step is OnboardingStep.PickCameras }
+        viewModel.toggleCamera("cam1")
         viewModel.import()
 
         val done = viewModel.state
@@ -628,6 +634,8 @@ class OnboardingViewModelTest {
 
         viewModel.connect()
         viewModel.state.first { it.step is OnboardingStep.PickCameras }
+        // Selected, then thought better of it.
+        viewModel.toggleCamera("cam1")
         viewModel.toggleCamera("cam1")
         viewModel.import()
 
