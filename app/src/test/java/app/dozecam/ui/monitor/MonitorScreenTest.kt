@@ -1007,6 +1007,37 @@ class MonitorScreenTest {
         composeRule.onNodeWithText("Sound off").assertIsDisplayed()
     }
 
+    /**
+     * "Sound on" is a promise about the speaker, and the request for it can
+     * be refused — in which case MainActivity flips the switch straight back
+     * off. Confirming at the press would leave that user reassured and
+     * unhearing, so the confirmation waits for sound to actually be granted,
+     * and a refusal is reported as what it is.
+     */
+    @Test
+    fun `a refused sound request is not announced as sound on`() {
+        var soundEnabled by mutableStateOf(false)
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery),
+                soundEnabled = soundEnabled,
+                soundGranted = false,
+                onSoundEnabledChange = { soundEnabled = it },
+            )
+        }
+
+        composeRule.onNodeWithTag("toggle-sound").performClick()
+        composeRule.onNodeWithText("Sound on").assertDoesNotExist()
+
+        // Something else owned the speaker, so the owner of the setting put
+        // the switch back — the same move MainActivity makes.
+        composeRule.runOnIdle { soundEnabled = false }
+
+        composeRule.onNodeWithText("Sound on").assertDoesNotExist()
+        composeRule.onNodeWithText("Something else is using the speaker — sound stays off")
+            .assertIsDisplayed()
+    }
+
     @Test
     fun `the sound button confirms itself on a single camera too`() {
         var soundEnabled by mutableStateOf(false)

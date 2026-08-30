@@ -317,9 +317,35 @@ fun MonitorScreen(
     // press says in words what it did.
     val snackbarHostState = remember { SnackbarHostState() }
     val announce = rememberAnnouncer(snackbarHostState)
+
+    // Turning sound on is a request, not an outcome: the caller still has to
+    // win the speaker, and a refusal quietly flips the switch back off. So
+    // "Sound on" waits for the state it promises — cameras actually audible —
+    // and a request that came back reverted instead says why nothing changed.
+    // Off needs no such caution; letting go of the speaker cannot fail.
+    var soundOnRequested by remember { mutableStateOf(false) }
     val soundToggleAnnounced = { enabled: Boolean ->
-        announce(if (enabled) R.string.viewer_sound_on_confirmed else R.string.viewer_sound_off_confirmed)
+        if (enabled) {
+            soundOnRequested = true
+        } else {
+            soundOnRequested = false
+            announce(R.string.viewer_sound_off_confirmed)
+        }
         onSoundEnabledChange(enabled)
+    }
+    LaunchedEffect(audible) {
+        if (audible && soundOnRequested) {
+            soundOnRequested = false
+            announce(R.string.viewer_sound_on_confirmed)
+        }
+    }
+    LaunchedEffect(soundEnabled) {
+        // The switch went back off while an "on" was still unconfirmed: the
+        // request was refused, not fulfilled.
+        if (!soundEnabled && soundOnRequested) {
+            soundOnRequested = false
+            announce(R.string.viewer_sound_refused)
+        }
     }
 
     if (fullscreen != null) {
