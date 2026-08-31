@@ -3,6 +3,8 @@ package app.dozecam.ui.monitor
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -24,6 +26,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -52,6 +55,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -104,6 +110,65 @@ private val THREE_COLUMN_BREAKPOINT = 1000.dp
  * a secret for long.
  */
 private const val ARMING_GRACE_MS = 3_000L
+
+/**
+ * How far the fullscreen status pill steps aside for the back button: the
+ * button's 12dp margin plus its 40dp container, so the pill's own 12dp margin
+ * leaves an even gap between them.
+ */
+private val BACK_BUTTON_STATUS_INSET = 52.dp
+
+/** How far in from either side a touch still counts as starting at the edge. */
+private val EDGE_SWIPE_EDGE_WIDTH = 32.dp
+
+/** How far inward the finger must travel before the swipe means "leave". */
+private val EDGE_SWIPE_TRIGGER_DISTANCE = 48.dp
+
+/**
+ * Leaves on a single swipe in from either side of the screen.
+ *
+ * The viewer hides the system bars, and while they are hidden Android spends
+ * the first edge swipe bringing them out — only a second, identical swipe
+ * reaches the back gesture. Sticky immersive passes that first swipe through
+ * to the app as well, so the screen answers it here directly; the system's own
+ * back still works through the [BackHandler] for whoever waits the bars out.
+ *
+ * [enabled] is consulted as each touch lands rather than keyed on, so a zoom
+ * changing does not restart the detector mid-gesture.
+ */
+private fun Modifier.edgeSwipeToLeave(enabled: () -> Boolean, onLeave: () -> Unit): Modifier =
+    pointerInput(onLeave) {
+        val edge = EDGE_SWIPE_EDGE_WIDTH.toPx()
+        val trigger = EDGE_SWIPE_TRIGGER_DISTANCE.toPx()
+        awaitEachGesture {
+            // Watched on the initial pass, before the tile underneath gets its
+            // turn: the tap and zoom gestures down there claim and consume what
+            // they recognise, and a watcher behind them would see a swipe with
+            // every move already spent.
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            if (!enabled()) return@awaitEachGesture
+            val fromLeft = down.position.x <= edge
+            val fromRight = down.position.x >= size.width - edge
+            if (!fromLeft && !fromRight) return@awaitEachGesture
+            var travelled = 0f
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                // A second finger means a pinch: the zoom gesture owns it, and
+                // a swipe that fired mid-pinch would snatch the room away from
+                // someone leaning in for a closer look.
+                if (event.changes.count { it.pressed } > 1) return@awaitEachGesture
+                val change = event.changes.firstOrNull { it.id == down.id }
+                if (change == null || !change.pressed) return@awaitEachGesture
+                travelled += change.positionChange().x
+                val inward = if (fromLeft) travelled else -travelled
+                if (inward >= trigger) {
+                    change.consume()
+                    onLeave()
+                    return@awaitEachGesture
+                }
+            }
+        }
+    }
 
 /**
  * The viewer: every enabled camera, live, and nothing else. Arming the monitor
@@ -446,12 +511,26 @@ fun MonitorScreen(
             }
         }
 
-        Box(modifier = modifier.fillMaxSize()) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                // The immersive viewer swallows the system's first back swipe
+                // (it only brings the bars out), so the screen answers an edge
+                // swipe itself rather than making the gesture be done twice.
+                .edgeSwipeToLeave(
+                    // A zoomed picture pans with one finger, and a pan that
+                    // began near the edge is aiming the view, not leaving it.
+                    enabled = { zoom.scale <= 1f },
+                ) { fullscreenId = null },
+        ) {
             CameraTile(
                 camera = fullscreen,
                 source = sources[fullscreen.id],
                 streams = streams,
                 showLabel = false,
+                // Makes way for the back button in the top-start corner; the
+                // status pill slides right of it instead of under it.
+                statusInsetStart = BACK_BUTTON_STATUS_INSET,
                 // The one camera on screen alone is the one worth hearing; this
                 // is the "listen to the room" case the viewer exists for, so it
                 // needs nothing beyond sound being switched on.
@@ -477,6 +556,27 @@ fun MonitorScreen(
                     .align(Alignment.TopCenter)
                     .safeDrawingPadding(),
             )
+            // The visible way back, in the corner back buttons live in. Back
+            // and the edge swipe do the same, but nothing on a screen that is
+            // all picture says so; the alerted camera keeps it too, because
+            // the transition below is the same one that hands the lock screen
+            // back. The tile's status pill is inset to sit beside it — a
+            // button over "Reconnecting" would let a frozen frame pass for a
+            // live one.
+            FilledTonalIconButton(
+                onClick = { fullscreenId = null },
+                shapes = IconButtonDefaults.shapes(),
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .safeDrawingPadding()
+                    .padding(12.dp)
+                    .testTag("back-to-grid"),
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.viewer_all_cameras),
+                )
+            }
             // The controls a single camera keeps. Without the first, sound could
             // be switched on solely from the grid — including for a camera an
             // alert opened, which is precisely when the user wants to listen.

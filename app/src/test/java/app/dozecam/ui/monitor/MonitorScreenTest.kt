@@ -20,6 +20,8 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pinch
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeRight
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -716,6 +718,137 @@ class MonitorScreenTest {
 
         pressBack()
         composeRule.onNodeWithTag("camera-list-1").assertExists()
+    }
+
+    @Test
+    fun `the back button returns to the grid`() {
+        composeRule.setContent { Screen(cameras = listOf(nursery, playroom)) }
+
+        // Nothing to go back to from the grid, so no button there.
+        composeRule.onNodeWithTag("back-to-grid").assertDoesNotExist()
+
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.onNodeWithTag("back-to-grid").performClick()
+
+        composeRule.onNodeWithTag("fullscreen-tile").assertDoesNotExist()
+        composeRule.onNodeWithTag("camera-list-1").assertExists()
+    }
+
+    @Test
+    fun `the back button leaves the connection state visible`() {
+        composeRule.setContent { Screen(cameras = listOf(nursery, playroom)) }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+
+        // Both live in the top-start corner; the pill steps aside rather than
+        // sitting under the button, because a covered "Reconnecting" would let
+        // a frozen frame pass for a live one.
+        val button = composeRule.onNodeWithTag("back-to-grid").getBoundsInRoot()
+        val status = composeRule
+            .onNodeWithText("CONNECTING", useUnmergedTree = true)
+            .getBoundsInRoot()
+        assertTrue("status=$status button=$button", status.left >= button.right)
+    }
+
+    @Test
+    fun `the back button on an alerted camera ends the alert`() {
+        var dismissed = false
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery, playroom),
+                alertCameraId = "b",
+                onAlertDismissed = { dismissed = true },
+            )
+        }
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+
+        composeRule.onNodeWithTag("back-to-grid").performClick()
+
+        // The same exit as Back: the lock-screen privilege goes with it.
+        composeRule.onNodeWithTag("camera-list-1").assertExists()
+        assertTrue(dismissed)
+    }
+
+    @Test
+    fun `one swipe in from the left edge returns to the grid`() {
+        composeRule.setContent { Screen(cameras = listOf(nursery, playroom)) }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+
+        // The system's first back swipe never reaches the app's back handler
+        // while the bars are hidden, so the screen must answer the touch
+        // itself — one swipe, not two.
+        composeRule.onRoot().performTouchInput {
+            swipeRight(startX = left + 1f, endX = centerX)
+        }
+
+        composeRule.onNodeWithTag("fullscreen-tile").assertDoesNotExist()
+        composeRule.onNodeWithTag("camera-list-1").assertExists()
+    }
+
+    @Test
+    fun `one swipe in from the right edge returns to the grid`() {
+        composeRule.setContent { Screen(cameras = listOf(nursery, playroom)) }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+
+        composeRule.onRoot().performTouchInput {
+            swipeLeft(startX = right - 1f, endX = centerX)
+        }
+
+        composeRule.onNodeWithTag("fullscreen-tile").assertDoesNotExist()
+        composeRule.onNodeWithTag("camera-list-1").assertExists()
+    }
+
+    @Test
+    fun `a swipe that starts away from the edge stays on the camera`() {
+        composeRule.setContent { Screen(cameras = listOf(nursery, playroom)) }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+
+        // A drag across the middle of the picture is not the leave gesture.
+        composeRule.onRoot().performTouchInput {
+            swipeRight(startX = centerX, endX = right - 1f)
+        }
+
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+    }
+
+    @Test
+    fun `a zoomed picture keeps its edge pans`() {
+        composeRule.setContent { Screen(cameras = listOf(nursery, playroom)) }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.onNodeWithTag("fullscreen-tile").performTouchInput {
+            pinch(
+                start0 = center - Offset(width / 8f, 0f),
+                end0 = center - Offset(width / 3f, 0f),
+                start1 = center + Offset(width / 8f, 0f),
+                end1 = center + Offset(width / 3f, 0f),
+            )
+        }
+
+        // One finger on a zoomed picture pans it, and a pan may begin at the
+        // edge; the swipe-to-leave stands down until the zoom is let go.
+        composeRule.onRoot().performTouchInput {
+            swipeRight(startX = left + 1f, endX = centerX)
+        }
+
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+    }
+
+    @Test
+    fun `a pinch that starts at the edge stays on the camera`() {
+        composeRule.setContent { Screen(cameras = listOf(nursery, playroom)) }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+
+        // Two fingers are a zoom, wherever they land: the first touching down
+        // in the edge strip and travelling inward must not read as "leave".
+        composeRule.onNodeWithTag("fullscreen-tile").performTouchInput {
+            pinch(
+                start0 = Offset(1f, centerY),
+                end0 = Offset(centerX - 20f, centerY),
+                start1 = Offset(centerX + 20f, centerY),
+                end1 = Offset(right - 1f, centerY),
+            )
+        }
+
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
     }
 
     @Test

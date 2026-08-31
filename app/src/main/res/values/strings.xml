@@ -53,6 +53,7 @@
     <string name="viewer_audible_camera">Sound from %1$s</string>
     <string name="viewer_returning_in">All cameras in %1$ds</string>
     <string name="viewer_stay">Stay</string>
+    <string name="viewer_all_cameras">All cameras</string>
     <string name="viewer_off_wifi">On mobile data. Your cameras are on the home network, so nothing here can reach them.</string>
     <string name="viewer_no_network">No network. Your cameras are on the home network, so nothing here can reach them until this device is back on it.</string>
 

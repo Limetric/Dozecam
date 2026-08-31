@@ -29,6 +29,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.viewinterop.AndroidView
@@ -87,6 +88,12 @@ fun CameraTile(
     audioLevel: Float? = null,
     /** The level at which an alert would fire, marked on the meter. */
     audioThreshold: Float = 1f,
+    /**
+     * Room made at the tile's start edge for a control the caller draws over
+     * the corner the status pill owns. The pill moves aside rather than being
+     * covered: honest connection state is only honest while it can be seen.
+     */
+    statusInsetStart: Dp = 0.dp,
     onClick: (() -> Unit)? = null,
     /**
      * Pinch state for a tile that has the screen to itself, where looking
@@ -172,7 +179,9 @@ fun CameraTile(
         StatusOverlay(
             state = connection,
             lastFrameAtMs = lastFrameAtMs,
-            modifier = Modifier.align(Alignment.TopStart),
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(start = statusInsetStart),
         )
         if (audible) {
             AudibleBadge(
