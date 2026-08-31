@@ -24,12 +24,15 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import app.dozecam.audio.talkback.Talkback
+import app.dozecam.audio.talkback.TalkbackAvailability
 import app.dozecam.data.Camera
 import app.dozecam.network.NetworkReach
 import app.dozecam.player.PlayerEvent
 import app.dozecam.player.StreamSource
 import app.dozecam.player.VideoPlayerController
 import app.dozecam.ui.theme.DozecamTheme
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -150,6 +153,8 @@ class MonitorScreenTest {
         onAlertConsumed: () -> Unit = {},
         onFullscreenChange: (Boolean) -> Unit = {},
         onAlertDismissed: () -> Unit = {},
+        talkback: Talkback? = null,
+        talkbackMinPressMs: Long = TALKBACK_MIN_PRESS,
     ) {
         backDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
         DozecamTheme {
@@ -181,8 +186,71 @@ class MonitorScreenTest {
                 onAlertConsumed = onAlertConsumed,
                 onFullscreenChange = onFullscreenChange,
                 onAlertDismissed = onAlertDismissed,
+                talkback = talkback,
+                talkbackMinPressMs = talkbackMinPressMs,
             )
         }
+    }
+
+    /** A camera that can always be talked to, so the gesture is what is tested. */
+    private class ReadyTalkback : Talkback {
+        override val availability = MutableStateFlow<TalkbackAvailability>(TalkbackAvailability.Ready)
+        override val talking = MutableStateFlow(false)
+        var presses = 0
+            private set
+        var releases = 0
+            private set
+
+        override fun watch(camera: Camera?) = Unit
+        override fun refresh() = Unit
+        override fun press() { presses++ }
+        override fun release() { releases++ }
+    }
+
+    /**
+     * A tap on the talk-back button sends the lead-in silence, its tail, and no
+     * words at all. The camera makes a small noise and the room hears nothing
+     * said, which reads as a broken feature rather than a button used wrongly —
+     * so it is named out loud.
+     */
+    @Test
+    fun `letting go of talk-back too quickly says so`() {
+        val talkback = ReadyTalkback()
+        composeRule.setContent { Screen(cameras = listOf(nursery), talkback = talkback) }
+        composeRule.onNodeWithTag("camera-tile-${nursery.name}").performClick()
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithTag("talkback-button").performTouchInput {
+            down(center)
+            up()
+        }
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithText(TOO_SHORT).assertExists()
+        // The press still ran: a tap is worth naming, not worth blocking.
+        assertEquals(1, talkback.presses)
+        assertEquals(1, talkback.releases)
+    }
+
+    /** A press long enough to have carried speech is left alone. */
+    @Test
+    fun `a held button says nothing about how long it was held`() {
+        val talkback = ReadyTalkback()
+        composeRule.setContent {
+            // Nothing can be too short, so any release is a proper one.
+            Screen(cameras = listOf(nursery), talkback = talkback, talkbackMinPressMs = 0L)
+        }
+        composeRule.onNodeWithTag("camera-tile-${nursery.name}").performClick()
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithTag("talkback-button").performTouchInput {
+            down(center)
+            up()
+        }
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithText(TOO_SHORT).assertDoesNotExist()
+        assertEquals(1, talkback.releases)
     }
 
     @Test
@@ -1721,6 +1789,15 @@ class MonitorScreenTest {
     private companion object {
         /** Short enough that a turn passing is not a slow test. */
         const val ROTATION_MS = 200L
+
+        /**
+         * Every press in a test lasts microseconds, so with any real threshold
+         * they all count as taps; a test wanting a proper hold passes zero.
+         */
+        const val TALKBACK_MIN_PRESS = 400L
+
+        /** Must match R.string.talkback_too_short. */
+        const val TOO_SHORT = "Hold the button down while you speak"
 
         /** Whole seconds, so the readout can be checked, but only a few of them. */
         const val INACTIVITY_MS = 4_000L

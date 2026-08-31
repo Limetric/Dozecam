@@ -44,9 +44,12 @@ internal fun TalkbackButton(
     availability: TalkbackAvailability,
     talking: Boolean,
     onPress: () -> Unit,
-    onRelease: () -> Unit,
+    /** Called with how long the button was actually held, in milliseconds. */
+    onRelease: (heldMillis: Long) -> Unit,
     onExplain: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Injectable so a test can hold a button for a scripted length of time. */
+    nowMillis: () -> Long = System::currentTimeMillis,
 ) {
     // Nothing to show and nothing to explain: a camera still being resolved has
     // no answer yet, and a control that flickered into existence a moment later
@@ -81,12 +84,16 @@ internal fun TalkbackButton(
         Modifier.pointerInput(Unit) {
             detectTapGestures(
                 onPress = {
+                    val pressedAt = nowMillis()
                     onPress()
                     // Returns whether the finger lifted inside the control or
                     // was cancelled; either way the press is over and the tail
                     // has to go out, so both end it the same way.
                     tryAwaitRelease()
-                    onRelease()
+                    // The duration travels with the release because only the
+                    // gesture knows it, and because a press too brief to have
+                    // carried speech needs saying rather than swallowing.
+                    onRelease(nowMillis() - pressedAt)
                 },
             )
         }

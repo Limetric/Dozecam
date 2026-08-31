@@ -74,6 +74,7 @@
     <string name="talkback_why_permission">Dozecam needs the microphone to talk to this camera</string>
     <string name="talkback_why_unlock">Unlock the phone to set up talk-back</string>
     <string name="talkback_failed">Talk-back stopped unexpectedly</string>
+    <string name="talkback_too_short">Hold the button down while you speak</string>
     <string name="camera_not_monitorable">Can be watched but not monitored — re-add this camera to fix it</string>
     <string name="detector_applies_to_all">Applies to every camera that is switched on.</string>
     <string name="section_monitoring">Monitoring</string>

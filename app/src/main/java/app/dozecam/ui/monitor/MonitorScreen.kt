@@ -80,6 +80,17 @@ import kotlinx.coroutines.flow.MutableStateFlow
  */
 private const val TALKBACK_EXPLANATION_MS = 4_000L
 
+/**
+ * Below this, a press cannot have carried speech.
+ *
+ * Every press opens with two hundred milliseconds of silence to cover the
+ * camera's jitter buffer starting up, so a tap shorter than this sends that
+ * silence, its tail, and nothing of the room in between. The camera makes a
+ * faint noise and the speaker hears nothing said — which looks far more like a
+ * broken feature than like a button used wrongly.
+ */
+private const val TALKBACK_MIN_PRESS_MS = 400L
+
 /** Below this there is only room for one camera across; above it, two. */
 private val TWO_COLUMN_BREAKPOINT = 600.dp
 
@@ -169,6 +180,11 @@ fun MonitorScreen(
     audioLevels: Map<String, Float> = emptyMap(),
     /** The level at which an alert would fire, marked on every meter. */
     audioThreshold: Float = 1f,
+    /**
+     * How long a press must last to have said anything. Injectable so a test
+     * can make every press count, or none.
+     */
+    talkbackMinPressMs: Long = TALKBACK_MIN_PRESS_MS,
     /** Injectable so tests need not wait out a real turn. */
     soundRotationIntervalMs: Long = SOUND_ROTATION_INTERVAL_MS,
     /** Injectable so tests need not wait out a real minute. */
@@ -478,7 +494,16 @@ fun MonitorScreen(
                                 talkback.press()
                             }
                         },
-                        onRelease = talkback::release,
+                        onRelease = { heldMillis ->
+                            talkback.release()
+                            // A tap is not a mistake worth blocking — the press
+                            // still runs, and its silence is harmless — but it
+                            // is a mistake worth naming, because the camera does
+                            // make a small noise and the room hears no words.
+                            if (heldMillis < talkbackMinPressMs) {
+                                announce(R.string.talkback_too_short)
+                            }
+                        },
                         onExplain = {
                             countdown.reset()
                             explaining = true

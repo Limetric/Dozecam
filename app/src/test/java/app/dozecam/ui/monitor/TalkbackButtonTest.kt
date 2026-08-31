@@ -23,6 +23,10 @@ class TalkbackButtonTest {
     val compose = createComposeRule()
 
     private val events = mutableListOf<String>()
+    private val held = mutableListOf<Long>()
+
+    /** Times handed out in order, so a press can last as long as a test likes. */
+    private var clock = ArrayDeque(listOf(0L, 0L))
 
     private fun show(
         availability: TalkbackAvailability,
@@ -34,8 +38,9 @@ class TalkbackButtonTest {
                     availability = availability,
                     talking = talking,
                     onPress = { events += "press" },
-                    onRelease = { events += "release" },
+                    onRelease = { events += "release"; held += it },
                     onExplain = { events += "explain" },
+                    nowMillis = { clock.removeFirstOrNull() ?: 0L },
                 )
             }
         }
@@ -102,6 +107,38 @@ class TalkbackButtonTest {
         compose.waitForIdle()
 
         assertEquals(listOf("explain"), events)
+    }
+
+    /**
+     * The screen decides what counts as too brief; the gesture is the only
+     * thing that can measure it, so it reports rather than judges.
+     */
+    @Test
+    fun `a release reports how long the button was held`() {
+        clock = ArrayDeque(listOf(1_000L, 3_500L))
+        show(TalkbackAvailability.Ready)
+
+        compose.onNodeWithTag("talkback-button").performTouchInput {
+            down(center)
+            up()
+        }
+        compose.waitForIdle()
+
+        assertEquals(listOf(2_500L), held)
+    }
+
+    @Test
+    fun `a tap reports a duration of about nothing`() {
+        clock = ArrayDeque(listOf(1_000L, 1_010L))
+        show(TalkbackAvailability.Ready)
+
+        compose.onNodeWithTag("talkback-button").performTouchInput {
+            down(center)
+            up()
+        }
+        compose.waitForIdle()
+
+        assertEquals(listOf(10L), held)
     }
 
     @Test
