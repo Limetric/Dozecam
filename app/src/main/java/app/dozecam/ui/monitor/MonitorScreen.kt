@@ -502,6 +502,9 @@ fun MonitorScreen(
                                 talkback.press()
                             }
                         },
+                        // No snackbar: nobody let go, so there is nothing to
+                        // tell them about how they were holding it.
+                        onCancel = talkback::release,
                         onRelease = { heldMillis ->
                             talkback.release()
                             // A tap is not a mistake worth blocking — the press

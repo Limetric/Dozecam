@@ -11,6 +11,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -46,6 +51,12 @@ internal fun TalkbackButton(
     onPress: () -> Unit,
     /** Called with how long the button was actually held, in milliseconds. */
     onRelease: (heldMillis: Long) -> Unit,
+    /**
+     * The control went away with a finger still on it. Not a release: nobody
+     * let go, so there is nothing to tell them about how long they held it —
+     * only a press that must not be left running.
+     */
+    onCancel: () -> Unit,
     onExplain: () -> Unit,
     modifier: Modifier = Modifier,
     /** Injectable so a test can hold a button for a scripted length of time. */
@@ -80,20 +91,33 @@ internal fun TalkbackButton(
         },
     )
 
+    // Held across recompositions so disposal can tell a press in progress from
+    // one already finished.
+    val pressedAt = remember { mutableStateOf<Long?>(null) }
+    val cancel by rememberUpdatedState(onCancel)
+    DisposableEffect(Unit) {
+        // A rotation, an alert swapping the room, availability moving off Ready
+        // — any of them takes this control out of the composition and cancels
+        // the gesture mid-await, so the release below never runs.
+        onDispose { if (pressedAt.value != null) cancel() }
+    }
+
     val gestures = if (ready) {
         Modifier.pointerInput(Unit) {
             detectTapGestures(
                 onPress = {
-                    val pressedAt = nowMillis()
+                    val startedAt = nowMillis()
+                    pressedAt.value = startedAt
                     onPress()
                     // Returns whether the finger lifted inside the control or
                     // was cancelled; either way the press is over and the tail
                     // has to go out, so both end it the same way.
                     tryAwaitRelease()
+                    pressedAt.value = null
                     // The duration travels with the release because only the
                     // gesture knows it, and because a press too brief to have
                     // carried speech needs saying rather than swallowing.
-                    onRelease(nowMillis() - pressedAt)
+                    onRelease(nowMillis() - startedAt)
                 },
             )
         }

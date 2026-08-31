@@ -384,6 +384,11 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        // Talk-back lives only while the viewer is on screen — that is the
+        // promise the manifest makes, and the reason there is no microphone
+        // foreground-service type to fall back on. A finger still down as the
+        // activity goes away must not leave one open behind it.
+        talkback.release()
         super.onPause()
         revokeLockScreenVisibility()
     }

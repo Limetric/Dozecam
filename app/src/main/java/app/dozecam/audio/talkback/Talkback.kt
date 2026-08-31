@@ -6,6 +6,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import java.util.concurrent.locks.LockSupport
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -81,6 +82,12 @@ class ProtectTalkback(
     private val newEncoder: (TalkbackFormat.Speakable) -> FrameEncoder = { OpusEncoder(it.sampleRate) },
     private val newSender: (TalkbackFormat.Speakable) -> FrameSink = ::defaultSender,
     private val io: CoroutineDispatcher = Dispatchers.IO,
+    /**
+     * How the paced loop waits between frames. Injectable only so a test need
+     * not sit through a press in real time; nothing else should change it,
+     * because the waiting is the feature.
+     */
+    private val park: (Long) -> Unit = LockSupport::parkNanos,
 ) : Talkback {
 
     private val _availability = MutableStateFlow<TalkbackAvailability>(
@@ -109,7 +116,6 @@ class ProtectTalkback(
     override fun watch(camera: Camera?) {
         if (camera?.id == watched?.id) return
         watched = camera
-        release()
         resolve()
     }
 
@@ -123,6 +129,15 @@ class ProtectTalkback(
     override fun refresh() = resolve(forgetReachability = true)
 
     private fun resolve(forgetReachability: Boolean = false) {
+        // Any press in flight ends here, before anything else.
+        //
+        // Resolving takes the control off screen, and the gesture that would
+        // otherwise have released it goes with it — cancelled mid-await, so the
+        // code after it never runs. Left to the control, a press interrupted by
+        // a network change would hold the microphone open and keep talking into
+        // the room with nothing on screen to say so. Ending a press must not
+        // depend on the button surviving long enough to end it.
+        release()
         resolving?.cancel()
         format = null
         val camera = watched
@@ -214,7 +229,7 @@ class ProtectTalkback(
                         newEncoder(speakable).use { encoder ->
                             val sink = newSender(speakable)
                             try {
-                                TalkbackStream(speakable, source, encoder, sink).run { held }
+                                TalkbackStream(speakable, source, encoder, sink, park = park).run { held }
                             } finally {
                                 (sink as? AutoCloseable)?.close()
                             }

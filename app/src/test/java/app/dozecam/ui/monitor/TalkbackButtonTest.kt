@@ -28,17 +28,21 @@ class TalkbackButtonTest {
     /** Times handed out in order, so a press can last as long as a test likes. */
     private var clock = ArrayDeque(listOf(0L, 0L))
 
+    private var live: TalkbackAvailability by mutableStateOf(TalkbackAvailability.Ready)
+
     private fun show(
         availability: TalkbackAvailability,
         talking: Boolean = false,
     ) {
+        live = availability
         compose.setContent {
             DozecamTheme {
                 TalkbackButton(
-                    availability = availability,
+                    availability = live,
                     talking = talking,
                     onPress = { events += "press" },
                     onRelease = { events += "release"; held += it },
+                    onCancel = { events += "cancel" },
                     onExplain = { events += "explain" },
                     nowMillis = { clock.removeFirstOrNull() ?: 0L },
                 )
@@ -139,6 +143,40 @@ class TalkbackButtonTest {
         compose.waitForIdle()
 
         assertEquals(listOf(10L), held)
+    }
+
+    /**
+     * A press that the control cannot end itself: availability moves off Ready
+     * mid-hold — a network handover does exactly this — the button leaves the
+     * composition, and the gesture is cancelled before it can release. Without
+     * a cancel the microphone would simply stay open.
+     */
+    @Test
+    fun `a press interrupted by the control disappearing is cancelled`() {
+        show(TalkbackAvailability.Ready)
+
+        compose.onNodeWithTag("talkback-button").performTouchInput { down(center) }
+        compose.waitForIdle()
+        assertEquals(listOf("press"), events)
+
+        live = TalkbackAvailability.Resolving
+        compose.waitForIdle()
+
+        assertEquals(listOf("press", "cancel"), events)
+    }
+
+    /** An ordinary release is not a cancellation, and must not report as one. */
+    @Test
+    fun `letting go normally does not cancel`() {
+        show(TalkbackAvailability.Ready)
+
+        compose.onNodeWithTag("talkback-button").performTouchInput {
+            down(center)
+            up()
+        }
+        compose.waitForIdle()
+
+        assertEquals(listOf("press", "release"), events)
     }
 
     @Test

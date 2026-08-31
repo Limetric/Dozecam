@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.async
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -20,6 +21,9 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ProtectTalkbackTest {
+
+    /** Enough frames to prove a press ran away, few enough to fail quickly. */
+    private val RUNAWAY = 2_000
 
     private val console = "192.168.1.1"
     private val opus = TalkbackSession("rtp://192.168.1.12:7004", "opus", 24_000, 16)
@@ -56,6 +60,7 @@ class ProtectTalkbackTest {
         // The press runs on this rather than Dispatchers.IO, so a test can
         // advance it instead of racing it.
         io = StandardTestDispatcher(scope.testScheduler),
+        park = {},
     )
 
     /**
@@ -168,6 +173,7 @@ class ProtectTalkbackTest {
             locked = { false },
             openMicrophone = { null },
             io = StandardTestDispatcher(testScheduler),
+            park = {},
         )
 
         talkback.watch(camera())
@@ -232,6 +238,7 @@ class ProtectTalkbackTest {
             locked = { false },
             openMicrophone = { throw IllegalStateException("mic busy") },
             io = StandardTestDispatcher(testScheduler),
+            park = {},
         )
         val failure = awaitFailure(talkback)
 
@@ -286,6 +293,7 @@ class ProtectTalkbackTest {
             } },
             newSender = { FrameSink { throw java.io.IOException("network unreachable") } },
             io = StandardTestDispatcher(testScheduler),
+            park = {},
         )
         val failure = awaitFailure(talkback)
 
@@ -318,6 +326,7 @@ class ProtectTalkbackTest {
             locked = { false },
             openMicrophone = { null },
             io = StandardTestDispatcher(testScheduler),
+            park = {},
         )
 
         talkback.watch(camera())
@@ -330,6 +339,69 @@ class ProtectTalkbackTest {
 
         assertEquals(TalkbackAvailability.Ready, talkback.availability.value)
         assertTrue("the camera must be probed again, not read from cache", probes.size > 1)
+    }
+
+    /**
+     * The reported failure: a network handover during a press calls refresh(),
+     * which moves availability to Resolving and takes the control off screen —
+     * cancelling the gesture that would have released it. Nothing else ended
+     * the press, so the microphone stayed open and the room kept being spoken
+     * to with no button on screen to stop it.
+     */
+    @Test
+    fun `resolving again ends a press the control can no longer end itself`() = runTest {
+        var reads = 0
+        var microphoneClosed = false
+        val talkback = ProtectTalkback(
+            scope = this,
+            speakers = { mapOf("cam1" to true) },
+            session = { opus },
+            consoleHost = { console },
+            hasApiKey = { true },
+            reachability = TalkbackReachability { _, _ -> true },
+            microphoneGranted = { true },
+            locked = { false },
+            openMicrophone = {
+                object : PcmSource {
+                    override fun read(into: ShortArray): Boolean {
+                        reads++
+                        // Bounded only so this fails rather than hangs when the
+                        // press is never ended: a real microphone would go on.
+                        return reads < RUNAWAY
+                    }
+                    override fun close() { microphoneClosed = true }
+                }
+            },
+            newEncoder = {
+                object : FrameEncoder {
+                    override fun encode(pcm: ShortArray, presentationTimeUs: Long) = emptyList<ByteArray>()
+                    override fun finish() = emptyList<ByteArray>()
+                    override fun close() = Unit
+                }
+            },
+            newSender = { FrameSink { } },
+            io = StandardTestDispatcher(testScheduler),
+            park = {},
+        )
+
+        talkback.watch(camera())
+        advanceUntilIdle()
+        // Ends the press from underneath the control, exactly as a network
+        // handover does: refresh() moves availability to Resolving, which is
+        // what takes the button off screen.
+        talkback.press()
+        talkback.refresh()
+        advanceUntilIdle()
+
+        assertFalse("the press must not still be running", talkback.talking.value)
+        assertTrue(
+            "the microphone must be closed, not left open on a cancelled press",
+            microphoneClosed,
+        )
+        assertTrue(
+            "the press should have stopped at once, not run on; read $reads frames",
+            reads < RUNAWAY / 10,
+        )
     }
 
     /** Pressing a control that is not ready must never open a microphone. */
@@ -347,6 +419,7 @@ class ProtectTalkbackTest {
             locked = { false },
             openMicrophone = { opened = true; null },
             io = StandardTestDispatcher(testScheduler),
+            park = {},
         )
 
         talkback.watch(camera())
