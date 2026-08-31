@@ -4,7 +4,7 @@ This file provides guidance to coding agents working in this repository.
 
 ## What this is
 
-Dozecam is a native Android baby monitor for UniFi Protect cameras: low-latency libVLC RTSP live view, a wake-on-sound foreground service, honest connection state, and Protect console onboarding. Everything is LAN-only — no cloud, no accounts, no analytics. `unifi-babycam-project.md` is the design document and roadmap; `docs/releasing.md` is the release process.
+Dozecam is a native Android baby monitor for UniFi Protect cameras: low-latency libVLC RTSP live view, a wake-on-sound foreground service, honest connection state, and Protect console onboarding. Everything is LAN-only — no cloud, no accounts.
 
 Naming: the product is "Dozecam". Store copy must not lead with "UniFi" (Ubiquiti trademark) — describe compatibility as "for UniFi Protect cameras".
 
@@ -30,7 +30,7 @@ Single Gradle module `:app`. One flavor dimension, `environment`:
 
 Release-build unit tests are deliberately disabled (Compose-rule Robolectric tests need `ui-test-manifest`, which is debug-only); `testProductionDebugUnitTest` is the canonical test task. All tests live in `app/src/test` and run on the JVM — Robolectric with Android resources enabled, including Compose UI tests via `createComposeRule`.
 
-For a release: bump `versionCode`/`versionName` in `app/build.gradle.kts` and follow `docs/releasing.md` (includes a real-device smoke-test checklist and Play policy checkpoints). The `create-github-release` and `play-store-changelog` skills in `.claude/skills/` handle GitHub releases and Play "What's new" copy.
+For a release: bump `versionCode`/`versionName` in `app/build.gradle.kts`. The `create-github-release` and `play-store-changelog` skills in `.claude/skills/` handle GitHub releases and Play "What's new" copy.
 
 ## Architecture
 

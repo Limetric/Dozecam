@@ -2,7 +2,7 @@
 
 A native Android baby monitor for UniFi Protect cameras: low-latency LAN
 streaming, wake-on-sound, always-on display, and aggressive reconnection.
-Everything stays on your local network — no cloud, no accounts, no analytics.
+Everything stays on your local network — no cloud, no accounts.
 
 - **Live view** — libVLC RTSP playback tuned for sub-second latency,
   fullscreen and kept awake, with a dim red night theme.
@@ -20,11 +20,6 @@ Everything stays on your local network — no cloud, no accounts, no analytics.
   rest), or paste an `rtsp://` (or `rtsps://`) URL manually.
 - **Multi-camera** — name and manage several cameras; pick which one the
   wake-on-sound monitor watches.
-
-See [unifi-babycam-project.md](unifi-babycam-project.md) for the design
-document and roadmap, [docs/releasing.md](docs/releasing.md) for the release
-process, and [docs/privacy-policy.md](docs/privacy-policy.md) for the privacy
-policy.
 
 ## Building
 
