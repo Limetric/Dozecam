@@ -139,6 +139,8 @@ class MonitorScreenTest {
         keepScreenOn: Boolean = true,
         onKeepScreenOnChange: (Boolean) -> Unit = {},
         soundGranted: Boolean = true,
+        audioLevels: Map<String, Float> = emptyMap(),
+        audioThreshold: Float = 0.10f,
         soundRotationIntervalMs: Long = ROTATION_MS,
         inactivityTimeoutMs: Long = INACTIVITY_MS,
         alertCameraId: String? = null,
@@ -168,6 +170,8 @@ class MonitorScreenTest {
                 keepScreenOn = keepScreenOn,
                 onKeepScreenOnChange = onKeepScreenOnChange,
                 soundGranted = soundGranted,
+                audioLevels = audioLevels,
+                audioThreshold = audioThreshold,
                 soundRotationIntervalMs = soundRotationIntervalMs,
                 inactivityTimeoutMs = inactivityTimeoutMs,
                 alertCameraId = alertCameraId,
@@ -638,6 +642,104 @@ class MonitorScreenTest {
 
         pressBack()
         composeRule.onNodeWithTag("camera-list-1").assertExists()
+    }
+
+    @Test
+    fun `each monitored camera wears its own level meter`() {
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery, playroom),
+                audioLevels = mapOf("a" to 0.3f, "b" to 0.05f),
+            )
+        }
+
+        composeRule.onNodeWithTag("camera-meter-Nursery", useUnmergedTree = true)
+            .assertExists()
+        composeRule.onNodeWithTag("camera-meter-Play room", useUnmergedTree = true)
+            .assertExists()
+        // Next to the name, not instead of it: in a grid the meter only means
+        // something if the room it reports on is still named.
+        composeRule.onNodeWithTag("camera-label-Nursery", useUnmergedTree = true)
+            .assertExists()
+    }
+
+    @Test
+    fun `a camera the monitor is not hearing shows no meter`() {
+        // The monitor reports on the nursery only — the play room might be
+        // unmonitorable, or monitoring might be down entirely.
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery, playroom),
+                audioLevels = mapOf("a" to 0.3f),
+            )
+        }
+
+        composeRule.onNodeWithTag("camera-meter-Nursery", useUnmergedTree = true)
+            .assertExists()
+        // No meter at all, rather than a bar frozen at zero claiming the room
+        // is quiet while nobody is checking.
+        composeRule.onNodeWithTag("camera-meter-Play room", useUnmergedTree = true)
+            .assertDoesNotExist()
+    }
+
+    @Test
+    fun `a long name never pushes the meter under the audible badge`() {
+        val verbose = Camera(
+            "a",
+            "The nursery at the far end of the upstairs hallway by the window",
+            "rtsp://cam:7447/a",
+        )
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(verbose),
+                soundEnabled = true,
+                audioLevels = mapOf("a" to 0.3f),
+            )
+        }
+
+        val meter = composeRule
+            .onNodeWithTag("camera-meter-${verbose.name}", useUnmergedTree = true)
+            .getBoundsInRoot()
+        val badge = composeRule
+            .onNodeWithTag("audible-badge-${verbose.name}", useUnmergedTree = true)
+            .getBoundsInRoot()
+
+        // Two overlays that mean different things must both stay readable.
+        assertTrue(
+            "meter (ends at ${meter.right}) overlaps badge (starts at ${badge.left})",
+            meter.right <= badge.left,
+        )
+    }
+
+    @Test
+    fun `fullscreen keeps the meter even though the name is hidden`() {
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery),
+                audioLevels = mapOf("a" to 0.3f),
+            )
+        }
+
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+
+        composeRule.onNodeWithTag("camera-meter-Nursery", useUnmergedTree = true)
+            .assertExists()
+        composeRule.onNodeWithTag("camera-label-Nursery", useUnmergedTree = true)
+            .assertDoesNotExist()
+
+        // Above the countdown notice, not under it: both sit at the bottom for
+        // the whole minute the notice counts, so they have to share it.
+        val meter = composeRule
+            .onNodeWithTag("camera-meter-Nursery", useUnmergedTree = true)
+            .getBoundsInRoot()
+        val notice = composeRule
+            .onNodeWithTag("inactivity-notice", useUnmergedTree = true)
+            .getBoundsInRoot()
+        assertTrue(
+            "meter (ends at ${meter.bottom}) overlaps notice (starts at ${notice.top})",
+            meter.bottom <= notice.top,
+        )
     }
 
     @Test
