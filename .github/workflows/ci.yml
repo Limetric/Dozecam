@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Unit tests and debug build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up JDK
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK packages
+        run: |
+          set -euo pipefail
+
+          set +o pipefail
+          yes | sdkmanager --licenses >/dev/null
+          set -o pipefail
+
+          sdkmanager --install \
+            "platforms;android-37.0" \
+            "build-tools;36.0.0"
+
+      # No signing secret here on purpose: Dependabot and fork PRs cannot read
+      # repository secrets, and debug builds fall back to the default debug key.
+      #
+      # One flavor is enough: production and dev differ only in application id
+      # and launcher label, and two Robolectric suites at once are just slower.
+      - name: Run unit tests
+        run: ./gradlew :app:testProductionDebugUnitTest --stacktrace
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleProductionDebug --stacktrace
+
+      - name: Upload test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports
+          path: app/build/reports/
+          if-no-files-found: ignore
