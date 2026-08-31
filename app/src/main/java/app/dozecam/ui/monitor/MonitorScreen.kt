@@ -55,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalContext
@@ -131,21 +132,31 @@ private val EDGE_SWIPE_TRIGGER_DISTANCE = 48.dp
  * reaches the back gesture. Sticky immersive passes that first swipe through
  * to the app as well, so the screen answers it here directly; the system's own
  * back still works through the [BackHandler] for whoever waits the bars out.
+ *
+ * [enabled] is consulted as each touch lands rather than keyed on, so a zoom
+ * changing does not restart the detector mid-gesture.
  */
-private fun Modifier.edgeSwipeToLeave(onLeave: () -> Unit): Modifier =
+private fun Modifier.edgeSwipeToLeave(enabled: () -> Boolean, onLeave: () -> Unit): Modifier =
     pointerInput(onLeave) {
         val edge = EDGE_SWIPE_EDGE_WIDTH.toPx()
         val trigger = EDGE_SWIPE_TRIGGER_DISTANCE.toPx()
         awaitEachGesture {
-            // Not required to be unconsumed: the tile underneath claims every
-            // down for its tap, and this watches rather than competes.
-            val down = awaitFirstDown(requireUnconsumed = false)
+            // Watched on the initial pass, before the tile underneath gets its
+            // turn: the tap and zoom gestures down there claim and consume what
+            // they recognise, and a watcher behind them would see a swipe with
+            // every move already spent.
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            if (!enabled()) return@awaitEachGesture
             val fromLeft = down.position.x <= edge
             val fromRight = down.position.x >= size.width - edge
             if (!fromLeft && !fromRight) return@awaitEachGesture
             var travelled = 0f
             while (true) {
-                val event = awaitPointerEvent()
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                // A second finger means a pinch: the zoom gesture owns it, and
+                // a swipe that fired mid-pinch would snatch the room away from
+                // someone leaning in for a closer look.
+                if (event.changes.count { it.pressed } > 1) return@awaitEachGesture
                 val change = event.changes.firstOrNull { it.id == down.id }
                 if (change == null || !change.pressed) return@awaitEachGesture
                 travelled += change.positionChange().x
@@ -506,7 +517,11 @@ fun MonitorScreen(
                 // The immersive viewer swallows the system's first back swipe
                 // (it only brings the bars out), so the screen answers an edge
                 // swipe itself rather than making the gesture be done twice.
-                .edgeSwipeToLeave { fullscreenId = null },
+                .edgeSwipeToLeave(
+                    // A zoomed picture pans with one finger, and a pan that
+                    // began near the edge is aiming the view, not leaving it.
+                    enabled = { zoom.scale <= 1f },
+                ) { fullscreenId = null },
         ) {
             CameraTile(
                 camera = fullscreen,

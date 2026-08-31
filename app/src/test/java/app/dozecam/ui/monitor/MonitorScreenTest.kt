@@ -811,6 +811,47 @@ class MonitorScreenTest {
     }
 
     @Test
+    fun `a zoomed picture keeps its edge pans`() {
+        composeRule.setContent { Screen(cameras = listOf(nursery, playroom)) }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.onNodeWithTag("fullscreen-tile").performTouchInput {
+            pinch(
+                start0 = center - Offset(width / 8f, 0f),
+                end0 = center - Offset(width / 3f, 0f),
+                start1 = center + Offset(width / 8f, 0f),
+                end1 = center + Offset(width / 3f, 0f),
+            )
+        }
+
+        // One finger on a zoomed picture pans it, and a pan may begin at the
+        // edge; the swipe-to-leave stands down until the zoom is let go.
+        composeRule.onRoot().performTouchInput {
+            swipeRight(startX = left + 1f, endX = centerX)
+        }
+
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+    }
+
+    @Test
+    fun `a pinch that starts at the edge stays on the camera`() {
+        composeRule.setContent { Screen(cameras = listOf(nursery, playroom)) }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+
+        // Two fingers are a zoom, wherever they land: the first touching down
+        // in the edge strip and travelling inward must not read as "leave".
+        composeRule.onNodeWithTag("fullscreen-tile").performTouchInput {
+            pinch(
+                start0 = Offset(1f, centerY),
+                end0 = Offset(centerX - 20f, centerY),
+                start1 = Offset(centerX + 20f, centerY),
+                end1 = Offset(right - 1f, centerY),
+            )
+        }
+
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+    }
+
+    @Test
     fun `each monitored camera wears its own level meter`() {
         composeRule.setContent {
             Screen(
