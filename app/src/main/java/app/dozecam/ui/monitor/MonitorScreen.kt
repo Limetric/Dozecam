@@ -38,7 +38,9 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -60,6 +62,8 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.dozecam.R
+import app.dozecam.audio.talkback.Talkback
+import app.dozecam.audio.talkback.TalkbackAvailability
 import app.dozecam.data.Camera
 import app.dozecam.network.NetworkReach
 import app.dozecam.player.CameraStreams
@@ -68,6 +72,24 @@ import app.dozecam.player.StreamSource
 import app.dozecam.player.VideoPlayerController
 import app.dozecam.player.rememberCameraStreams
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+
+/**
+ * How long an explanation stays up. Long enough to read a sentence, short
+ * enough that it does not become part of the picture.
+ */
+private const val TALKBACK_EXPLANATION_MS = 4_000L
+
+/**
+ * Below this, a press cannot have carried speech.
+ *
+ * Every press opens with two hundred milliseconds of silence to cover the
+ * camera's jitter buffer starting up, so a tap shorter than this sends that
+ * silence, its tail, and nothing of the room in between. The camera makes a
+ * faint noise and the speaker hears nothing said — which looks far more like a
+ * broken feature than like a button used wrongly.
+ */
+private const val TALKBACK_MIN_PRESS_MS = 400L
 
 /** Below this there is only room for one camera across; above it, two. */
 private val TWO_COLUMN_BREAKPOINT = 600.dp
@@ -158,6 +180,11 @@ fun MonitorScreen(
     audioLevels: Map<String, Float> = emptyMap(),
     /** The level at which an alert would fire, marked on every meter. */
     audioThreshold: Float = 1f,
+    /**
+     * How long a press must last to have said anything. Injectable so a test
+     * can make every press count, or none.
+     */
+    talkbackMinPressMs: Long = TALKBACK_MIN_PRESS_MS,
     /** Injectable so tests need not wait out a real turn. */
     soundRotationIntervalMs: Long = SOUND_ROTATION_INTERVAL_MS,
     /** Injectable so tests need not wait out a real minute. */
@@ -171,6 +198,16 @@ fun MonitorScreen(
      * uses this to take back the lock-screen privilege the alert earned.
      */
     onAlertDismissed: () -> Unit = {},
+    /**
+     * Talking back to the camera on screen. Null where there is nothing to talk
+     * through — a build without a console, or a test that does not care.
+     */
+    talkback: Talkback? = null,
+    /**
+     * Asks for the microphone. Called on the first press of a control that is
+     * otherwise ready, never on the way in.
+     */
+    onRequestMicrophone: () -> Unit = {},
 ) {
     val streams = rememberCameraStreams(
         controllerFactory,
@@ -375,6 +412,40 @@ fun MonitorScreen(
         // must not carry the old room's framing onto the new one — the first
         // look at the room that got loud has to be the whole room.
         val zoom = remember(fullscreen.id) { PinchZoomState() }
+        // Talk-back is a single-camera feature: the grid rotates its sound
+        // between rooms, and a microphone aimed at a tile nobody is listening to
+        // has no meaning. So the console is only ever asked about the camera
+        // actually on screen alone.
+        DisposableEffect(talkback, fullscreen.id) {
+            talkback?.watch(fullscreen)
+            // Leaving the camera ends the conversation with it. Without this a
+            // held button that survived a Back press would keep a microphone
+            // open against a room nobody is looking at.
+            onDispose { talkback?.watch(null) }
+        }
+        val talkbackAvailability by (talkback?.availability
+            ?: remember { MutableStateFlow(TalkbackAvailability.Resolving) }).collectAsState()
+        val talking by (talkback?.talking
+            ?: remember { MutableStateFlow(false) }).collectAsState()
+        var explaining by remember(fullscreen.id) { mutableStateOf(false) }
+
+        // A press that could not open a microphone, an encoder or a socket ends
+        // with nothing said and nothing on screen to say so. The control cannot
+        // carry it — by the time this arrives the button is no longer held —
+        // so it goes where the other one-off outcomes go.
+        LaunchedEffect(talkback) {
+            talkback?.failures?.collect { announce(R.string.talkback_failed) }
+        }
+
+        // Shown on request, and taken away again: an explanation that stayed
+        // would become part of the picture.
+        LaunchedEffect(explaining, talkbackAvailability) {
+            if (explaining) {
+                delay(TALKBACK_EXPLANATION_MS)
+                explaining = false
+            }
+        }
+
         Box(modifier = modifier.fillMaxSize()) {
             CameraTile(
                 camera = fullscreen,
@@ -384,7 +455,12 @@ fun MonitorScreen(
                 // The one camera on screen alone is the one worth hearing; this
                 // is the "listen to the room" case the viewer exists for, so it
                 // needs nothing beyond sound being switched on.
-                audible = audible,
+                //
+                // Except while somebody is talking. The phone's speaker and the
+                // camera's microphone are in the same room, so playing the room
+                // back during a press closes the loop that half duplex exists to
+                // open.
+                audible = audible && !talking,
                 // A tap now means "I am still here" rather than "take me back":
                 // leaving is Back, and a countdown with no way to answer it
                 // would cap every look at one room to a flat minute.
@@ -401,22 +477,72 @@ fun MonitorScreen(
                     .align(Alignment.TopCenter)
                     .safeDrawingPadding(),
             )
-            // The only control a single camera keeps. Without it, sound could
+            // The controls a single camera keeps. Without the first, sound could
             // be switched on solely from the grid — including for a camera an
             // alert opened, which is precisely when the user wants to listen.
-            SoundToggle(
-                soundEnabled = soundEnabled,
-                // Reaching for the sound is as much a sign of someone being
-                // there as touching the picture is.
-                onSoundEnabledChange = {
-                    countdown.reset()
-                    soundToggleAnnounced(it)
-                },
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .safeDrawingPadding()
                     .padding(12.dp),
-            )
+            ) {
+                if (talkback != null) {
+                    TalkbackButton(
+                        availability = talkbackAvailability,
+                        talking = talking,
+                        // Holding a button is as much a sign of someone being
+                        // there as touching the picture is — and a countdown
+                        // that expired mid-sentence would take the room away
+                        // while somebody was still speaking to it.
+                        onPress = {
+                            countdown.reset()
+                            if (talkbackAvailability == TalkbackAvailability.Ready) {
+                                talkback.press()
+                            }
+                        },
+                        // No snackbar: nobody let go, so there is nothing to
+                        // tell them about how they were holding it.
+                        onCancel = talkback::release,
+                        onRelease = { heldMillis ->
+                            talkback.release()
+                            // A tap is not a mistake worth blocking — the press
+                            // still runs, and its silence is harmless — but it
+                            // is a mistake worth naming, because the camera does
+                            // make a small noise and the room hears no words.
+                            if (heldMillis < talkbackMinPressMs) {
+                                announce(R.string.talkback_too_short)
+                            }
+                        },
+                        onExplain = {
+                            countdown.reset()
+                            explaining = true
+                            if (talkbackAvailability == TalkbackAvailability.NeedsPermission) {
+                                onRequestMicrophone()
+                            }
+                        },
+                    )
+                }
+                SoundToggle(
+                    soundEnabled = soundEnabled,
+                    // Reaching for the sound is as much a sign of someone being
+                    // there as touching the picture is.
+                    onSoundEnabledChange = {
+                        countdown.reset()
+                        soundToggleAnnounced(it)
+                    },
+                )
+            }
+            if (explaining) {
+                TalkbackNotice(
+                    availability = talkbackAvailability,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .safeDrawingPadding()
+                        .padding(top = 68.dp, end = 12.dp),
+                )
+            }
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)

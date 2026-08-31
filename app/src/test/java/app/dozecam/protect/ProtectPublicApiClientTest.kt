@@ -116,6 +116,96 @@ class ProtectPublicApiClientTest {
     }
 
     @Test
+    fun `cameras report whether they carry a speaker`() = runTest {
+        server.enqueue(
+            jsonResponse(
+                """
+                [
+                  {"id": "cam1", "featureFlags": {"hasSpeaker": true, "hasMic": true}},
+                  {"id": "cam2", "featureFlags": {"hasSpeaker": false}},
+                  {"id": "cam3"}
+                ]
+                """.trimIndent(),
+            ),
+        )
+
+        val cameras = client().cameras("key-1")
+
+        // A camera whose flags never arrived is treated as having no speaker:
+        // offering talk-back and failing is worse than not offering it.
+        assertEquals(listOf(true, false, false), cameras.map { it.hasSpeaker })
+    }
+
+    @Test
+    fun `a talkback session is posted without a body and parsed`() = runTest {
+        server.enqueue(
+            jsonResponse(
+                """
+                {
+                  "url": "rtp://192.168.1.12:7004",
+                  "codec": "opus",
+                  "samplingRate": 24000,
+                  "bitsPerSample": 16
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        val session = client().talkbackSession("key-1", "cam1")
+
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertEquals(
+            "/proxy/protect/integration/v1/cameras/cam1/talkback-session",
+            request.url.encodedPath,
+        )
+        assertEquals("key-1", request.headers["X-API-KEY"])
+        assertEquals("", request.body?.utf8() ?: "")
+        assertEquals("opus", session.codec)
+        assertEquals(24000, session.samplingRate)
+        assertEquals(16, session.bitsPerSample)
+    }
+
+    /**
+     * The audio goes to the camera, not the console that described it, so the
+     * address in the URL is the only thing that says where.
+     */
+    @Test
+    fun `a talkback session exposes the camera's own address`() {
+        val session = TalkbackSession(
+            url = "rtp://192.168.1.12:7004",
+            codec = "opus",
+            samplingRate = 24000,
+            bitsPerSample = 16,
+        )
+
+        assertEquals("192.168.1.12", session.host)
+        assertEquals(7004, session.port)
+    }
+
+    @Test
+    fun `a talkback url without a port falls back to 7004, and rubbish has no host`() {
+        val portless = TalkbackSession("rtp://192.168.1.12", "opus", 24000, 16)
+        assertEquals("192.168.1.12", portless.host)
+        assertEquals(7004, portless.port)
+
+        val rubbish = TalkbackSession("not a url", "opus", 24000, 16)
+        assertNull(rubbish.host)
+    }
+
+    @Test
+    fun `a camera without a speaker surfaces the console's refusal`() = runTest {
+        server.enqueue(MockResponse.Builder().code(404).body("{}").build())
+
+        try {
+            client().talkbackSession("key-1", "cam-without-speaker")
+            throw AssertionError("expected ProtectApiException")
+        } catch (e: ProtectApiException) {
+            assertEquals(404, e.statusCode)
+        }
+    }
+
+    @Test
     fun `a rejected api key surfaces the status code`() = runTest {
         server.enqueue(MockResponse.Builder().code(401).body("{}").build())
 

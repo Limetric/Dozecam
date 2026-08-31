@@ -3,6 +3,7 @@ package app.dozecam
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.app.KeyguardManager
 import android.media.AudioManager
 import android.os.Bundle
 import android.view.WindowManager
@@ -21,6 +22,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.dozecam.audio.ViewerAudioFocus
+import app.dozecam.audio.talkback.ProtectTalkback
 import app.dozecam.data.AppSettings
 import app.dozecam.data.OrientationLock
 import app.dozecam.monitoring.MonitoringService
@@ -29,6 +31,8 @@ import app.dozecam.monitoring.shouldArmMonitoring
 import app.dozecam.network.NetworkMonitor
 import app.dozecam.network.NetworkReach
 import app.dozecam.permissions.LocalNetworkPermission
+import app.dozecam.permissions.MicrophonePermission
+import app.dozecam.protect.ProtectApiException
 import app.dozecam.player.LivestreamVideoPlayerController
 import app.dozecam.player.StreamSource
 import app.dozecam.player.VideoPlayerController
@@ -81,6 +85,41 @@ class MainActivity : ComponentActivity() {
         // a grant up on its own. Denial is surfaced where the connection fails.
     }
 
+    /**
+     * Asked for on the first press of a talk-back control and never on the way
+     * in. Either answer changes what that control should say, so both re-resolve
+     * it rather than only the grant.
+     */
+    private val microphonePermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { talkback.refresh() }
+
+    /**
+     * Talk-back for whichever camera is on screen alone. Nothing is asked of the
+     * console until one is.
+     */
+    private val talkback: ProtectTalkback by lazy {
+        val api = appContainer.protectPublicApi
+        ProtectTalkback(
+            scope = lifecycleScope,
+            speakers = {
+                api.withClient { client, apiKey ->
+                    client.cameras(apiKey).associate { it.id to it.hasSpeaker }
+                }.orEmpty()
+            },
+            session = { cameraId ->
+                api.withClient { client, apiKey -> client.talkbackSession(apiKey, cameraId) }
+                    ?: throw ProtectApiException("No console is signed in", null)
+            },
+            consoleHost = api::consoleHost,
+            hasApiKey = api::hasApiKey,
+            microphoneGranted = { MicrophonePermission.isGranted(this) },
+            // A permission dialog cannot be answered over a keyguard, so the
+            // control says "unlock" rather than firing one at a locked screen.
+            locked = { getSystemService(KeyguardManager::class.java).isKeyguardLocked },
+        )
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (savedInstanceState == null && !LocalNetworkPermission.isGranted(this)) {
@@ -100,6 +139,17 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 networkMonitor.reach.collect { networkReach.value = it }
+            }
+        }
+
+        // Whether a camera answers is a fact about the network this device is
+        // on, not about whether that network is a LAN — two Wi-Fi networks read
+        // alike to `reach` and are deduplicated away. So talk-back forgets what
+        // it learned whenever the default network is replaced at all, which is
+        // the only signal that fires on a handover between them.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                networkMonitor.defaultNetworkChanges.collect { talkback.refresh() }
             }
         }
 
@@ -232,6 +282,10 @@ class MainActivity : ComponentActivity() {
                     // Android exposed its transient system bars meanwhile.
                     onFullscreenChange = { applyImmersiveMode() },
                     onAlertDismissed = ::revokeLockScreenVisibility,
+                    talkback = talkback,
+                    onRequestMicrophone = {
+                        microphonePermission.launch(MicrophonePermission.name)
+                    },
                 )
             }
         }
@@ -319,7 +373,22 @@ class MainActivity : ComponentActivity() {
      * viewer cannot reappear over the keyguard the next time the phone is
      * picked up.
      */
+    /**
+     * The two questions talk-back cannot answer for itself — whether the
+     * microphone was granted, and whether the phone is locked — are both settled
+     * outside this app and can both have changed while it was away.
+     */
+    override fun onResume() {
+        super.onResume()
+        talkback.refresh()
+    }
+
     override fun onPause() {
+        // Talk-back lives only while the viewer is on screen — that is the
+        // promise the manifest makes, and the reason there is no microphone
+        // foreground-service type to fall back on. A finger still down as the
+        // activity goes away must not leave one open behind it.
+        talkback.release()
         super.onPause()
         revokeLockScreenVisibility()
     }

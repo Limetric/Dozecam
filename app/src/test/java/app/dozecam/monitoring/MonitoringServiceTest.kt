@@ -9,6 +9,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -27,6 +28,18 @@ class MonitoringServiceTest {
 
     private val context: Context = ApplicationProvider.getApplicationContext()
     private val container get() = (context.applicationContext as DozecamApp).container
+
+    /**
+     * The shadow keeps the newest wake lock in process-wide state, so "the
+     * latest one" is only this service's if nothing else in the fork made one
+     * first. Without this the assertions below read whichever test happened to
+     * run before them, which makes them pass or fail on test ordering rather
+     * than on anything the service did.
+     */
+    @Before
+    fun forgetOtherTestsWakeLocks() {
+        ShadowPowerManager.clearWakeLocks()
+    }
 
     @Test
     fun `with nothing to listen to the service idles without a wake lock`() = runTest {

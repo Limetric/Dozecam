@@ -1,0 +1,17 @@
+# Copy to talkback-spike.properties and fill in. Sourced as shell, so no spaces
+# around '='. The copy is gitignored; nothing in it should be pasted anywhere.
+
+# The console, as you reach it. Host or host:port, no scheme.
+host=192.168.1.1
+
+# A Protect Integration API key. Create one in the console UI:
+#   UniFi OS -> Settings -> Admins & Users -> (your admin) -> Create API Key
+# It is shown once. Dozecam mints its own during onboarding; this is separate.
+apiKey=
+
+# Leave blank on the first run: the script lists cameras with their hasSpeaker
+# flag, and you pick one.
+cameraId=
+
+# Length of the test tone.
+tone_seconds=3

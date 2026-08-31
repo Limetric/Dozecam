@@ -11,6 +11,7 @@ import app.dozecam.monitoring.MonitoringState
 import app.dozecam.player.VlcRuntime
 import app.dozecam.protect.EncryptedCredentialsStore
 import app.dozecam.protect.ProtectLivestreamProvider
+import app.dozecam.protect.ProtectPublicApiAccess
 import app.dozecam.protect.TofuTrustStore
 import app.dozecam.protect.securePreferences
 
@@ -47,6 +48,11 @@ class AppContainer(context: Context) {
     val protectCredentials by lazy { EncryptedCredentialsStore(context.applicationContext) }
     val protectLivestream by lazy {
         ProtectLivestreamProvider(protectCredentials, tofuTrustStore)
+    }
+
+    /** The documented Integration API, which is all talk-back needs. */
+    val protectPublicApi by lazy {
+        ProtectPublicApiAccess(protectCredentials, tofuTrustStore)
     }
 }
 

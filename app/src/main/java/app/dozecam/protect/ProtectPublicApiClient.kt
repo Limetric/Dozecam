@@ -16,7 +16,50 @@ data class PublicCamera(
     val id: String,
     // Nullable on the wire (the spec allows `oneOf [string, null]`).
     val name: String? = null,
+    val featureFlags: PublicCameraFeatureFlags? = null,
+) {
+    /** Whether talk-back is worth offering at all for this camera. */
+    val hasSpeaker: Boolean get() = featureFlags?.hasSpeaker == true
+}
+
+/** Only the flags Dozecam acts on; the console sends many more. */
+@Serializable
+data class PublicCameraFeatureFlags(
+    val hasSpeaker: Boolean = false,
 )
+
+/**
+ * Where a camera listens for talk-back audio, and in what format.
+ *
+ * Despite the endpoint's name the console allocates nothing: repeated POSTs
+ * hand back byte-identical answers, with no token, no per-session port and
+ * nothing to release. So this describes a camera rather than opening a session
+ * against it, and is worth caching per camera instead of fetching per press.
+ *
+ * The address is the *camera's own*, not the console's. Video reaches the
+ * viewer through the console, so a camera on an isolated VLAN can stream
+ * perfectly and still be unreachable here — which is why [host] is probed
+ * before the control is offered rather than after it fails silently.
+ */
+@Serializable
+data class TalkbackSession(
+    val url: String,
+    val codec: String,
+    val samplingRate: Int,
+    val bitsPerSample: Int,
+) {
+    private val uri: URI? get() = runCatching { URI(url.trim()) }.getOrNull()
+
+    /** Null when the console sends something unparseable; talk-back is then off. */
+    val host: String? get() = uri?.host?.takeIf { it.isNotBlank() }
+
+    /** Consoles observed always name 7004, but the URL is what decides. */
+    val port: Int get() = uri?.port?.takeIf { it > 0 } ?: DEFAULT_TALKBACK_PORT
+}
+
+// File scope rather than a companion: @Serializable generates its own
+// Companion, and a hand-written private one hides the serializer from callers.
+private const val DEFAULT_TALKBACK_PORT = 7004
 
 /**
  * Client for the UniFi Protect *public* Integration API (Protect 5.3+), the
@@ -61,6 +104,23 @@ class ProtectPublicApiClient(
             .post(body.toRequestBody(JSON_TYPE))
             .build()
         return execute(request, "Enabling the RTSP stream", ::parseStreams)
+    }
+
+    /**
+     * Where to send talk-back audio for a camera, and in what format.
+     *
+     * Takes no request body. Only cameras whose [PublicCamera.hasSpeaker] is
+     * set are worth asking; the rest answer with an error the caller would only
+     * have to translate back into "this camera cannot do that".
+     */
+    suspend fun talkbackSession(apiKey: String, cameraId: String): TalkbackSession {
+        val request = authorized(apiKey)
+            .url(endpoint("cameras", cameraId, "talkback-session"))
+            .post(EMPTY_BODY)
+            .build()
+        return execute(request, "Starting talk-back") { body ->
+            json.decodeFromString<TalkbackSession>(body)
+        }
     }
 
     /**
@@ -117,6 +177,9 @@ class ProtectPublicApiClient(
 
     companion object {
         private val JSON_TYPE = "application/json; charset=utf-8".toMediaType()
+
+        /** The talk-back endpoint takes no body, but POST still needs one. */
+        private val EMPTY_BODY = ByteArray(0).toRequestBody(null)
 
         /** Nursery view: medium quality is plenty and light on decode and Wi-Fi. */
         const val QUALITY_MEDIUM = "medium"

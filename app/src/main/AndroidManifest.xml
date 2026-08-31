@@ -15,6 +15,15 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <!--
+        Talk-back only. Asked for the first time a hold-to-talk button is
+        pressed, never at startup, and held only while the viewer is on screen:
+        the audio is encoded and sent straight to the user's own camera on the
+        LAN, and is never recorded, stored or uploaded. There is deliberately no
+        microphone foreground-service type — talking to a room nobody is
+        watching is not a feature worth the permission story.
+    -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <application
         android:name=".DozecamApp"
