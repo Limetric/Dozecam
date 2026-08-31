@@ -21,6 +21,8 @@ Requires the Android SDK (`local.properties` with `sdk.dir`, or `ANDROID_HOME`).
 
 Signing: every build is signed with the upload key, which lives in the repo encrypted. Decrypt once per checkout with `LIMETRIC_ENCRYPTION_SECRET` in the environment: `./tools/signing.sh decrypt`. Without it, debug builds fall back to the default Android debug key and any release packaging task fails on purpose.
 
+Verifying changes end-to-end needs no UniFi hardware: `tools/testbed.sh` serves synthetic RTSP cameras (mediamtx + ffmpeg) that the dev build plays on an emulator, including triggering wake-on-sound. The full workflow — unit tests first, then the testbed run — is the `test-app-changes` skill in `.claude/skills/`.
+
 ## Build variants
 
 Single Gradle module `:app`. One flavor dimension, `environment`:
