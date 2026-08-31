@@ -33,6 +33,9 @@ class AppSettingsRepositoryTest {
         // Likewise: a monitor that went dark at the system timeout on the
         // first night would look like a dead app, so sleeping is opt-in.
         assertTrue(repository.settings.first().keepScreenOn)
+        // Full volume by default: the slider only ever quiets talk-back, so
+        // until it is touched the camera sounds exactly as it always has.
+        assertEquals(1f, repository.settings.first().talkbackVolume, 0.0001f)
 
         val custom = AppSettings(
             nightTheme = true,
@@ -45,6 +48,7 @@ class AppSettingsRepositoryTest {
             orientationLock = OrientationLock.LANDSCAPE,
             viewerSound = true,
             keepScreenOn = false,
+            talkbackVolume = 0.4f,
         )
         repository.update { custom }
 

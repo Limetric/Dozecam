@@ -404,6 +404,120 @@ class ProtectTalkbackTest {
         )
     }
 
+    /**
+     * The volume setting has to land between the microphone and the encoder:
+     * anywhere later and the camera would receive full-scale audio to play at
+     * its own, shared, speaker volume.
+     */
+    @Test
+    fun `a press attenuates what the encoder hears by the set volume`() = runTest {
+        val loudest = mutableListOf<Short>()
+        var frames = 0
+        val talkback = ProtectTalkback(
+            scope = this,
+            speakers = { mapOf("cam1" to true) },
+            session = { opus },
+            consoleHost = { console },
+            hasApiKey = { true },
+            reachability = TalkbackReachability { _, _ -> true },
+            microphoneGranted = { true },
+            locked = { false },
+            openMicrophone = {
+                object : PcmSource {
+                    // One spoken frame, then the microphone ends the press.
+                    override fun read(into: ShortArray): Boolean {
+                        if (frames++ > 0) return false
+                        into.fill(10_000)
+                        return true
+                    }
+                    override fun close() = Unit
+                }
+            },
+            volume = { 0.5f },
+            newEncoder = {
+                object : FrameEncoder {
+                    override fun encode(pcm: ShortArray, presentationTimeUs: Long): List<ByteArray> {
+                        loudest += pcm.maxOrNull() ?: 0
+                        return emptyList()
+                    }
+                    override fun finish() = emptyList<ByteArray>()
+                    override fun close() = Unit
+                }
+            },
+            newSender = { FrameSink { } },
+            io = StandardTestDispatcher(testScheduler),
+            park = {},
+        )
+
+        talkback.watch(camera())
+        advanceUntilIdle()
+        talkback.press()
+        advanceUntilIdle()
+
+        val expected = (10_000 * TalkbackGain.amplitude(0.5f)).toInt().toShort()
+        assertTrue("the spoken frame should reach the encoder", loudest.any { it > 0 })
+        assertEquals(expected, loudest.max())
+    }
+
+    /** The slider is read at the press, so moving it reaches the very next one. */
+    @Test
+    fun `each press picks up the volume as it is then`() = runTest {
+        var volume = 1f
+        val loudest = mutableListOf<Short>()
+        val talkback = ProtectTalkback(
+            scope = this,
+            speakers = { mapOf("cam1" to true) },
+            session = { opus },
+            consoleHost = { console },
+            hasApiKey = { true },
+            reachability = TalkbackReachability { _, _ -> true },
+            microphoneGranted = { true },
+            locked = { false },
+            openMicrophone = {
+                object : PcmSource {
+                    var frames = 0
+                    override fun read(into: ShortArray): Boolean {
+                        if (frames++ > 0) return false
+                        into.fill(10_000)
+                        return true
+                    }
+                    override fun close() = Unit
+                }
+            },
+            volume = { volume },
+            newEncoder = {
+                object : FrameEncoder {
+                    override fun encode(pcm: ShortArray, presentationTimeUs: Long): List<ByteArray> {
+                        loudest += pcm.maxOrNull() ?: 0
+                        return emptyList()
+                    }
+                    override fun finish() = emptyList<ByteArray>()
+                    override fun close() = Unit
+                }
+            },
+            newSender = { FrameSink { } },
+            io = StandardTestDispatcher(testScheduler),
+            park = {},
+        )
+
+        talkback.watch(camera())
+        advanceUntilIdle()
+        talkback.press()
+        advanceUntilIdle()
+        val fullVolume = loudest.max()
+
+        volume = 0f
+        loudest.clear()
+        talkback.press()
+        advanceUntilIdle()
+
+        assertEquals(10_000.toShort(), fullVolume)
+        assertEquals(
+            (10_000 * TalkbackGain.amplitude(0f)).toInt().toShort(),
+            loudest.max(),
+        )
+    }
+
     /** Pressing a control that is not ready must never open a microphone. */
     @Test
     fun `a press on an unreachable camera does nothing`() = runTest {

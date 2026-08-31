@@ -205,6 +205,7 @@ fun SettingsScreen(
                     selected = settings.orientationLock,
                     onSelect = { lock -> onSettingsChange { it.copy(orientationLock = lock) } },
                 )
+                TalkbackTuning(settings = settings, onSettingsChange = onSettingsChange)
             }
         }
     }
@@ -654,6 +655,50 @@ private fun AlertTuning(
             )
             Text(
                 text = stringResource(R.string.alert_repeat_footnote),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+    }
+}
+
+/**
+ * How loud a press of the talk button arrives in the room. App-side on
+ * purpose: the camera's own speaker volume is a console setting shared with
+ * every other viewer, and a baby monitor has no business rewriting it.
+ */
+@Composable
+private fun TalkbackTuning(
+    settings: AppSettings,
+    onSettingsChange: ((AppSettings) -> AppSettings) -> Unit,
+) {
+    Card(
+        modifier = Modifier.padding(top = 8.dp),
+        shape = MaterialTheme.shapes.extraLarge,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = stringResource(
+                    R.string.talkback_volume_label,
+                    (settings.talkbackVolume * 100).roundToInt(),
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Slider(
+                value = settings.talkbackVolume,
+                onValueChange = { value -> onSettingsChange { it.copy(talkbackVolume = value) } },
+                valueRange = 0f..1f,
+                modifier = Modifier.testTag("talkback-volume-slider"),
+            )
+            Text(
+                text = stringResource(R.string.talkback_volume_footnote),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp),

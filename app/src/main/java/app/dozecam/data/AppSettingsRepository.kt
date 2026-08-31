@@ -45,6 +45,13 @@ data class AppSettings(
      * that has to be asked for.
      */
     val keepScreenOn: Boolean = true,
+    /**
+     * How loud a talk-back press comes out of the camera, as a 0..1 slider
+     * position. Applied to the samples this phone sends; the camera's own
+     * speaker volume — a console setting shared with every other viewer — is
+     * never touched.
+     */
+    val talkbackVolume: Float = 1f,
 )
 
 interface AppSettingsStore {
@@ -75,6 +82,7 @@ class AppSettingsRepository(private val dataStore: DataStore<Preferences>) : App
             prefs[KEY_ORIENTATION] = next.orientationLock.name
             prefs[KEY_VIEWER_SOUND] = next.viewerSound
             prefs[KEY_KEEP_SCREEN_ON] = next.keepScreenOn
+            prefs[KEY_TALKBACK_VOLUME] = next.talkbackVolume
         }
     }
 
@@ -93,6 +101,7 @@ class AppSettingsRepository(private val dataStore: DataStore<Preferences>) : App
                 ?: defaults.orientationLock,
             viewerSound = prefs[KEY_VIEWER_SOUND] ?: defaults.viewerSound,
             keepScreenOn = prefs[KEY_KEEP_SCREEN_ON] ?: defaults.keepScreenOn,
+            talkbackVolume = prefs[KEY_TALKBACK_VOLUME] ?: defaults.talkbackVolume,
         )
     }
 
@@ -107,5 +116,6 @@ class AppSettingsRepository(private val dataStore: DataStore<Preferences>) : App
         val KEY_ORIENTATION = stringPreferencesKey("orientation_lock")
         val KEY_VIEWER_SOUND = booleanPreferencesKey("viewer_sound")
         val KEY_KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
+        val KEY_TALKBACK_VOLUME = floatPreferencesKey("talkback_volume")
     }
 }

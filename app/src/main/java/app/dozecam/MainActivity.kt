@@ -46,6 +46,7 @@ import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -113,6 +114,7 @@ class MainActivity : ComponentActivity() {
             },
             consoleHost = api::consoleHost,
             hasApiKey = api::hasApiKey,
+            volume = { appContainer.appSettings.settings.first().talkbackVolume },
             microphoneGranted = { MicrophonePermission.isGranted(this) },
             // A permission dialog cannot be answered over a keyguard, so the
             // control says "unlock" rather than firing one at a locked screen.
