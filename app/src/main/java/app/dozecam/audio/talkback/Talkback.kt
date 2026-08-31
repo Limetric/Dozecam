@@ -79,6 +79,11 @@ class ProtectTalkback(
     private val microphoneGranted: () -> Boolean,
     private val locked: () -> Boolean,
     private val openMicrophone: (TalkbackFormat.Speakable) -> PcmSource? = AudioRecordSource::open,
+    /**
+     * The talk-back volume as settings keep it: a slider position in 0..1,
+     * unity at the top, mapped to attenuation by [TalkbackGain].
+     */
+    private val volume: suspend () -> Float = { 1f },
     private val newEncoder: (TalkbackFormat.Speakable) -> FrameEncoder = { OpusEncoder(it.sampleRate) },
     private val newSender: (TalkbackFormat.Speakable) -> FrameSink = ::defaultSender,
     private val io: CoroutineDispatcher = Dispatchers.IO,
@@ -210,6 +215,10 @@ class ProtectTalkback(
         speaking = scope.launch {
             var failed = false
             try {
+                // One press, one volume: read here rather than tracked, so a
+                // slider dragged mid-sentence changes the next press instead
+                // of warbling this one.
+                val amplitude = TalkbackGain.amplitude(volume())
                 withContext(io) {
                     // The microphone, the encoder and the socket are all opened
                     // here rather than kept alive between presses: a baby
@@ -225,7 +234,8 @@ class ProtectTalkback(
                     // throw in this coroutine would do.
                     val microphone = openMicrophone(speakable)
                         ?: throw IllegalStateException("no usable microphone at ${speakable.sampleRate}Hz")
-                    microphone.use { source ->
+                    microphone.use { captured ->
+                        val source = AttenuatedPcmSource(captured, amplitude)
                         newEncoder(speakable).use { encoder ->
                             val sink = newSender(speakable)
                             try {

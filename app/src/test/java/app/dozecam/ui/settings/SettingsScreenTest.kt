@@ -199,6 +199,19 @@ class SettingsScreenTest {
     }
 
     @Test
+    fun `the talk-back volume is settable`() {
+        var changed: AppSettings? = null
+        composeRule.setContent {
+            Screen(onSettingsChange = { changed = it(AppSettings()) })
+        }
+
+        composeRule.onNodeWithTag("talkback-volume-slider").performScrollTo()
+            .performSemanticsAction(SemanticsActions.SetProgress) { it(0.3f) }
+
+        assertEquals(0.3f, changed?.talkbackVolume)
+    }
+
+    @Test
     fun `switching a camera off reports it by id`() {
         var call: Pair<String, Boolean>? = null
         composeRule.setContent { Screen(onCameraEnabled = { id, on -> call = id to on }) }
