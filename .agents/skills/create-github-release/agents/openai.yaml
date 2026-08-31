@@ -1,0 +1,4 @@
+interface:
+  display_name: "Create GitHub Release"
+  short_description: "Create releases with Play Store notes"
+  default_prompt: "Use $create-github-release to prepare and create a Dozecam GitHub release with approved Play Store release notes."

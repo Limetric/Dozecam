@@ -1,0 +1,4 @@
+interface:
+  display_name: "Play Store Changelog"
+  short_description: "Draft reviewed Play Store changelogs"
+  default_prompt: "Use $play-store-changelog to draft the Play Store changelog since the latest release, ask for my approval, and save the approved text to a temporary file."
