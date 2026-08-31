@@ -162,6 +162,48 @@ class MonitoringNotificationsTest {
         assertNull(intent.getStringExtra("alert_tap_key"))
     }
 
+    /**
+     * Proof of life for the healthy listening state: the level bar and the
+     * checked-at stamp only exist because the app really posted moments ago,
+     * which is what makes a quiet night distinguishable from a stale shade.
+     */
+    @Test
+    fun `while listening the ongoing notification carries a level bar and a checked-at stamp`() {
+        MonitoringNotifications.ensureChannels(context)
+        val checkedAtMs = 8 * 60_000L
+
+        val notification = MonitoringNotifications.statusNotification(
+            context,
+            "Listening",
+            levelBucket = 4,
+            checkedAtMs = checkedAtMs,
+        )
+
+        assertEquals(
+            StatusHeartbeat.LEVEL_BUCKETS,
+            notification.extras.getInt(android.app.Notification.EXTRA_PROGRESS_MAX),
+        )
+        assertEquals(4, notification.extras.getInt(android.app.Notification.EXTRA_PROGRESS))
+        val expectedTime = android.text.format.DateFormat.getTimeFormat(context)
+            .format(java.util.Date(checkedAtMs))
+        assertEquals(
+            "Checked $expectedTime",
+            notification.extras.getCharSequence(android.app.Notification.EXTRA_SUB_TEXT)
+                ?.toString(),
+        )
+    }
+
+    /** Unhealthy states keep their plain, honest text — no borrowed reassurance. */
+    @Test
+    fun `without a level the ongoing notification stays plain`() {
+        MonitoringNotifications.ensureChannels(context)
+
+        val notification = MonitoringNotifications.statusNotification(context, "Offline")
+
+        assertEquals(0, notification.extras.getInt(android.app.Notification.EXTRA_PROGRESS_MAX))
+        assertNull(notification.extras.getCharSequence(android.app.Notification.EXTRA_SUB_TEXT))
+    }
+
     @Test
     fun `the ongoing notification offers a way to stop monitoring`() {
         MonitoringNotifications.ensureChannels(context)

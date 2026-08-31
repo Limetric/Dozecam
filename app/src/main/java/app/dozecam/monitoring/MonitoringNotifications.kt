@@ -6,10 +6,12 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.text.format.DateFormat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import app.dozecam.MainActivity
 import app.dozecam.R
+import java.util.Date
 
 object MonitoringNotifications {
 
@@ -54,12 +56,37 @@ object MonitoringNotifications {
      * off — the whole of Dozecam's presence. So it carries the two things a
      * person reaching for it wants: the way back into the viewer, and the way
      * to stop.
+     *
+     * While the healthy listening line is showing it also carries proof of
+     * life — [levelBucket], the loudest camera's level as a small bar, and
+     * [checkedAtMs], the minute this was actually posted — so a glance can
+     * tell a quiet night from a stale notification. Deliberately not a
+     * chronometer: System UI would keep one ticking over a dead process,
+     * which is exactly the false comfort this exists to rule out.
      */
-    fun statusNotification(context: Context, text: String): Notification =
+    fun statusNotification(
+        context: Context,
+        text: String,
+        levelBucket: Int? = null,
+        checkedAtMs: Long? = null,
+    ): Notification =
         NotificationCompat.Builder(context, STATUS_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(context.getString(R.string.notification_monitoring_title))
             .setContentText(text)
+            .apply {
+                if (levelBucket != null) {
+                    setProgress(StatusHeartbeat.LEVEL_BUCKETS, levelBucket, false)
+                }
+                if (checkedAtMs != null) {
+                    setSubText(
+                        context.getString(
+                            R.string.monitoring_status_checked,
+                            DateFormat.getTimeFormat(context).format(Date(checkedAtMs)),
+                        ),
+                    )
+                }
+            }
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)

@@ -1,0 +1,102 @@
+package app.dozecam.monitoring
+
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import app.dozecam.audio.SoundDetector
+import app.dozecam.player.ConnectionState
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+
+@RunWith(RobolectricTestRunner::class)
+class MonitoringStatusTest {
+
+    private val context: Context = ApplicationProvider.getApplicationContext()
+
+    private fun live(id: String, name: String = id, level: Float = 0f) = CameraMonitorState(
+        cameraId = id,
+        name = name,
+        level = level,
+        connection = ConnectionState.Live,
+    )
+
+    private fun of(states: List<CameraMonitorState>, enabledCount: Int = states.size) =
+        MonitoringStatus.of(
+            context,
+            anyMonitors = true,
+            states = states,
+            enabledCount = enabledCount,
+        )
+
+    @Test
+    fun `the listening line carries the loudest camera's level`() {
+        val status = of(listOf(live("a", level = 0.1f), live("b", level = 0.4f)))
+
+        assertEquals("Listening to 2 cameras", status.text)
+        assertEquals(0.4f, status.level)
+    }
+
+    /**
+     * The level is proof of health, so it must never ride a line that is not
+     * the healthy one — "offline" wearing a live meter would be reassurance
+     * in the one direction that matters.
+     */
+    @Test
+    fun `no unhealthy line carries a level`() {
+        val loud = live("a", level = 0.4f)
+
+        listOf(
+            of(listOf(loud, live("b").copy(connection = ConnectionState.Offline))),
+            of(listOf(loud, live("b").copy(connection = ConnectionState.Reconnecting(1)))),
+            of(listOf(loud, live("b").copy(connection = ConnectionState.Connecting))),
+            of(
+                listOf(
+                    loud,
+                    live("b", name = "Nursery").copy(phase = SoundDetector.Phase.TRIGGERED),
+                ),
+            ),
+            of(emptyList()),
+            MonitoringStatus.of(
+                context,
+                anyMonitors = false,
+                states = emptyList(),
+                enabledCount = 0,
+            ),
+        ).forEach { status -> assertNull(status.text, status.level) }
+    }
+
+    @Test
+    fun `a triggered camera outranks everything`() {
+        val status = of(
+            listOf(
+                live("a").copy(connection = ConnectionState.Offline),
+                live("b", name = "Nursery").copy(phase = SoundDetector.Phase.TRIGGERED),
+            ),
+        )
+
+        assertEquals("Sound detected — Nursery", status.text)
+    }
+
+    /** An enabled-but-unmonitorable camera must not be silently claimed as covered. */
+    @Test
+    fun `partial coverage says so and still proves the rest is live`() {
+        val status = of(listOf(live("a", level = 0.2f)), enabledCount = 2)
+
+        assertEquals("Listening to 1 camera · 1 not monitorable", status.text)
+        assertEquals(0.2f, status.level)
+    }
+
+    @Test
+    fun `with no monitors there is nothing to overstate`() {
+        val status = MonitoringStatus.of(
+            context,
+            anyMonitors = false,
+            states = emptyList(),
+            enabledCount = 0,
+        )
+
+        assertEquals("No camera is switched on", status.text)
+    }
+}

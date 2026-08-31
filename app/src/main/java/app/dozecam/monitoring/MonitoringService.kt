@@ -15,14 +15,14 @@ import app.dozecam.data.AppSettings
 import app.dozecam.data.Camera
 import app.dozecam.data.DetectorSettings
 import app.dozecam.network.NetworkMonitor
-import app.dozecam.player.ConnectionState
 import app.dozecam.player.StreamSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -49,6 +49,8 @@ class MonitoringService : Service() {
     private var networkOnline = true
 
     private val monitors = mutableMapOf<String, CameraAudioMonitor>()
+
+    private val heartbeat = StatusHeartbeat()
 
     /** What each running monitor was built with, to notice when that stops being true. */
     private val monitorTransports = mutableMapOf<String, List<StreamSource>>()
@@ -124,12 +126,37 @@ class MonitoringService : Service() {
             combine(
                 container.monitoringState.cameras,
                 container.cameras.enabledCameras,
-            ) { states, enabled -> statusText(states.values, enabled.size) }
-                // The camera map changes on every decoded audio buffer, so
-                // without this the foreground notification would be rebuilt and
-                // reposted hundreds of times a second to say the same thing.
-                .distinctUntilChanged()
-                .collect(::updateStatusNotification)
+                // The camera map changes on almost every decoded audio buffer —
+                // but not on every one: a run of identical levels (digital
+                // silence, exactly 0f) is conflated away by the StateFlow, and
+                // with no emissions the minute stamp would never roll over. The
+                // tick keeps evaluation time-driven as well, which is the whole
+                // point of a heartbeat; a wedged process runs no ticker, so it
+                // still cannot fake one.
+                heartbeatTicks(),
+            ) { states, enabled, _ ->
+                MonitoringStatus.of(
+                    context = this@MonitoringService,
+                    anyMonitors = monitors.isNotEmpty(),
+                    states = states.values,
+                    enabledCount = enabled.size,
+                )
+            }
+                // Unmetered this would rebuild and repost the foreground
+                // notification hundreds of times a second. The heartbeat lets
+                // through text changes at once, level motion a few seconds
+                // apart, and — when the room is silent — one post a minute, so
+                // the shade visibly breathes without ever lying about it.
+                .collect { status ->
+                    heartbeat.offer(status.text, status.level)?.let(::updateStatusNotification)
+                }
+        }
+    }
+
+    private fun heartbeatTicks() = flow {
+        while (true) {
+            emit(Unit)
+            delay(StatusHeartbeat.MIN_INTERVAL_MS)
         }
     }
 
@@ -217,51 +244,16 @@ class MonitoringService : Service() {
         appContainer.alertSignaler.signal(camera.id, appSettings)
     }
 
-    /**
-     * One line for the whole nursery. A triggered camera outranks everything,
-     * then the worst connection state wins — a status that said "listening"
-     * while a camera was actually offline would be a lie in the one direction
-     * that matters.
-     */
-    private fun statusText(states: Collection<CameraMonitorState>, enabledCount: Int): String {
-        if (monitors.isEmpty()) return getString(R.string.monitoring_status_nothing)
-        if (states.isEmpty()) return getString(R.string.monitoring_status_starting)
-        states.firstOrNull { it.phase == SoundDetector.Phase.TRIGGERED }?.let {
-            return getString(R.string.monitoring_status_alerting, it.name)
-        }
-        val offline = states.filter { it.connection is ConnectionState.Offline }
-        if (offline.isNotEmpty()) return getString(R.string.monitoring_status_offline)
-        val reconnecting = states.filter { it.connection is ConnectionState.Reconnecting }
-        if (reconnecting.isNotEmpty()) {
-            return resources.getQuantityString(
-                R.plurals.monitoring_status_reconnecting_cameras,
-                reconnecting.size,
-                reconnecting.size,
-            )
-        }
-        if (states.any { it.connection is ConnectionState.Connecting }) {
-            return getString(R.string.monitoring_status_starting)
-        }
-        return resources.getQuantityString(
-            R.plurals.monitoring_status_listening_cameras,
-            states.size,
-            states.size,
-        ).let { text ->
-            // A camera that is enabled but not monitorable is silently absent
-            // from the listening count; say so rather than overstate coverage.
-            if (enabledCount > states.size) {
-                getString(R.string.monitoring_status_partial, text, enabledCount - states.size)
-            } else {
-                text
-            }
-        }
-    }
-
-    private fun updateStatusNotification(text: String) {
+    private fun updateStatusNotification(display: StatusHeartbeat.Display) {
         try {
             NotificationManagerCompat.from(this).notify(
                 MonitoringNotifications.STATUS_NOTIFICATION_ID,
-                MonitoringNotifications.statusNotification(this, text),
+                MonitoringNotifications.statusNotification(
+                    this,
+                    display.text,
+                    display.levelBucket,
+                    display.checkedAtMs,
+                ),
             )
         } catch (_: SecurityException) {
             // FGS notification stays as posted at startForeground time.
