@@ -17,14 +17,17 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.viewinterop.AndroidView
 import app.dozecam.R
 import app.dozecam.data.Camera
@@ -42,6 +45,7 @@ import kotlinx.coroutines.flow.StateFlow
 private val connecting: StateFlow<ConnectionState> =
     MutableStateFlow(ConnectionState.Connecting)
 private val noFrameYet: StateFlow<Long?> = MutableStateFlow(null)
+private val noAspectYet: StateFlow<Float?> = MutableStateFlow(null)
 
 /**
  * One camera's live picture. Tiles are independent on purpose: in a grid one
@@ -71,6 +75,15 @@ fun CameraTile(
      */
     audible: Boolean = false,
     onClick: (() -> Unit)? = null,
+    /**
+     * Pinch state for a tile that has the screen to itself, where looking
+     * closer at one corner of a room is worth a gesture. Null in the grid: a
+     * thumbnail has no detail to lean into, and a pinch that zoomed one tile
+     * would leave the grid lying about that camera's frame.
+     */
+    zoom: PinchZoomState? = null,
+    /** Fires on every zoom gesture — fingers on the picture are presence. */
+    onZoomGesture: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val host = remember(camera.id) { FrameLayout(context) }
@@ -105,13 +118,44 @@ fun CameraTile(
     val connection by (stream?.connection ?: connecting).collectAsState()
     val lastFrameAtMs by (stream?.lastFrameAtMs ?: noFrameYet).collectAsState()
 
+    // The zoom clamps panning to the picture rather than the tile, so it needs
+    // to know both: the tile from layout, the picture's shape from the stream.
+    if (zoom != null) {
+        val videoAspect by (stream?.videoAspect ?: noAspectYet).collectAsState()
+        LaunchedEffect(zoom, videoAspect) { zoom.pictureChanged(videoAspect) }
+    }
+
+    // Read through a state holder because the gesture coroutine is keyed on
+    // the zoom state and outlives any one callback: the caller's inactivity
+    // countdown is rebuilt when a repeat alert lands on this same camera, and
+    // a pinch after that must reach the countdown now on duty, not restart the
+    // orphaned one while the live one quietly runs out.
+    val zoomGesture by rememberUpdatedState(onZoomGesture)
+
     Box(
         modifier = modifier
             .background(Color.Black)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .then(
+                if (zoom != null) {
+                    Modifier
+                        .onSizeChanged { zoom.viewportChanged(it.toSize()) }
+                        .pinchZoom(zoom) { zoomGesture() }
+                } else {
+                    Modifier
+                },
+            )
             .testTag("camera-tile-${camera.name}"),
     ) {
-        AndroidView(factory = { host }, modifier = Modifier.fillMaxSize())
+        // Only the picture is scaled; the status pill and badges are chrome
+        // about the tile, not part of the room, and must stay put and legible
+        // at any zoom. The update lambda re-runs whenever the zoom state it
+        // reads changes, without recomposing the tile around it.
+        AndroidView(
+            factory = { host },
+            update = { view -> view.applyPinchZoom(zoom) },
+            modifier = Modifier.fillMaxSize(),
+        )
         StatusOverlay(
             state = connection,
             lastFrameAtMs = lastFrameAtMs,

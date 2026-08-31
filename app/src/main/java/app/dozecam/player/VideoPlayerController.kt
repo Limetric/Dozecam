@@ -9,6 +9,13 @@ sealed interface PlayerEvent {
     data object Stopped : PlayerEvent
     data object Error : PlayerEvent
     data class TimeChanged(val timeMs: Long) : PlayerEvent
+
+    /**
+     * The decoded picture's shape, as width over height with anamorphic pixels
+     * already applied. Not a liveness signal — it exists so the screen can know
+     * where the picture ends and its letterbox bars begin.
+     */
+    data class VideoAspect(val ratio: Float) : PlayerEvent
 }
 
 /**

@@ -127,8 +127,9 @@ class LivestreamVideoPlayerController(
                 // pixelWidthHeightRatio is 1 for every camera encode we see, but
                 // honouring it costs nothing and is what makes anamorphic sources
                 // come out square rather than subtly wrong.
-                videoFrame.aspectRatio =
-                    videoSize.width * videoSize.pixelWidthHeightRatio / videoSize.height
+                val ratio = videoSize.width * videoSize.pixelWidthHeightRatio / videoSize.height
+                videoFrame.aspectRatio = ratio
+                listener?.invoke(PlayerEvent.VideoAspect(ratio))
             }
         })
     }

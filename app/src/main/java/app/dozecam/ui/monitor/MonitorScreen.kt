@@ -363,6 +363,10 @@ fun MonitorScreen(
             restartOn = samePlaceAlerts,
             onExpired = { fullscreenId = null },
         )
+        // Keyed on the camera: an alert swapping which room fills the screen
+        // must not carry the old room's framing onto the new one — the first
+        // look at the room that got loud has to be the whole room.
+        val zoom = remember(fullscreen.id) { PinchZoomState() }
         Box(modifier = modifier.fillMaxSize()) {
             CameraTile(
                 camera = fullscreen,
@@ -377,6 +381,8 @@ fun MonitorScreen(
                 // leaving is Back, and a countdown with no way to answer it
                 // would cap every look at one room to a flat minute.
                 onClick = countdown::reset,
+                zoom = zoom,
+                onZoomGesture = countdown::reset,
                 modifier = Modifier
                     .fillMaxSize()
                     .testTag("fullscreen-tile"),
