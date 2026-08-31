@@ -67,6 +67,20 @@ class MonitoringStatusTest {
         ).forEach { status -> assertNull(status.text, status.level) }
     }
 
+    /**
+     * A live camera that has not decoded a buffer yet has no level, and it
+     * must neither crash the line nor drag the loudest reading down.
+     */
+    @Test
+    fun `an unmeasured camera contributes no level`() {
+        val mixed = of(listOf(live("a").copy(level = null), live("b", level = 0.3f)))
+        assertEquals(0.3f, mixed.level)
+
+        val unmeasured = of(listOf(live("a").copy(level = null)))
+        assertEquals("Listening to 1 camera", unmeasured.text)
+        assertNull(unmeasured.level)
+    }
+
     @Test
     fun `a triggered camera outranks everything`() {
         val status = of(
