@@ -70,6 +70,6 @@ internal object MonitoringStatus {
         // Only the healthy listening line carries a level: the loudest camera,
         // matching the in-app meter, decoded moments ago — the one state whose
         // steadiness could otherwise be mistaken for staleness.
-        return Status(text, states.maxOf { it.level })
+        return Status(text, states.mapNotNull { it.level }.maxOrNull())
     }
 }
