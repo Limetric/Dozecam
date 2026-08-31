@@ -4,11 +4,18 @@ import app.dozecam.data.Camera
 import app.dozecam.data.ProtectStream
 import app.dozecam.protect.ProtectApiException
 import app.dozecam.protect.TalkbackSession
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.async
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import kotlinx.coroutines.launch
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -28,7 +35,7 @@ class ProtectTalkbackTest {
     )
 
     private fun talkback(
-        scope: kotlinx.coroutines.CoroutineScope,
+        scope: kotlinx.coroutines.test.TestScope,
         speakers: Map<String, Boolean> = mapOf("cam1" to true),
         session: suspend (String) -> TalkbackSession = { opus },
         host: String? = console,
@@ -46,7 +53,19 @@ class ProtectTalkbackTest {
         microphoneGranted = { microphoneGranted },
         locked = { locked },
         openMicrophone = { null },
+        // The press runs on this rather than Dispatchers.IO, so a test can
+        // advance it instead of racing it.
+        io = StandardTestDispatcher(scope.testScheduler),
     )
+
+    /**
+     * Subscribes before the action and waits for one failure. A SharedFlow
+     * delivers nothing to a listener that has not started yet, so the
+     * subscription has to happen on this thread rather than when the scheduler
+     * gets round to it.
+     */
+    private fun TestScope.awaitFailure(talkback: Talkback) =
+        async(start = CoroutineStart.UNDISPATCHED) { talkback.failures.first() }
 
     @Test
     fun `everything in place is ready to talk`() = runTest {
@@ -148,6 +167,7 @@ class ProtectTalkbackTest {
             microphoneGranted = { true },
             locked = { false },
             openMicrophone = { null },
+            io = StandardTestDispatcher(testScheduler),
         )
 
         talkback.watch(camera())
@@ -192,6 +212,126 @@ class ProtectTalkbackTest {
         assertEquals(TalkbackAvailability.Resolving, talkback.availability.value)
     }
 
+    /**
+     * A phone in a call, or one whose voice-communication source is already
+     * taken, refuses the microphone — and AudioRecord throws rather than
+     * returning null. On a supervisor scope an uncaught throw here reaches the
+     * default handler, so the failure mode is a baby monitor that dies when a
+     * call arrives.
+     */
+    @Test
+    fun `a microphone that throws ends the press instead of the app`() = runTest {
+        val talkback = ProtectTalkback(
+            scope = this,
+            speakers = { mapOf("cam1" to true) },
+            session = { opus },
+            consoleHost = { console },
+            hasApiKey = { true },
+            reachability = TalkbackReachability { _, _ -> true },
+            microphoneGranted = { true },
+            locked = { false },
+            openMicrophone = { throw IllegalStateException("mic busy") },
+            io = StandardTestDispatcher(testScheduler),
+        )
+        val failure = awaitFailure(talkback)
+
+        talkback.watch(camera())
+        advanceUntilIdle()
+        talkback.press()
+        advanceUntilIdle()
+
+        assertFalse("a failed press must not still claim to be talking", talkback.talking.value)
+        assertTrue("the failure should be reported", failure.isCompleted)
+    }
+
+    /** A microphone this device simply cannot provide is a failure, not silence. */
+    @Test
+    fun `a microphone that cannot be opened is reported rather than ignored`() = runTest {
+        val talkback = talkback(this)
+        val failure = awaitFailure(talkback)
+
+        talkback.watch(camera())
+        advanceUntilIdle()
+        // The default fake returns null, which used to complete silently.
+        talkback.press()
+        advanceUntilIdle()
+
+        assertFalse(talkback.talking.value)
+        assertTrue("the failure should be reported", failure.isCompleted)
+    }
+
+    /**
+     * Wi-Fi going away mid-sentence throws on the socket rather than politely
+     * ending the stream.
+     */
+    @Test
+    fun `a socket that dies mid-press is reported rather than thrown`() = runTest {
+        val talkback = ProtectTalkback(
+            scope = this,
+            speakers = { mapOf("cam1" to true) },
+            session = { opus },
+            consoleHost = { console },
+            hasApiKey = { true },
+            reachability = TalkbackReachability { _, _ -> true },
+            microphoneGranted = { true },
+            locked = { false },
+            openMicrophone = { object : PcmSource {
+                override fun read(into: ShortArray) = true
+                override fun close() = Unit
+            } },
+            newEncoder = { object : FrameEncoder {
+                override fun encode(pcm: ShortArray, presentationTimeUs: Long) = listOf(byteArrayOf(1))
+                override fun finish() = emptyList<ByteArray>()
+                override fun close() = Unit
+            } },
+            newSender = { FrameSink { throw java.io.IOException("network unreachable") } },
+            io = StandardTestDispatcher(testScheduler),
+        )
+        val failure = awaitFailure(talkback)
+
+        talkback.watch(camera())
+        advanceUntilIdle()
+        talkback.press()
+        advanceUntilIdle()
+
+        assertFalse(talkback.talking.value)
+        assertTrue("the failure should be reported", failure.isCompleted)
+    }
+
+    /**
+     * Reachability is a fact about the network the phone is on. A camera cached
+     * as unreachable from elsewhere must not stay that way after coming home;
+     * before this, only killing the process cleared it.
+     */
+    @Test
+    fun `refreshing forgets where the camera could not be reached`() = runTest {
+        var onHomeNetwork = false
+        val probes = mutableListOf<String>()
+        val talkback = ProtectTalkback(
+            scope = this,
+            speakers = { mapOf("cam1" to true) },
+            session = { opus },
+            consoleHost = { console },
+            hasApiKey = { true },
+            reachability = TalkbackReachability { host, _ -> probes += host; onHomeNetwork },
+            microphoneGranted = { true },
+            locked = { false },
+            openMicrophone = { null },
+            io = StandardTestDispatcher(testScheduler),
+        )
+
+        talkback.watch(camera())
+        advanceUntilIdle()
+        assertEquals(TalkbackAvailability.Unreachable, talkback.availability.value)
+
+        onHomeNetwork = true
+        talkback.refresh()
+        advanceUntilIdle()
+
+        assertEquals(TalkbackAvailability.Ready, talkback.availability.value)
+        assertTrue("the camera must be probed again, not read from cache", probes.size > 1)
+    }
+
     /** Pressing a control that is not ready must never open a microphone. */
     @Test
     fun `a press on an unreachable camera does nothing`() = runTest {
@@ -206,6 +346,7 @@ class ProtectTalkbackTest {
             microphoneGranted = { true },
             locked = { false },
             openMicrophone = { opened = true; null },
+            io = StandardTestDispatcher(testScheduler),
         )
 
         talkback.watch(camera())

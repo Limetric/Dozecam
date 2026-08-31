@@ -22,8 +22,11 @@ import kotlinx.coroutines.withContext
  * pass this and still drop the audio. So this decides whether to offer a
  * control, never whether one worked.
  *
- * Answers are cached per host because they change only with the network, and
- * [forget] is called when it does.
+ * Answers are cached per host because they change only with the network. They
+ * are forgotten when it changes and whenever the viewer comes back to the
+ * front: a camera cached as unreachable from somewhere else would otherwise
+ * stay that way for the life of the process, and no amount of coming home
+ * would bring the control back.
  */
 class TalkbackReachability(
     private val connect: suspend (host: String, port: Int) -> Boolean = ::tcpConnect,

@@ -429,6 +429,14 @@ fun MonitorScreen(
             ?: remember { MutableStateFlow(false) }).collectAsState()
         var explaining by remember(fullscreen.id) { mutableStateOf(false) }
 
+        // A press that could not open a microphone, an encoder or a socket ends
+        // with nothing said and nothing on screen to say so. The control cannot
+        // carry it — by the time this arrives the button is no longer held —
+        // so it goes where the other one-off outcomes go.
+        LaunchedEffect(talkback) {
+            talkback?.failures?.collect { announce(R.string.talkback_failed) }
+        }
+
         // Shown on request, and taken away again: an explanation that stayed
         // would become part of the picture.
         LaunchedEffect(explaining, talkbackAvailability) {

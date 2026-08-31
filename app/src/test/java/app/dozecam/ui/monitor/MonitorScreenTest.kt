@@ -32,6 +32,7 @@ import app.dozecam.player.PlayerEvent
 import app.dozecam.player.StreamSource
 import app.dozecam.player.VideoPlayerController
 import app.dozecam.ui.theme.DozecamTheme
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -196,6 +197,8 @@ class MonitorScreenTest {
     private class ReadyTalkback : Talkback {
         override val availability = MutableStateFlow<TalkbackAvailability>(TalkbackAvailability.Ready)
         override val talking = MutableStateFlow(false)
+        val failed = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+        override val failures = failed
         var presses = 0
             private set
         var releases = 0

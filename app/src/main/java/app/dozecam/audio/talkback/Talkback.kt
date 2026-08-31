@@ -6,8 +6,12 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -23,10 +27,25 @@ interface Talkback {
     /** Whether the phone is speaking right now. Never whether it is heard. */
     val talking: StateFlow<Boolean>
 
+    /**
+     * A press that ended in failure rather than in silence.
+     *
+     * Talking to a camera reaches for a microphone, an encoder and a socket,
+     * and any of the three can be refused by a phone doing something else —
+     * a call in progress, another app holding the voice-communication source,
+     * Wi-Fi going away mid-sentence. None of that is exceptional enough to be
+     * worth a crash, and all of it is worth saying out loud.
+     */
+    val failures: SharedFlow<Unit>
+
     /** The camera on screen alone, or null when the grid is showing. */
     fun watch(camera: Camera?)
 
-    /** Re-asks the questions whose answers live outside this class. */
+    /**
+     * Re-asks the questions whose answers live outside this class — the
+     * microphone grant, the keyguard, and whether the camera can be reached
+     * from the network this device is on now.
+     */
     fun refresh()
 
     fun press()
@@ -72,6 +91,11 @@ class ProtectTalkback(
     private val _talking = MutableStateFlow(false)
     override val talking: StateFlow<Boolean> = _talking.asStateFlow()
 
+    // One buffered slot: a listener that missed a failure while off screen has
+    // nothing useful to say about it by the time it comes back.
+    private val _failures = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    override val failures: SharedFlow<Unit> = _failures.asSharedFlow()
+
     private var watched: Camera? = null
     private var resolving: Job? = null
     private var speaking: Job? = null
@@ -89,9 +113,16 @@ class ProtectTalkback(
         resolve()
     }
 
-    override fun refresh() = resolve()
+    /**
+     * Called when the microphone grant, the lock state or the network may have
+     * changed. Reachability is forgotten rather than trusted: an answer from a
+     * previous network is worse than no answer, and a camera cached as
+     * unreachable from a train would otherwise stay that way until the process
+     * died.
+     */
+    override fun refresh() = resolve(forgetReachability = true)
 
-    private fun resolve() {
+    private fun resolve(forgetReachability: Boolean = false) {
         resolving?.cancel()
         format = null
         val camera = watched
@@ -102,6 +133,7 @@ class ProtectTalkback(
         _availability.value = TalkbackAvailability.Resolving
 
         resolving = scope.launch {
+            if (forgetReachability) reachability.forget()
             _availability.value = resolveFor(camera)
         }
     }
@@ -161,30 +193,47 @@ class ProtectTalkback(
         held = true
         _talking.value = true
         speaking = scope.launch {
-            withContext(io) {
-                // The microphone, the encoder and the socket are all opened
-                // here rather than kept alive between presses: a baby monitor
-                // that held the microphone open between sentences would be a
-                // different app from the one described in the manifest.
-                val microphone = openMicrophone(speakable)
-                if (microphone == null) {
-                    return@withContext
-                }
-                microphone.use { source ->
-                    newEncoder(speakable).use { encoder ->
-                        val sink = newSender(speakable)
-                        try {
-                            TalkbackStream(speakable, source, encoder, sink).run { held }
-                        } finally {
-                            (sink as? AutoCloseable)?.close()
+            var failed = false
+            try {
+                withContext(io) {
+                    // The microphone, the encoder and the socket are all opened
+                    // here rather than kept alive between presses: a baby
+                    // monitor that held the microphone open between sentences
+                    // would be a different app from the one in the manifest.
+                    //
+                    // All three can be refused. AudioRecord will not start
+                    // during a call or while another app holds the
+                    // voice-communication source, MediaCodec can fail to
+                    // configure, and a socket to a camera that just went away
+                    // throws on the first datagram. None of that is worth
+                    // taking the viewer down for, which is what an uncaught
+                    // throw in this coroutine would do.
+                    val microphone = openMicrophone(speakable)
+                        ?: throw IllegalStateException("no usable microphone at ${speakable.sampleRate}Hz")
+                    microphone.use { source ->
+                        newEncoder(speakable).use { encoder ->
+                            val sink = newSender(speakable)
+                            try {
+                                TalkbackStream(speakable, source, encoder, sink).run { held }
+                            } finally {
+                                (sink as? AutoCloseable)?.close()
+                            }
                         }
                     }
                 }
+            } catch (cancellation: CancellationException) {
+                // Leaving the camera cancels the press; that is an ending, not
+                // a failure, and it must reach the caller to stay cancelled.
+                throw cancellation
+            } catch (failure: Exception) {
+                failed = true
+            } finally {
+                // Whatever happened, the button is no longer held and the
+                // control must not be left claiming to be talking.
+                held = false
+                _talking.value = false
             }
-        }
-        scope.launch {
-            speaking?.join()
-            _talking.value = false
+            if (failed) _failures.tryEmit(Unit)
         }
     }
 

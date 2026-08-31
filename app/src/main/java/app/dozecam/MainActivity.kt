@@ -138,7 +138,13 @@ class MainActivity : ComponentActivity() {
         val networkMonitor = NetworkMonitor(applicationContext)
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                networkMonitor.reach.collect { networkReach.value = it }
+                networkMonitor.reach.collect {
+                    networkReach.value = it
+                    // Whether a camera can be reached is a fact about the
+                    // network this device is on, so every one of these makes
+                    // the previous answer worthless.
+                    talkback.refresh()
+                }
             }
         }
 
