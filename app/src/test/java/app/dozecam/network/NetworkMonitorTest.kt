@@ -53,6 +53,43 @@ class NetworkMonitorTest {
     private fun defaultCallback(): ConnectivityManager.NetworkCallback =
         shadowOf(connectivityManager).networkCallbacks.first()
 
+    /**
+     * Two Wi-Fi networks are both LOCAL, so `reach` deduplicates a handover
+     * between them away — which is exactly the moment anything holding
+     * knowledge about a particular network, such as whether a camera answers,
+     * has gone stale. This flow exists to notice what that one cannot.
+     */
+    @Test
+    fun `a handover between two local networks is reported`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val monitor = NetworkMonitor(context)
+            val changes = mutableListOf<Unit>()
+            val job = launch { monitor.defaultNetworkChanges.collect { changes += it } }
+            val callback = defaultCallback()
+
+            callback.onAvailable(network(200, NetworkCapabilities.TRANSPORT_WIFI))
+            callback.onAvailable(network(201, NetworkCapabilities.TRANSPORT_WIFI))
+
+            assertEquals(2, changes.size)
+            job.cancel()
+        }
+
+    /** The same two networks say nothing new about reach, which is the gap. */
+    @Test
+    fun `reach stays put across that same handover`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val monitor = NetworkMonitor(context)
+            val seen = reaches(monitor)
+            val callback = defaultCallback()
+
+            callback.onAvailable(network(200, NetworkCapabilities.TRANSPORT_WIFI))
+            callback.onAvailable(network(201, NetworkCapabilities.TRANSPORT_WIFI))
+
+            // One LOCAL for two different local networks: the second is
+            // deduplicated away, and with it any hope of noticing the change.
+            assertEquals(1, seen.count { it == NetworkReach.LOCAL })
+        }
+
     @Test
     fun `emits the current network state on subscription`() = runTest {
         val monitor = NetworkMonitor(context)

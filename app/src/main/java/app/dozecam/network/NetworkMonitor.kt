@@ -77,6 +77,31 @@ class NetworkMonitor(context: Context) {
         awaitClose { connectivityManager.unregisterNetworkCallback(callback) }
     }.distinctUntilChanged()
 
+    /**
+     * Emits once for every default network the device settles on, including
+     * replacements that leave [reach] exactly where it was.
+     *
+     * [reach] answers "could this network carry LAN traffic", which is the same
+     * answer for the house's Wi-Fi, a café's, and a tunnel home — so it is
+     * deduplicated away precisely when the network underneath has changed
+     * completely. Anything holding knowledge about a particular network rather
+     * than about its kind has to listen here instead: whether a given camera
+     * answers is exactly that sort of knowledge.
+     */
+    val defaultNetworkChanges: Flow<Unit> = callbackFlow {
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                trySend(Unit)
+            }
+
+            override fun onLost(network: Network) {
+                trySend(Unit)
+            }
+        }
+        connectivityManager.registerDefaultNetworkCallback(callback)
+        awaitClose { connectivityManager.unregisterNetworkCallback(callback) }
+    }
+
     /** True when a default network is available, false when it is lost. */
     val isOnline: Flow<Boolean> =
         reach.map { it != NetworkReach.OFFLINE }.distinctUntilChanged()

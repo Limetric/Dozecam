@@ -138,13 +138,18 @@ class MainActivity : ComponentActivity() {
         val networkMonitor = NetworkMonitor(applicationContext)
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                networkMonitor.reach.collect {
-                    networkReach.value = it
-                    // Whether a camera can be reached is a fact about the
-                    // network this device is on, so every one of these makes
-                    // the previous answer worthless.
-                    talkback.refresh()
-                }
+                networkMonitor.reach.collect { networkReach.value = it }
+            }
+        }
+
+        // Whether a camera answers is a fact about the network this device is
+        // on, not about whether that network is a LAN — two Wi-Fi networks read
+        // alike to `reach` and are deduplicated away. So talk-back forgets what
+        // it learned whenever the default network is replaced at all, which is
+        // the only signal that fires on a handover between them.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                networkMonitor.defaultNetworkChanges.collect { talkback.refresh() }
             }
         }
 
