@@ -20,6 +20,8 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pinch
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeRight
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -716,6 +718,81 @@ class MonitorScreenTest {
 
         pressBack()
         composeRule.onNodeWithTag("camera-list-1").assertExists()
+    }
+
+    @Test
+    fun `the back button returns to the grid`() {
+        composeRule.setContent { Screen(cameras = listOf(nursery, playroom)) }
+
+        // Nothing to go back to from the grid, so no button there.
+        composeRule.onNodeWithTag("back-to-grid").assertDoesNotExist()
+
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.onNodeWithTag("back-to-grid").performClick()
+
+        composeRule.onNodeWithTag("fullscreen-tile").assertDoesNotExist()
+        composeRule.onNodeWithTag("camera-list-1").assertExists()
+    }
+
+    @Test
+    fun `the back button on an alerted camera ends the alert`() {
+        var dismissed = false
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery, playroom),
+                alertCameraId = "b",
+                onAlertDismissed = { dismissed = true },
+            )
+        }
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+
+        composeRule.onNodeWithTag("back-to-grid").performClick()
+
+        // The same exit as Back: the lock-screen privilege goes with it.
+        composeRule.onNodeWithTag("camera-list-1").assertExists()
+        assertTrue(dismissed)
+    }
+
+    @Test
+    fun `one swipe in from the left edge returns to the grid`() {
+        composeRule.setContent { Screen(cameras = listOf(nursery, playroom)) }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+
+        // The system's first back swipe never reaches the app's back handler
+        // while the bars are hidden, so the screen must answer the touch
+        // itself — one swipe, not two.
+        composeRule.onRoot().performTouchInput {
+            swipeRight(startX = left + 1f, endX = centerX)
+        }
+
+        composeRule.onNodeWithTag("fullscreen-tile").assertDoesNotExist()
+        composeRule.onNodeWithTag("camera-list-1").assertExists()
+    }
+
+    @Test
+    fun `one swipe in from the right edge returns to the grid`() {
+        composeRule.setContent { Screen(cameras = listOf(nursery, playroom)) }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+
+        composeRule.onRoot().performTouchInput {
+            swipeLeft(startX = right - 1f, endX = centerX)
+        }
+
+        composeRule.onNodeWithTag("fullscreen-tile").assertDoesNotExist()
+        composeRule.onNodeWithTag("camera-list-1").assertExists()
+    }
+
+    @Test
+    fun `a swipe that starts away from the edge stays on the camera`() {
+        composeRule.setContent { Screen(cameras = listOf(nursery, playroom)) }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+
+        // A drag across the middle of the picture is not the leave gesture.
+        composeRule.onRoot().performTouchInput {
+            swipeRight(startX = centerX, endX = right - 1f)
+        }
+
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
     }
 
     @Test
