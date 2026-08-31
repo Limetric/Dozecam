@@ -8,6 +8,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
@@ -17,6 +18,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.pinch
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -808,6 +811,106 @@ class MonitorScreenTest {
         // camera does not fall back to the grid under someone's eyes.
         composeRule.onNodeWithTag("fullscreen-tile").assertExists()
         composeRule.onNodeWithTag("inactivity-countdown").assertTextEquals("All cameras in 1s")
+    }
+
+    @Test
+    fun `pinching the picture keeps the camera up`() {
+        composeRule.setContent { Screen(cameras = listOf(nursery, playroom)) }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.mainClock.advanceTimeBy(INACTIVITY_MS - 1_000)
+
+        composeRule.onNodeWithTag("fullscreen-tile").performTouchInput {
+            pinch(
+                start0 = center - Offset(width / 8f, 0f),
+                end0 = center - Offset(width / 3f, 0f),
+                start1 = center + Offset(width / 8f, 0f),
+                end1 = center + Offset(width / 3f, 0f),
+            )
+        }
+        composeRule.mainClock.advanceTimeBy(INACTIVITY_MS - 1_000)
+
+        // Leaning into the picture is being there every bit as much as tapping
+        // it: the two advances together are past the original deadline, so the
+        // camera still being up means the pinch gave the wait a fresh start.
+        // (No exact readout here — injecting the pinch spends a few frames of
+        // the clock itself, unlike a click, so the tick alignment shifts.)
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+    }
+
+    @Test
+    fun `pinching magnifies the picture and only the one on screen alone`() {
+        composeRule.setContent { Screen(cameras = listOf(nursery, playroom)) }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.waitForIdle()
+
+        val host = controllerFor(nursery).attachedTo!!
+        assertEquals(1f, host.scaleX)
+
+        composeRule.onNodeWithTag("fullscreen-tile").performTouchInput {
+            pinch(
+                start0 = center - Offset(width / 8f, 0f),
+                end0 = center - Offset(width / 3f, 0f),
+                start1 = center + Offset(width / 8f, 0f),
+                end1 = center + Offset(width / 3f, 0f),
+            )
+        }
+
+        // The fingers spread to well over double their distance, and the view
+        // holding the picture — not the tile's chrome — carries the scale.
+        composeRule.runOnIdle {
+            assertTrue("expected zoomed in, got scale ${host.scaleX}", host.scaleX > 1.5f)
+            assertEquals(host.scaleX, host.scaleY)
+        }
+
+        // Back on the grid the same camera is a thumbnail again: whole rooms
+        // only, whatever the last look leaned into.
+        pressBack()
+        val gridHost = controllerFor(nursery).attachedTo!!
+        assertEquals(1f, gridHost.scaleX)
+        assertEquals(0f, gridHost.translationX)
+    }
+
+    @Test
+    fun `a pinch after a repeat alert reaches the countdown now on duty`() {
+        var alerted by mutableStateOf<String?>(null)
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery, playroom),
+                alertCameraId = alerted,
+                onAlertConsumed = { alerted = null },
+            )
+        }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        // A first pinch starts the long-lived gesture coroutine while the
+        // original countdown is the one on duty.
+        composeRule.onNodeWithTag("fullscreen-tile").performTouchInput {
+            pinch(
+                start0 = center - Offset(width / 8f, 0f),
+                end0 = center - Offset(width / 3f, 0f),
+                start1 = center + Offset(width / 8f, 0f),
+                end1 = center + Offset(width / 3f, 0f),
+            )
+        }
+
+        // The same room gets loud again: nothing on screen changes, but the
+        // wait is rebuilt so the alert gets its full minute.
+        composeRule.runOnIdle { alerted = "a" }
+        composeRule.waitForIdle()
+        composeRule.mainClock.advanceTimeBy(INACTIVITY_MS - 1_000)
+
+        // A pinch now must reach the rebuilt countdown — not reset the orphaned
+        // one the gesture coroutine was born with while the live one runs out.
+        composeRule.onNodeWithTag("fullscreen-tile").performTouchInput {
+            pinch(
+                start0 = center - Offset(width / 3f, 0f),
+                end0 = center - Offset(width / 8f, 0f),
+                start1 = center + Offset(width / 3f, 0f),
+                end1 = center + Offset(width / 8f, 0f),
+            )
+        }
+        composeRule.mainClock.advanceTimeBy(INACTIVITY_MS - 1_000)
+
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
     }
 
     @Test

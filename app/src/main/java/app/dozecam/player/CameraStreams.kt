@@ -16,6 +16,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -39,6 +41,16 @@ class CameraStream internal constructor(
     val connection = watchdog.state
     val lastFrameAtMs = watchdog.lastFrameAtMs
 
+    private val _videoAspect = MutableStateFlow<Float?>(null)
+
+    /**
+     * The picture's width over height, or null until the first video output
+     * says. Kept on the session rather than per tile for the same reason the
+     * connection state is: a camera opened from the grid already knows its
+     * shape, and must not forget it in the handover.
+     */
+    val videoAspect: StateFlow<Float?> = _videoAspect
+
     private var host: ViewGroup? = null
     private var muted = true
     private var videoEnabled = true
@@ -50,7 +62,10 @@ class CameraStream internal constructor(
      * before anything could silence it.
      */
     internal fun start(networkOnline: Boolean) {
-        controller.listener = watchdog::onPlayerEvent
+        controller.listener = { event ->
+            if (event is PlayerEvent.VideoAspect) _videoAspect.value = event.ratio
+            watchdog.onPlayerEvent(event)
+        }
         controller.setMuted(true)
         watchdog.start()
         if (!networkOnline) watchdog.onNetworkLost()

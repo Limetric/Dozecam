@@ -224,6 +224,9 @@ class PlaybackWatchdog(
                         }
                     }
                     is PlayerEvent.Buffering -> Unit
+                    // The picture's shape says nothing about whether it is
+                    // still painting.
+                    is PlayerEvent.VideoAspect -> Unit
                 }
 
                 Input.NetworkUp -> {

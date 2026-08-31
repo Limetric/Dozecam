@@ -5,6 +5,7 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
+import org.videolan.libvlc.interfaces.IMedia
 import org.videolan.libvlc.util.VLCVideoLayout
 
 /**
@@ -37,10 +38,42 @@ class VlcVideoPlayerController(runtime: VlcRuntime) : VideoPlayerController {
                 MediaPlayer.Event.Stopped -> PlayerEvent.Stopped
                 MediaPlayer.Event.EncounteredError -> PlayerEvent.Error
                 MediaPlayer.Event.TimeChanged -> PlayerEvent.TimeChanged(event.timeChanged)
+                // The earliest moment the decoded picture's dimensions exist:
+                // a video output has just come up for the selected track.
+                MediaPlayer.Event.Vout -> videoAspect()
                 else -> null
             }
             mapped?.let { listener?.invoke(it) }
         }
+    }
+
+    /**
+     * The playing track's shape, or null while there is none — a Vout event
+     * can fire for a session whose track info has already been torn down.
+     */
+    private fun videoAspect(): PlayerEvent.VideoAspect? {
+        val track = mediaPlayer.currentVideoTrack ?: return null
+        if (track.width <= 0 || track.height <= 0) return null
+        // Sample aspect ratio corrects anamorphic encodes; unset means square.
+        val sar = if (track.sarNum > 0 && track.sarDen > 0) {
+            track.sarNum.toFloat() / track.sarDen
+        } else {
+            1f
+        }
+        val encoded = track.width * sar / track.height
+        // Orientation metadata can stand the picture on its side; VLC rotates
+        // what it draws, so the shape reported must be the displayed one, not
+        // the encode's.
+        val transposed = when (track.orientation) {
+            IMedia.VideoTrack.Orientation.LeftTop,
+            IMedia.VideoTrack.Orientation.LeftBottom,
+            IMedia.VideoTrack.Orientation.RightTop,
+            IMedia.VideoTrack.Orientation.RightBottom,
+            -> true
+
+            else -> false
+        }
+        return PlayerEvent.VideoAspect(if (transposed) 1f / encoded else encoded)
     }
 
     override fun attach(container: ViewGroup) {
