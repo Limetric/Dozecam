@@ -735,6 +735,21 @@ class MonitorScreenTest {
     }
 
     @Test
+    fun `the back button leaves the connection state visible`() {
+        composeRule.setContent { Screen(cameras = listOf(nursery, playroom)) }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+
+        // Both live in the top-start corner; the pill steps aside rather than
+        // sitting under the button, because a covered "Reconnecting" would let
+        // a frozen frame pass for a live one.
+        val button = composeRule.onNodeWithTag("back-to-grid").getBoundsInRoot()
+        val status = composeRule
+            .onNodeWithText("CONNECTING", useUnmergedTree = true)
+            .getBoundsInRoot()
+        assertTrue("status=$status button=$button", status.left >= button.right)
+    }
+
+    @Test
     fun `the back button on an alerted camera ends the alert`() {
         var dismissed = false
         composeRule.setContent {

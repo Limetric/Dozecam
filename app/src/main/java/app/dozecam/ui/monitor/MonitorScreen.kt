@@ -110,6 +110,13 @@ private val THREE_COLUMN_BREAKPOINT = 1000.dp
  */
 private const val ARMING_GRACE_MS = 3_000L
 
+/**
+ * How far the fullscreen status pill steps aside for the back button: the
+ * button's 12dp margin plus its 40dp container, so the pill's own 12dp margin
+ * leaves an even gap between them.
+ */
+private val BACK_BUTTON_STATUS_INSET = 52.dp
+
 /** How far in from either side a touch still counts as starting at the edge. */
 private val EDGE_SWIPE_EDGE_WIDTH = 32.dp
 
@@ -506,6 +513,9 @@ fun MonitorScreen(
                 source = sources[fullscreen.id],
                 streams = streams,
                 showLabel = false,
+                // Makes way for the back button in the top-start corner; the
+                // status pill slides right of it instead of under it.
+                statusInsetStart = BACK_BUTTON_STATUS_INSET,
                 // The one camera on screen alone is the one worth hearing; this
                 // is the "listen to the room" case the viewer exists for, so it
                 // needs nothing beyond sound being switched on.
@@ -531,6 +541,27 @@ fun MonitorScreen(
                     .align(Alignment.TopCenter)
                     .safeDrawingPadding(),
             )
+            // The visible way back, in the corner back buttons live in. Back
+            // and the edge swipe do the same, but nothing on a screen that is
+            // all picture says so; the alerted camera keeps it too, because
+            // the transition below is the same one that hands the lock screen
+            // back. The tile's status pill is inset to sit beside it — a
+            // button over "Reconnecting" would let a frozen frame pass for a
+            // live one.
+            FilledTonalIconButton(
+                onClick = { fullscreenId = null },
+                shapes = IconButtonDefaults.shapes(),
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .safeDrawingPadding()
+                    .padding(12.dp)
+                    .testTag("back-to-grid"),
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.viewer_all_cameras),
+                )
+            }
             // The controls a single camera keeps. Without the first, sound could
             // be switched on solely from the grid — including for a camera an
             // alert opened, which is precisely when the user wants to listen.
@@ -542,20 +573,6 @@ fun MonitorScreen(
                     .safeDrawingPadding()
                     .padding(12.dp),
             ) {
-                // The visible way back. Back and the edge swipe do the same,
-                // but nothing on a screen that is all picture says so; the
-                // alerted camera keeps it too, because the transition below is
-                // the same one that hands the lock screen back.
-                FilledTonalIconButton(
-                    onClick = { fullscreenId = null },
-                    shapes = IconButtonDefaults.shapes(),
-                    modifier = Modifier.testTag("back-to-grid"),
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = stringResource(R.string.viewer_all_cameras),
-                    )
-                }
                 if (talkback != null) {
                     TalkbackButton(
                         availability = talkbackAvailability,
