@@ -150,6 +150,14 @@ fun MonitorScreen(
      * the cameras mid-call would instead arm them for when the call ends.
      */
     soundGranted: Boolean = true,
+    /**
+     * What the monitor is hearing from each camera, keyed by camera id. A
+     * camera with no entry gets no meter: the level is the monitor's report,
+     * not the player's, so it exists exactly when monitoring does.
+     */
+    audioLevels: Map<String, Float> = emptyMap(),
+    /** The level at which an alert would fire, marked on every meter. */
+    audioThreshold: Float = 1f,
     /** Injectable so tests need not wait out a real turn. */
     soundRotationIntervalMs: Long = SOUND_ROTATION_INTERVAL_MS,
     /** Injectable so tests need not wait out a real minute. */
@@ -409,7 +417,20 @@ fun MonitorScreen(
                     .safeDrawingPadding()
                     .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                // In the column with the countdown rather than on the tile: two
+                // overlays that each pick their own corner meet in the middle
+                // of a narrow phone, and the notice would cover the meter for
+                // the whole minute it counts.
+                val level = audioLevels[fullscreen.id]
+                if (level != null) {
+                    AudioMeterPill(
+                        cameraName = fullscreen.name,
+                        level = level,
+                        threshold = audioThreshold,
+                    )
+                }
                 InactivityNotice(countdown = countdown, onStay = countdown::reset)
                 ToggleSnackbarHost(snackbarHostState)
             }
@@ -443,6 +464,8 @@ fun MonitorScreen(
                     sources = sources,
                     streams = streams,
                     audibleCameraId = audibleCameraId,
+                    audioLevels = audioLevels,
+                    audioThreshold = audioThreshold,
                     gridState = gridState,
                     onFullscreen = ::promote,
                     modifier = Modifier.fillMaxSize(),
@@ -744,6 +767,8 @@ private fun CameraLayout(
     sources: Map<String, StreamSource>,
     streams: CameraStreams,
     audibleCameraId: String?,
+    audioLevels: Map<String, Float>,
+    audioThreshold: Float,
     gridState: LazyGridState,
     onFullscreen: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -777,6 +802,8 @@ private fun CameraLayout(
                         source = sources[camera.id],
                         streams = streams,
                         audible = audible,
+                        audioLevel = audioLevels[camera.id],
+                        audioThreshold = audioThreshold,
                         onClick = { onFullscreen(camera.id) },
                         modifier = Modifier.fillMaxSize(),
                     )

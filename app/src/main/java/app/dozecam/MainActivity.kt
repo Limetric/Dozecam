@@ -162,6 +162,7 @@ class MainActivity : ComponentActivity() {
                         container.cameras,
                         container.protectCredentials,
                         container.monitoringState,
+                        container.detectorSettings,
                     ),
                 )
                 val cameras by viewModel.cameras.collectAsStateWithLifecycle()
@@ -171,6 +172,8 @@ class MainActivity : ComponentActivity() {
                 val monitoring by viewModel.monitoringRunning.collectAsStateWithLifecycle()
                 val canMonitor by viewModel.canMonitor.collectAsStateWithLifecycle()
                 val stoppedByUser by viewModel.stoppedByUser.collectAsStateWithLifecycle()
+                val audioLevels by viewModel.audioLevels.collectAsStateWithLifecycle()
+                val audioThreshold by viewModel.audioThreshold.collectAsStateWithLifecycle()
                 val reach by networkReach.collectAsStateWithLifecycle()
                 val alertCamera by alertCameraId.collectAsStateWithLifecycle()
                 val soundGranted by audioFocus.granted.collectAsStateWithLifecycle()
@@ -220,6 +223,8 @@ class MainActivity : ComponentActivity() {
                     // asked for likewise waits for the request to be granted
                     // rather than starting on the strength of the setting.
                     soundGranted = soundGranted,
+                    audioLevels = audioLevels,
+                    audioThreshold = audioThreshold,
                     alertCameraId = alertCamera,
                     onAlertConsumed = { alertCameraId.value = null },
                     // The whole viewer is immersive, including the grid. A

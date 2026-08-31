@@ -3,10 +3,13 @@ package app.dozecam.ui.monitor
 import android.widget.FrameLayout
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +34,7 @@ import app.dozecam.data.Camera
 import app.dozecam.player.CameraStreams
 import app.dozecam.player.ConnectionState
 import app.dozecam.player.StreamSource
+import app.dozecam.ui.components.AudioLevelMeter
 import app.dozecam.ui.theme.LocalNightTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -70,6 +74,15 @@ fun CameraTile(
      * indistinguishable from the wrong camera being open.
      */
     audible: Boolean = false,
+    /**
+     * What the monitor is hearing from this camera right now, or null when it
+     * is not listening — a stopped monitor must show no meter at all, because
+     * a bar sitting at zero would claim the room is quiet when the truth is
+     * that nobody is checking.
+     */
+    audioLevel: Float? = null,
+    /** The level at which an alert would fire, marked on the meter. */
+    audioThreshold: Float = 1f,
     onClick: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
@@ -125,22 +138,79 @@ fun CameraTile(
                     .padding(12.dp),
             )
         }
-        if (showLabel) {
-            Text(
-                text = camera.name,
-                style = MaterialTheme.typography.labelLargeEmphasized,
-                color = Color.White,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(12.dp)
-                    .background(
-                        MaterialTheme.colorScheme.scrim.copy(alpha = 0.55f),
-                        MaterialTheme.shapes.small,
-                    )
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
-                    .testTag("camera-label-${camera.name}"),
-            )
+        // The name and the meter share a row so they read as one statement:
+        // this room, this loud. (Fullscreen shows neither — the caller draws
+        // its meter among the other fullscreen controls, where the countdown
+        // notice can be kept from covering it.)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(12.dp)
+                // A weighted label lets a long name stretch the row to the
+                // tile's far edge — where the audible badge lives. Its
+                // footprint is given up front, so the two can never cover
+                // each other.
+                .padding(end = if (audible) 44.dp else 0.dp),
+        ) {
+            if (showLabel) {
+                Text(
+                    text = camera.name,
+                    style = MaterialTheme.typography.labelLargeEmphasized,
+                    color = Color.White,
+                    modifier = Modifier
+                        // Weighted so the meter is measured first: names are
+                        // user-typed and unbounded, and an unweighted label
+                        // would swallow the whole row and squeeze the meter to
+                        // nothing. A long name wraps instead.
+                        .weight(1f, fill = false)
+                        .background(
+                            MaterialTheme.colorScheme.scrim.copy(alpha = 0.55f),
+                            MaterialTheme.shapes.small,
+                        )
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                        .testTag("camera-label-${camera.name}"),
+                )
+            }
+            if (audioLevel != null) {
+                AudioMeterPill(
+                    cameraName = camera.name,
+                    level = audioLevel,
+                    threshold = audioThreshold,
+                )
+            }
         }
+    }
+}
+
+/**
+ * The live level in a scrim pill, styled to sit over video next to the other
+ * tile overlays. Shared by the grid tiles and the fullscreen controls so the
+ * meter looks the same wherever the same fact is being shown.
+ */
+@Composable
+internal fun AudioMeterPill(
+    cameraName: String,
+    level: Float,
+    threshold: Float,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .background(
+                MaterialTheme.colorScheme.scrim.copy(alpha = 0.55f),
+                MaterialTheme.shapes.small,
+            )
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+            .testTag("camera-meter-$cameraName"),
+    ) {
+        AudioLevelMeter(
+            level = level,
+            threshold = threshold,
+            thresholdColor = Color.White,
+            modifier = Modifier.width(64.dp),
+        )
     }
 }
 

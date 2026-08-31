@@ -193,7 +193,7 @@ class MonitoringService : Service() {
                 onLevel = { rms -> state.update(camera.id) { it.copy(level = rms) } },
                 onPhase = { phase -> state.update(camera.id) { it.copy(phase = phase) } },
                 onConnection = { connection ->
-                    state.update(camera.id) { it.copy(connection = connection) }
+                    state.update(camera.id) { it.withConnection(connection) }
                 },
                 onTrigger = { onTrigger(camera) },
             )

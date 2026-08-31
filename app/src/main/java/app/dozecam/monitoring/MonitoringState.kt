@@ -8,10 +8,28 @@ import kotlinx.coroutines.flow.MutableStateFlow
 data class CameraMonitorState(
     val cameraId: String,
     val name: String,
-    val level: Float = 0f,
+    /**
+     * The last RMS decoded on the *current* connection, or null before any
+     * has been. Nullable rather than zero because the two mean opposite
+     * things: 0.0 is a measured silence, null is "nobody has heard this
+     * stream yet" — and a meter shown for the latter would be lying.
+     */
+    val level: Float? = null,
     val phase: SoundDetector.Phase = SoundDetector.Phase.ARMED,
     val connection: ConnectionState = ConnectionState.Connecting,
-)
+) {
+    /**
+     * The one way a connection change is applied, so the rule travels with it:
+     * a level measured on a stream that has since dropped is evidence about
+     * the past, and it must not survive into a connection that has not yet
+     * decoded anything — a player can reach Live off its clock alone, before
+     * (or without ever) producing a PCM buffer.
+     */
+    fun withConnection(connection: ConnectionState): CameraMonitorState = copy(
+        connection = connection,
+        level = if (connection == ConnectionState.Live) level else null,
+    )
+}
 
 /**
  * Live monitoring facts shared between [MonitoringService] (writer) and the

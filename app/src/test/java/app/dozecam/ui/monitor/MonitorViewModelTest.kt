@@ -3,8 +3,12 @@ package app.dozecam.ui.monitor
 import app.dozecam.MainDispatcherRule
 import app.dozecam.data.Camera
 import app.dozecam.data.CameraStore
+import app.dozecam.data.DetectorSettings
+import app.dozecam.data.DetectorSettingsStore
 import app.dozecam.data.ProtectStream
+import app.dozecam.monitoring.CameraMonitorState
 import app.dozecam.monitoring.MonitoringState
+import app.dozecam.player.ConnectionState
 import app.dozecam.player.StreamSource
 import app.dozecam.protect.CredentialsStore
 import app.dozecam.protect.ProtectCredentials
@@ -47,15 +51,28 @@ class MonitorViewModelTest {
         override fun clear() = Unit
     }
 
+    private class FakeDetectorSettings : DetectorSettingsStore {
+        val state = MutableStateFlow(DetectorSettings())
+        override val settings: Flow<DetectorSettings> = state
+        override suspend fun update(transform: (DetectorSettings) -> DetectorSettings) {
+            state.value = transform(state.value)
+        }
+    }
+
+    /** A camera whose monitor is decoding audio — the only state with a meter. */
+    private fun live(id: String, name: String, level: Float) =
+        CameraMonitorState(id, name, level = level, connection = ConnectionState.Live)
 
     private fun viewModel(
         cameras: List<Camera>,
         consoleHost: String? = "console.lan",
         monitoringState: MonitoringState = MonitoringState(),
+        detectorSettings: FakeDetectorSettings = FakeDetectorSettings(),
     ) = MonitorViewModel(
         FakeCameraStore(cameras),
         MutableCredentials(consoleHost),
         monitoringState,
+        detectorSettings,
         ioDispatcher = mainDispatcher.dispatcher,
     )
 
@@ -145,6 +162,7 @@ class MonitorViewModelTest {
             ),
             credentials,
             MonitoringState(),
+            FakeDetectorSettings(),
             ioDispatcher = mainDispatcher.dispatcher,
         )
         runCurrent()
@@ -231,6 +249,141 @@ class MonitorViewModelTest {
 
         assertEquals(listOf("a"), model.unmonitorable.value.map { it.id })
         assertFalse(model.canMonitor.value)
+    }
+
+    @Test
+    fun `each monitored camera reports its own level`() = runTest {
+        val monitoring = MonitoringState()
+        val model = viewModel(
+            listOf(
+                Camera("a", "Nursery", "rtsp://cam:7447/a"),
+                Camera("b", "Play room", "rtsp://cam:7447/b"),
+            ),
+            monitoringState = monitoring,
+        )
+        runCurrent()
+
+        monitoring.put(live("a", "Nursery", level = 0.3f))
+        monitoring.put(live("b", "Play room", level = 0.05f))
+        runCurrent()
+
+        // Per camera, not the peak: the meter's job on a tile is to say which
+        // room the noise is in, which an aggregate cannot.
+        assertEquals(mapOf("a" to 0.3f, "b" to 0.05f), model.audioLevels.value)
+    }
+
+    @Test
+    fun `rounding never carries a quiet level over the threshold`() = runTest {
+        val monitoring = MonitoringState()
+        val model = viewModel(
+            listOf(Camera("a", "Nursery", "rtsp://cam:7447/a")),
+            monitoringState = monitoring,
+        )
+        runCurrent()
+
+        // 0.096 rounds to 0.10 — the default threshold. Shown rounded, the
+        // meter would swell as triggered while the detector says quiet.
+        monitoring.put(live("a", "Nursery", level = 0.096f))
+        runCurrent()
+
+        assertEquals(mapOf("a" to 0.096f), model.audioLevels.value)
+    }
+
+    @Test
+    fun `a monitor that is not live reports no level`() = runTest {
+        val monitoring = MonitoringState()
+        val model = viewModel(
+            listOf(
+                Camera("a", "Nursery", "rtsp://cam:7447/a"),
+                Camera("b", "Play room", "rtsp://cam:7447/b"),
+            ),
+            monitoringState = monitoring,
+        )
+        runCurrent()
+
+        // Still connecting: the zero it holds was never measured. Reconnecting:
+        // the level it holds is from before the stream dropped. Either shown
+        // would be a meter lying about a room nobody can hear.
+        monitoring.put(CameraMonitorState("a", "Nursery"))
+        monitoring.put(
+            live("b", "Play room", level = 0.3f)
+                .withConnection(ConnectionState.Reconnecting(attempt = 1)),
+        )
+        runCurrent()
+
+        assertEquals(emptyMap<String, Float>(), model.audioLevels.value)
+    }
+
+    @Test
+    fun `a live connection that has decoded nothing reports no level`() = runTest {
+        val monitoring = MonitoringState()
+        val model = viewModel(
+            listOf(Camera("a", "Nursery", "rtsp://cam:7447/a")),
+            monitoringState = monitoring,
+        )
+        runCurrent()
+
+        // The player's clock reached Live before its first PCM buffer did. A
+        // meter here would show a zero nobody measured.
+        monitoring.put(CameraMonitorState("a", "Nursery").withConnection(ConnectionState.Live))
+        runCurrent()
+
+        assertEquals(emptyMap<String, Float>(), model.audioLevels.value)
+    }
+
+    @Test
+    fun `noise-floor jitter collapses to one level`() = runTest {
+        val monitoring = MonitoringState()
+        val model = viewModel(
+            listOf(Camera("a", "Nursery", "rtsp://cam:7447/a")),
+            monitoringState = monitoring,
+        )
+        runCurrent()
+
+        // A quiet room reports a slightly different RMS on every buffer; the
+        // viewer must see one value, not a recomposition per buffer all night.
+        monitoring.put(live("a", "Nursery", level = 0.0503f))
+        runCurrent()
+        val first = model.audioLevels.value
+        monitoring.update("a") { it.copy(level = 0.0497f) }
+        runCurrent()
+
+        assertEquals(mapOf("a" to 0.05f), first)
+        assertEquals(first, model.audioLevels.value)
+    }
+
+    @Test
+    fun `a camera the monitor stops listening to loses its level`() = runTest {
+        val monitoring = MonitoringState()
+        val model = viewModel(
+            listOf(Camera("a", "Nursery", "rtsp://cam:7447/a")),
+            monitoringState = monitoring,
+        )
+        monitoring.put(live("a", "Nursery", level = 0.3f))
+        runCurrent()
+
+        monitoring.remove("a")
+        runCurrent()
+
+        // Gone, not zero: a level of 0 would claim the room is quiet when the
+        // truth is nobody is checking.
+        assertEquals(emptyMap<String, Float>(), model.audioLevels.value)
+    }
+
+    @Test
+    fun `the meters mark the same threshold the detector uses`() = runTest {
+        val detector = FakeDetectorSettings()
+        val model = viewModel(
+            listOf(Camera("a", "Nursery", "rtsp://cam:7447/a")),
+            detectorSettings = detector,
+        )
+        runCurrent()
+        assertEquals(DetectorSettings().threshold, model.audioThreshold.value)
+
+        detector.state.value = DetectorSettings(threshold = 0.42f)
+        runCurrent()
+
+        assertEquals(0.42f, model.audioThreshold.value)
     }
 
     @Test

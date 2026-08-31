@@ -54,8 +54,33 @@ class MonitoringStateTest {
         state.update("a") { it.copy(level = 0.3f, connection = ConnectionState.Live) }
 
         assertEquals(0.3f, state.cameras.value.getValue("a").level)
-        assertEquals(0f, state.cameras.value.getValue("b").level)
+        // Unheard, not silent: no level has been decoded for this camera yet.
+        assertNull(state.cameras.value.getValue("b").level)
         assertEquals(ConnectionState.Connecting, state.cameras.value.getValue("b").connection)
+    }
+
+    @Test
+    fun `a dropped connection takes its level with it`() {
+        state.put(CameraMonitorState("a", "Nursery"))
+        state.update("a") { it.copy(level = 0.3f, connection = ConnectionState.Live) }
+
+        state.update("a") { it.withConnection(ConnectionState.Reconnecting(attempt = 1)) }
+
+        // The 0.3 was measured on a stream that no longer exists; carrying it
+        // into the next connection would report a room nobody is hearing.
+        assertNull(state.cameras.value.getValue("a").level)
+    }
+
+    @Test
+    fun `going live does not invent a level`() {
+        state.put(CameraMonitorState("a", "Nursery"))
+
+        // A player can reach Live off its clock alone, before the first PCM
+        // buffer is decoded.
+        state.update("a") { it.withConnection(ConnectionState.Live) }
+
+        assertNull(state.cameras.value.getValue("a").level)
+        assertEquals(ConnectionState.Live, state.cameras.value.getValue("a").connection)
     }
 
     @Test

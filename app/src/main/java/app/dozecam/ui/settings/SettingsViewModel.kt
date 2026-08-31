@@ -55,7 +55,7 @@ class SettingsViewModel(
 
     /** Loudest level across every monitored camera: what the meter shows. */
     val audioLevel: StateFlow<Float> = monitoringState.cameras
-        .map { states -> states.values.maxOfOrNull { it.level } ?: 0f }
+        .map { states -> states.values.maxOfOrNull { it.level ?: 0f } ?: 0f }
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0f)
 
     /**
