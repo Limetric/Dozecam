@@ -1,42 +1,29 @@
 package app.dozecam.ui.settings
 
-import android.media.RingtoneManager
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.ScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ButtonGroupDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.ToggleButton
-import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -45,29 +32,26 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.core.net.toUri
 import app.dozecam.R
 import app.dozecam.data.AppSettings
 import app.dozecam.data.Camera
 import app.dozecam.data.DetectorSettings
-import app.dozecam.data.OrientationLock
-import app.dozecam.data.StreamUrlValidator
-import app.dozecam.monitoring.AlarmSchedule
 import app.dozecam.ui.components.AudioLevelMeter
 import app.dozecam.ui.components.GroupRow
-import app.dozecam.ui.components.GroupSingleShape
 import app.dozecam.ui.components.Section
 import app.dozecam.ui.components.groupShape
-import kotlin.math.roundToInt
-import kotlin.math.roundToLong
 
+/**
+ * Settings is a hub and four category screens, all inside this one composable:
+ * the hub keeps the nightly monitoring switch one tap away and hands everything
+ * else to Cameras, Sound Detection, Alerts, and Display. A search field on the
+ * hub finds any preference row and jumps into the screen that owns it.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -94,6 +78,28 @@ fun SettingsScreen(
     onPreviewAlertSound: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    // A plain string survives process death where a nullable enum would need a
+    // custom saver; "" is the hub.
+    var route by rememberSaveable { mutableStateOf("") }
+    val category = SettingsCategory.entries.firstOrNull { it.name == route }
+    var query by rememberSaveable { mutableStateOf("") }
+    // Deliberately not saveable: a jump highlight that replays after a
+    // configuration change would flash at nothing the user just did.
+    var jumpTarget by remember { mutableStateOf<String?>(null) }
+
+    val goBack = {
+        when {
+            category != null -> {
+                route = ""
+                jumpTarget = null
+            }
+            query.isNotEmpty() -> query = ""
+            else -> onBack()
+        }
+    }
+    // Leaving the activity stays the system's job; only inner levels are ours.
+    BackHandler(enabled = category != null || query.isNotEmpty()) { goBack() }
+
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(
         modifier = modifier
@@ -101,10 +107,10 @@ fun SettingsScreen(
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             LargeFlexibleTopAppBar(
-                title = { Text(stringResource(R.string.settings)) },
+                title = { Text(stringResource(category?.titleRes ?: R.string.settings)) },
                 navigationIcon = {
                     IconButton(
-                        onClick = onBack,
+                        onClick = goBack,
                         shapes = IconButtonDefaults.shapes(),
                         modifier = Modifier.testTag("settings-back"),
                     ) {
@@ -118,104 +124,216 @@ fun SettingsScreen(
             )
         },
     ) { contentPadding ->
+        // Fresh scroll for every screen: arriving in a category at the offset
+        // the hub was left at would open it half-way down.
+        val scrollState = remember(route) { ScrollState(initial = 0) }
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(contentPadding)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 24.dp),
         ) {
-            MonitoringSection(
-                running = monitoringRunning,
-                canMonitor = canMonitor,
-                onToggle = onToggleMonitoring,
-                audioLevel = audioLevel,
-                threshold = detector.threshold,
-            )
-
-            CamerasSection(
-                cameras = cameras,
-                onCameraEnabled = onCameraEnabled,
-                onEdit = onEditCamera,
-                onDelete = onDeleteCamera,
-                onOpenOnboarding = onOpenOnboarding,
-            )
-
-            CameraForm(
-                form = form,
-                onName = onFormName,
-                onUrl = onFormUrl,
-                onSave = onFormSave,
-                onCancel = onFormCancel,
-            )
-
-            DetectorTuning(
-                detector = detector,
-                onDetectorChange = onDetectorChange,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            Section(title = stringResource(R.string.section_appearance)) {
-                SettingSwitchRow(
-                    label = stringResource(R.string.setting_night_theme),
-                    description = stringResource(R.string.setting_night_theme_description),
-                    iconRes = R.drawable.ic_bedtime,
-                    checked = settings.nightTheme,
-                    onCheckedChange = { checked ->
-                        onSettingsChange { it.copy(nightTheme = checked) }
+            when (category) {
+                null -> SettingsHub(
+                    query = query,
+                    onQuery = { query = it },
+                    entries = settingsSearchEntries(settings, detector),
+                    onOpenResult = { entry ->
+                        query = ""
+                        jumpTarget = entry.id
+                        route = entry.category?.name ?: ""
                     },
-                    shape = groupShape(0, 1),
-                    tag = "night-theme-switch",
-                )
-            }
-
-            AlertsSection(
-                settings = settings,
-                onSettingsChange = onSettingsChange,
-                onPickAlertSound = onPickAlertSound,
-                onPreviewAlertSound = onPreviewAlertSound,
-            )
-
-            Section(title = stringResource(R.string.section_monitor)) {
-                // The same switch that floats over the cameras; this copy is
-                // where it gets a name and an explanation.
-                SettingSwitchRow(
-                    label = stringResource(R.string.setting_keep_screen),
-                    description = stringResource(R.string.setting_keep_screen_description),
-                    iconRes = R.drawable.ic_aod,
-                    checked = settings.keepScreenOn,
-                    onCheckedChange = { checked ->
-                        onSettingsChange { it.copy(keepScreenOn = checked) }
+                    onOpenCategory = { opened ->
+                        jumpTarget = null
+                        route = opened.name
                     },
-                    shape = GroupSingleShape,
-                    tag = "keep-screen-switch",
+                    monitoringRunning = monitoringRunning,
+                    canMonitor = canMonitor,
+                    onToggleMonitoring = onToggleMonitoring,
+                    audioLevel = audioLevel,
+                    threshold = detector.threshold,
+                    jumpTarget = jumpTarget,
+                    onJumpDone = { jumpTarget = null },
                 )
-                GroupRow(
-                    headline = stringResource(R.string.setting_orientation),
-                    supporting = stringResource(settings.orientationLock.descriptionRes()),
-                    leading = {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_smartphone),
-                            contentDescription = null,
-                        )
-                    },
+                SettingsCategory.CAMERAS -> CamerasSettings(
+                    cameras = cameras,
+                    onCameraEnabled = onCameraEnabled,
+                    onEdit = onEditCamera,
+                    onDelete = onDeleteCamera,
+                    onOpenOnboarding = onOpenOnboarding,
+                    form = form,
+                    onFormName = onFormName,
+                    onFormUrl = onFormUrl,
+                    onFormSave = onFormSave,
+                    onFormCancel = onFormCancel,
                 )
-                OrientationSelector(
-                    selected = settings.orientationLock,
-                    onSelect = { lock -> onSettingsChange { it.copy(orientationLock = lock) } },
+                SettingsCategory.DETECTION -> DetectionSettings(
+                    detector = detector,
+                    onDetectorChange = onDetectorChange,
+                    jumpTarget = jumpTarget,
+                    onJumpDone = { jumpTarget = null },
                 )
-                TalkbackTuning(settings = settings, onSettingsChange = onSettingsChange)
+                SettingsCategory.ALERTS -> AlertsSettings(
+                    settings = settings,
+                    onSettingsChange = onSettingsChange,
+                    onPickAlertSound = onPickAlertSound,
+                    onPreviewAlertSound = onPreviewAlertSound,
+                    jumpTarget = jumpTarget,
+                    onJumpDone = { jumpTarget = null },
+                )
+                SettingsCategory.DISPLAY -> DisplaySettings(
+                    settings = settings,
+                    onSettingsChange = onSettingsChange,
+                    jumpTarget = jumpTarget,
+                    onJumpDone = { jumpTarget = null },
+                )
             }
         }
     }
 }
 
 /**
- * Arming the monitor, and the level meter that makes the threshold below
- * settable. It lives here rather than over the video: the viewer is for
- * watching, and a control that is only touched at bedtime does not need to
- * occupy the screen all night.
+ * The hub: search on top, then the one control touched every night — arming
+ * the monitor — then the doors to everything tuned once and left alone.
+ */
+@Composable
+private fun SettingsHub(
+    query: String,
+    onQuery: (String) -> Unit,
+    entries: List<SettingSearchEntry>,
+    onOpenResult: (SettingSearchEntry) -> Unit,
+    onOpenCategory: (SettingsCategory) -> Unit,
+    monitoringRunning: Boolean,
+    canMonitor: Boolean,
+    onToggleMonitoring: (Boolean) -> Unit,
+    audioLevel: Float,
+    threshold: Float,
+    jumpTarget: String?,
+    onJumpDone: () -> Unit,
+) {
+    SettingsSearchField(query = query, onQuery = onQuery)
+    if (query.isNotBlank()) {
+        SearchResults(
+            results = searchSettings(query, entries),
+            onOpen = onOpenResult,
+        )
+    } else {
+        MonitoringSection(
+            running = monitoringRunning,
+            canMonitor = canMonitor,
+            onToggle = onToggleMonitoring,
+            audioLevel = audioLevel,
+            threshold = threshold,
+            jumpTarget = jumpTarget,
+            onJumpDone = onJumpDone,
+        )
+        Column(
+            modifier = Modifier.padding(top = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            val categories = SettingsCategory.entries
+            categories.forEachIndexed { index, entry ->
+                GroupRow(
+                    headline = stringResource(entry.titleRes),
+                    supporting = stringResource(entry.summaryRes),
+                    shape = groupShape(index, categories.size),
+                    leading = {
+                        Icon(
+                            painter = painterResource(entry.iconRes),
+                            contentDescription = null,
+                        )
+                    },
+                    trailing = {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                        )
+                    },
+                    onClick = { onOpenCategory(entry) },
+                    modifier = Modifier.testTag("category-${entry.name}"),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsSearchField(
+    query: String,
+    onQuery: (String) -> Unit,
+) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQuery,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp)
+            .testTag("settings-search"),
+        placeholder = { Text(stringResource(R.string.settings_search_hint)) },
+        leadingIcon = {
+            Icon(imageVector = Icons.Default.Search, contentDescription = null)
+        },
+        trailingIcon = if (query.isEmpty()) {
+            null
+        } else {
+            {
+                IconButton(
+                    onClick = { onQuery("") },
+                    shapes = IconButtonDefaults.shapes(),
+                    modifier = Modifier.testTag("settings-search-clear"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Clear,
+                        contentDescription = stringResource(R.string.settings_search_clear),
+                    )
+                }
+            }
+        },
+        singleLine = true,
+    )
+}
+
+@Composable
+private fun SearchResults(
+    results: List<SettingSearchEntry>,
+    onOpen: (SettingSearchEntry) -> Unit,
+) {
+    Column(
+        modifier = Modifier.padding(top = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        if (results.isEmpty()) {
+            Text(
+                text = stringResource(R.string.settings_search_empty),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .testTag("search-empty"),
+            )
+        }
+        results.forEachIndexed { index, entry ->
+            GroupRow(
+                headline = entry.label,
+                // The category names where the jump will land; a hub row has
+                // nowhere else to point, so its description carries the context.
+                supporting = entry.category?.let { stringResource(it.titleRes) }
+                    ?: entry.description,
+                shape = groupShape(index, results.size),
+                onClick = { onOpen(entry) },
+                modifier = Modifier.testTag("search-result-${entry.id}"),
+            )
+        }
+    }
+}
+
+/**
+ * Arming the monitor, and the level meter that makes the detection threshold
+ * settable. It lives on the hub rather than over the video or in a category:
+ * the viewer is for watching, and a control that is touched at bedtime should
+ * not be a navigation level away.
  */
 @Composable
 private fun MonitoringSection(
@@ -224,582 +342,63 @@ private fun MonitoringSection(
     onToggle: (Boolean) -> Unit,
     audioLevel: Float,
     threshold: Float,
+    jumpTarget: String?,
+    onJumpDone: () -> Unit,
 ) {
     Section(title = stringResource(R.string.section_monitoring)) {
-        GroupRow(
-            headline = stringResource(R.string.monitoring_toggle),
-            supporting = stringResource(
-                when {
-                    running -> R.string.monitoring_listening
-                    canMonitor -> R.string.monitoring_idle
-                    else -> R.string.monitoring_unavailable
-                },
-            ),
-            containerColor = if (running) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceContainer
-            },
-            leading = {
-                Icon(
-                    painter = painterResource(R.drawable.ic_graphic_eq),
-                    contentDescription = null,
-                )
-            },
-            trailing = {
-                Switch(
-                    checked = running,
-                    onCheckedChange = onToggle,
-                    enabled = canMonitor,
-                    modifier = Modifier.testTag("monitoring-switch"),
-                )
-            },
-        )
-        AnimatedVisibility(visible = running) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                Text(
-                    text = stringResource(R.string.audio_level_label),
-                    style = MaterialTheme.typography.labelMedium,
-                )
-                AudioLevelMeter(
-                    level = audioLevel,
-                    threshold = threshold,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
-                )
-            }
-        }
-    }
-}
-
-/**
- * A camera's switch is the whole story: an enabled camera is the one the
- * viewer shows *and* the one the monitor listens to, so there is no second
- * "monitor this" choice to make.
- */
-@Composable
-private fun CamerasSection(
-    cameras: List<Camera>,
-    onCameraEnabled: (String, Boolean) -> Unit,
-    onEdit: (Camera) -> Unit,
-    onDelete: (String) -> Unit,
-    onOpenOnboarding: () -> Unit,
-) {
-    Section(title = stringResource(R.string.section_cameras)) {
-        cameras.forEachIndexed { index, camera ->
-            CameraRow(
-                camera = camera,
-                shape = groupShape(index, cameras.size),
-                onEnabled = { enabled -> onCameraEnabled(camera.id, enabled) },
-                onEdit = { onEdit(camera) },
-                onDelete = { onDelete(camera.id) },
-            )
-        }
-        if (cameras.isEmpty()) {
-            Text(
-                text = stringResource(R.string.no_cameras_hint),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp),
-            )
-        }
-        OutlinedButton(
-            onClick = onOpenOnboarding,
-            shapes = ButtonDefaults.shapes(),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp)
-                .testTag("open-onboarding"),
+        JumpTarget(
+            id = SettingIds.MONITORING,
+            jumpTarget = jumpTarget,
+            onJumpDone = onJumpDone,
         ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_videocam),
-                contentDescription = null,
-                modifier = Modifier.padding(end = 8.dp),
-            )
-            Text(stringResource(R.string.connect_to_protect))
-        }
-    }
-}
-
-@Composable
-private fun CameraRow(
-    camera: Camera,
-    shape: Shape,
-    onEnabled: (Boolean) -> Unit,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    // A stale rtsps entry can be watched but never listened to; saying so here
-    // is the only place the user can act on it.
-    val supporting = if (camera.enabled && !StreamUrlValidator.isMonitorable(camera.url)) {
-        stringResource(R.string.camera_not_monitorable)
-    } else {
-        camera.url
-    }
-    GroupRow(
-        headline = camera.name,
-        supporting = supporting,
-        shape = shape,
-        containerColor = if (camera.enabled) {
-            MaterialTheme.colorScheme.secondaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceContainer
-        },
-        leading = {
-            Switch(
-                checked = camera.enabled,
-                onCheckedChange = onEnabled,
-                modifier = Modifier.testTag("camera-enabled-${camera.name}"),
-            )
-        },
-        trailing = {
-            Row {
-                IconButton(
-                    onClick = onEdit,
-                    shapes = IconButtonDefaults.shapes(),
-                    modifier = Modifier.testTag("camera-edit-${camera.name}"),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = stringResource(R.string.edit),
-                    )
-                }
-                IconButton(
-                    onClick = onDelete,
-                    shapes = IconButtonDefaults.shapes(),
-                    modifier = Modifier.testTag("camera-delete-${camera.name}"),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = stringResource(R.string.delete),
-                    )
-                }
-            }
-        },
-        modifier = Modifier.testTag("camera-row-${camera.name}"),
-    )
-}
-
-@Composable
-private fun CameraForm(
-    form: CameraFormState,
-    onName: (String) -> Unit,
-    onUrl: (String) -> Unit,
-    onSave: () -> Unit,
-    onCancel: () -> Unit,
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 8.dp),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        ),
-    ) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(
-                text = stringResource(
-                    if (form.editingId != null) R.string.edit_camera else R.string.add_camera,
-                ),
-                style = MaterialTheme.typography.titleMediumEmphasized,
-            )
-            OutlinedTextField(
-                value = form.name,
-                onValueChange = onName,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("camera-name-field"),
-                label = { Text(stringResource(R.string.camera_name_label)) },
-                singleLine = true,
-            )
-            OutlinedTextField(
-                value = form.url,
-                onValueChange = onUrl,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("camera-url-field"),
-                label = { Text(stringResource(R.string.stream_url_label)) },
-                placeholder = { Text(stringResource(R.string.stream_url_hint)) },
-                singleLine = true,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = onSave,
-                    shapes = ButtonDefaults.shapes(),
-                    enabled = form.canSave,
-                    modifier = Modifier.testTag("camera-save"),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = null,
-                        modifier = Modifier.padding(end = 8.dp),
-                    )
-                    Text(stringResource(R.string.save))
-                }
-                if (form.editingId != null || form.name.isNotEmpty() || form.url.isNotEmpty()) {
-                    OutlinedButton(onClick = onCancel, shapes = ButtonDefaults.shapes()) {
-                        Text(stringResource(R.string.cancel))
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                GroupRow(
+                    headline = stringResource(R.string.monitoring_toggle),
+                    supporting = stringResource(
+                        when {
+                            running -> R.string.monitoring_listening
+                            canMonitor -> R.string.monitoring_idle
+                            else -> R.string.monitoring_unavailable
+                        },
+                    ),
+                    containerColor = if (running) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainer
+                    },
+                    leading = {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_graphic_eq),
+                            contentDescription = null,
+                        )
+                    },
+                    trailing = {
+                        Switch(
+                            checked = running,
+                            onCheckedChange = onToggle,
+                            enabled = canMonitor,
+                            modifier = Modifier.testTag("monitoring-switch"),
+                        )
+                    },
+                )
+                AnimatedVisibility(visible = running) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.audio_level_label),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                        AudioLevelMeter(
+                            level = audioLevel,
+                            threshold = threshold,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
+                        )
                     }
                 }
             }
         }
     }
-}
-
-@Composable
-private fun DetectorTuning(
-    detector: DetectorSettings,
-    onDetectorChange: ((DetectorSettings) -> DetectorSettings) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Section(title = stringResource(R.string.section_detection), modifier = modifier) {
-        Card(
-            shape = MaterialTheme.shapes.extraLarge,
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            ),
-        ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    text = stringResource(R.string.detector_applies_to_all),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
-                Text(
-                    text = stringResource(
-                        R.string.detector_threshold_label,
-                        (detector.threshold * 100).roundToInt(),
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Slider(
-                    value = detector.threshold,
-                    onValueChange = { value -> onDetectorChange { it.copy(threshold = value) } },
-                    valueRange = 0.01f..0.5f,
-                    modifier = Modifier.testTag("threshold-slider"),
-                )
-                Text(
-                    text = stringResource(
-                        R.string.detector_sustain_label,
-                        detector.sustainMs / 1000f,
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Slider(
-                    value = detector.sustainMs / 1000f,
-                    onValueChange = { value ->
-                        onDetectorChange { it.copy(sustainMs = (value * 1000).roundToLong()) }
-                    },
-                    valueRange = 0.5f..5f,
-                    modifier = Modifier.testTag("sustain-slider"),
-                )
-                Text(
-                    text = stringResource(
-                        R.string.detector_quiet_label,
-                        (detector.quietMs / 1000).toInt(),
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Slider(
-                    value = detector.quietMs / 1000f,
-                    onValueChange = { value ->
-                        onDetectorChange { it.copy(quietMs = (value * 1000).roundToLong()) }
-                    },
-                    valueRange = 2f..30f,
-                    modifier = Modifier.testTag("quiet-slider"),
-                )
-            }
-        }
-    }
-}
-
-/**
- * How an alert reaches someone asleep. Every knob here is app-side on purpose:
- * the alert notification channel is deliberately silent, and channel settings
- * are immutable once created, so anything that lived there could never be
- * changed again.
- */
-@Composable
-private fun AlertsSection(
-    settings: AppSettings,
-    onSettingsChange: ((AppSettings) -> AppSettings) -> Unit,
-    onPickAlertSound: () -> Unit,
-    onPreviewAlertSound: () -> Unit,
-) {
-    Section(title = stringResource(R.string.section_alerts)) {
-        SettingSwitchRow(
-            label = stringResource(R.string.setting_alert_chime),
-            description = stringResource(R.string.setting_alert_chime_description),
-            iconRes = R.drawable.ic_volume_up,
-            checked = settings.alertChime,
-            onCheckedChange = { checked -> onSettingsChange { it.copy(alertChime = checked) } },
-            shape = groupShape(0, 4),
-            tag = "chime-switch",
-        )
-        SettingSwitchRow(
-            label = stringResource(R.string.setting_alert_vibrate),
-            description = stringResource(R.string.setting_alert_vibrate_description),
-            iconRes = R.drawable.ic_vibration,
-            checked = settings.alertVibrate,
-            onCheckedChange = { checked -> onSettingsChange { it.copy(alertVibrate = checked) } },
-            shape = groupShape(1, 4),
-            tag = "vibrate-switch",
-        )
-        // Previewable on the spot: nobody should first hear their alert sound
-        // at 3am, and least of all discover then that it is a message tone.
-        GroupRow(
-            headline = stringResource(R.string.setting_alert_sound),
-            supporting = alertSoundTitle(settings),
-            shape = groupShape(2, 4),
-            leading = {
-                Icon(painter = painterResource(R.drawable.ic_alarm), contentDescription = null)
-            },
-            trailing = {
-                IconButton(
-                    onClick = onPreviewAlertSound,
-                    shapes = IconButtonDefaults.shapes(),
-                    modifier = Modifier.testTag("alert-sound-preview"),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = stringResource(R.string.setting_alert_preview),
-                    )
-                }
-            },
-            onClick = onPickAlertSound,
-            modifier = Modifier.testTag("alert-sound-row"),
-        )
-        SettingSwitchRow(
-            label = stringResource(R.string.setting_alert_ramp),
-            description = stringResource(R.string.setting_alert_ramp_description),
-            iconRes = R.drawable.ic_escalate,
-            checked = settings.alertRamp,
-            onCheckedChange = { checked -> onSettingsChange { it.copy(alertRamp = checked) } },
-            shape = groupShape(3, 4),
-            tag = "alert-ramp-switch",
-        )
-
-        AlertTuning(settings = settings, onSettingsChange = onSettingsChange)
-
-    }
-}
-
-/**
- * The two numbers worth having: how loud, and how often. Both are a ceiling on
- * the phone's own alarm volume rather than an override of it — Dozecam plays on
- * the alarm stream and never rewrites what the user set there.
- */
-@Composable
-private fun AlertTuning(
-    settings: AppSettings,
-    onSettingsChange: ((AppSettings) -> AppSettings) -> Unit,
-) {
-    Card(
-        modifier = Modifier.padding(top = 8.dp),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        ),
-    ) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Text(
-                text = stringResource(R.string.alert_tuning_hint),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-            Text(
-                text = stringResource(
-                    R.string.alert_volume_label,
-                    (settings.alertVolume * 100).roundToInt(),
-                ),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Slider(
-                value = settings.alertVolume,
-                onValueChange = { value -> onSettingsChange { it.copy(alertVolume = value) } },
-                // Never zero: an alert nobody can hear is the one bug this whole
-                // section exists to prevent. Silence is what the chime switch is for.
-                valueRange = 0.1f..1f,
-                modifier = Modifier.testTag("alert-volume-slider"),
-            )
-            Text(
-                text = stringResource(
-                    R.string.alert_repeat_label,
-                    (settings.alertRepeatIntervalMs / 1000).toInt(),
-                ),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Slider(
-                value = settings.alertRepeatIntervalMs / 1000f,
-                onValueChange = { value ->
-                    onSettingsChange {
-                        it.copy(alertRepeatIntervalMs = (value * 1000).roundToLong())
-                    }
-                },
-                valueRange = AlarmSchedule.MIN_REPEAT_INTERVAL_MS / 1000f..
-                    AlarmSchedule.MAX_REPEAT_INTERVAL_MS / 1000f,
-                modifier = Modifier.testTag("alert-repeat-slider"),
-            )
-            Text(
-                text = stringResource(R.string.alert_repeat_footnote),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp),
-            )
-        }
-    }
-}
-
-/**
- * How loud a press of the talk button arrives in the room. App-side on
- * purpose: the camera's own speaker volume is a console setting shared with
- * every other viewer, and a baby monitor has no business rewriting it.
- */
-@Composable
-private fun TalkbackTuning(
-    settings: AppSettings,
-    onSettingsChange: ((AppSettings) -> AppSettings) -> Unit,
-) {
-    Card(
-        modifier = Modifier.padding(top = 8.dp),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        ),
-    ) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Text(
-                text = stringResource(
-                    R.string.talkback_volume_label,
-                    (settings.talkbackVolume * 100).roundToInt(),
-                ),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Slider(
-                value = settings.talkbackVolume,
-                onValueChange = { value -> onSettingsChange { it.copy(talkbackVolume = value) } },
-                valueRange = 0f..1f,
-                modifier = Modifier.testTag("talkback-volume-slider"),
-            )
-            Text(
-                text = stringResource(R.string.talkback_volume_footnote),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp),
-            )
-        }
-    }
-}
-
-/** The chosen tone's own name, or an honest description of the fallback. */
-@Composable
-private fun alertSoundTitle(settings: AppSettings): String {
-    val context = LocalContext.current
-    val fallback = stringResource(R.string.setting_alert_sound_unknown)
-    val uri = settings.alertSoundUri ?: return stringResource(R.string.setting_alert_sound_default)
-    return remember(uri, fallback) {
-        // A tone can be on storage that is no longer mounted, or behind a grant
-        // that has since been revoked; the row still has to render.
-        runCatching { RingtoneManager.getRingtone(context, uri.toUri())?.getTitle(context) }
-            .getOrNull()
-            ?: fallback
-    }
-}
-
-/**
- * The orientation lock is a single choice among three, so it reads as a
- * connected button group: outer corners on the ends, the selection carrying the
- * theme's primary tone.
- */
-@Composable
-private fun OrientationSelector(
-    selected: OrientationLock,
-    onSelect: (OrientationLock) -> Unit,
-) {
-    val locks = OrientationLock.entries
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
-    ) {
-        locks.forEachIndexed { index, lock ->
-            ToggleButton(
-                checked = lock == selected,
-                onCheckedChange = { onSelect(lock) },
-                shapes = when (index) {
-                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
-                    locks.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
-                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
-                },
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("orientation-${lock.name}"),
-                contentPadding = ToggleButtonDefaults.ContentPadding,
-            ) {
-                Text(stringResource(lock.shortLabelRes()))
-            }
-        }
-    }
-}
-
-@Composable
-private fun SettingSwitchRow(
-    label: String,
-    description: String,
-    iconRes: Int,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    shape: Shape,
-    tag: String,
-) {
-    GroupRow(
-        headline = label,
-        supporting = description,
-        shape = shape,
-        containerColor = if (checked) {
-            MaterialTheme.colorScheme.secondaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceContainer
-        },
-        leading = {
-            Icon(painter = painterResource(iconRes), contentDescription = null)
-        },
-        trailing = {
-            Switch(
-                checked = checked,
-                onCheckedChange = onCheckedChange,
-                modifier = Modifier.testTag(tag),
-            )
-        },
-        onClick = { onCheckedChange(!checked) },
-    )
-}
-
-private fun OrientationLock.shortLabelRes(): Int = when (this) {
-    OrientationLock.AUTO -> R.string.orientation_auto_short
-    OrientationLock.PORTRAIT -> R.string.orientation_portrait_short
-    OrientationLock.LANDSCAPE -> R.string.orientation_landscape_short
-}
-
-private fun OrientationLock.descriptionRes(): Int = when (this) {
-    OrientationLock.AUTO -> R.string.orientation_auto
-    OrientationLock.PORTRAIT -> R.string.orientation_portrait
-    OrientationLock.LANDSCAPE -> R.string.orientation_landscape
 }
