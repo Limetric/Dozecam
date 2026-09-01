@@ -870,6 +870,24 @@ class MonitorScreenTest {
             .assertExists()
     }
 
+    /**
+     * The overlays are Material surfaces now, and a surface takes pointer
+     * input for itself so taps cannot fall through to whatever is behind it.
+     * The tile is not behind them, though — it is around them — and a tap on
+     * the name of a room is a tap on that room.
+     */
+    @Test
+    fun `tapping a camera's name opens that camera`() {
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery, playroom), audioLevels = mapOf("a" to 0.3f))
+        }
+
+        composeRule.onNodeWithTag("camera-label-Nursery", useUnmergedTree = true)
+            .performClick()
+
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+    }
+
     @Test
     fun `a camera the monitor is not hearing shows no meter`() {
         // The monitor reports on the nursery only — the play room might be
@@ -1013,8 +1031,10 @@ class MonitorScreenTest {
 
         // A tap says "I am still here" — the whole wait starts over, and the
         // camera does not fall back to the grid under someone's eyes.
+        // (A tick later than the wait itself: the screen watches for a hand
+        // landing rather than lifting, so the minute restarts on the press.)
         composeRule.onNodeWithTag("fullscreen-tile").assertExists()
-        composeRule.onNodeWithTag("inactivity-countdown").assertTextEquals("All cameras in 1s")
+        composeRule.onNodeWithTag("inactivity-countdown").assertTextEquals("All cameras in 2s")
     }
 
     @Test
@@ -1112,6 +1132,42 @@ class MonitorScreenTest {
                 end1 = center + Offset(width / 8f, 0f),
             )
         }
+        composeRule.mainClock.advanceTimeBy(INACTIVITY_MS - 1_000)
+
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+    }
+
+    /**
+     * The chrome over a fullscreen camera sits beside the picture rather than
+     * inside it, and a Material surface takes touches for itself instead of
+     * letting them fall through. Touching any of it is still somebody being
+     * there — the countdown's own sentence most of all, which is exactly what
+     * a hand reaches for while reading how long is left.
+     */
+    @Test
+    fun `touching the countdown itself keeps the camera up`() {
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery, playroom), audioLevels = mapOf("a" to 0.3f))
+        }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.mainClock.advanceTimeBy(INACTIVITY_MS - 1_000)
+
+        composeRule.onNodeWithTag("inactivity-countdown").performClick()
+        composeRule.mainClock.advanceTimeBy(INACTIVITY_MS - 1_000)
+
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+    }
+
+    @Test
+    fun `touching the level meter keeps the camera up`() {
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery, playroom), audioLevels = mapOf("a" to 0.3f))
+        }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.mainClock.advanceTimeBy(INACTIVITY_MS - 1_000)
+
+        composeRule.onNodeWithTag("camera-meter-Nursery", useUnmergedTree = true)
+            .performClick()
         composeRule.mainClock.advanceTimeBy(INACTIVITY_MS - 1_000)
 
         composeRule.onNodeWithTag("fullscreen-tile").assertExists()

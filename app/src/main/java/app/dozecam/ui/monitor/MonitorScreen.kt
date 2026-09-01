@@ -38,6 +38,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -521,7 +522,23 @@ fun MonitorScreen(
                     // A zoomed picture pans with one finger, and a pan that
                     // began near the edge is aiming the view, not leaving it.
                     enabled = { zoom.scale <= 1f },
-                ) { fullscreenId = null },
+                ) { fullscreenId = null }
+                // Presence is a hand on this screen, not a hand on the picture.
+                // The chrome sits beside the tile rather than inside it, and
+                // each pill is a surface that takes its own touches — so a tap
+                // on the countdown's own sentence, the one thing a hand reaches
+                // for while reading how long is left, would otherwise reach
+                // nothing and let the grid take the room back anyway.
+                //
+                // Watched rather than handled: this claims no gesture and
+                // consumes nothing, so the tile's tap, the pinch, the edge
+                // swipe and every button underneath behave exactly as before.
+                .pointerInput(countdown) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                        countdown.reset()
+                    }
+                },
         ) {
             CameraTile(
                 camera = fullscreen,
@@ -1121,36 +1138,43 @@ private fun NetworkNotice(reach: NetworkReach, modifier: Modifier = Modifier) {
         NetworkReach.OFFLINE -> R.string.viewer_no_network
         NetworkReach.MOBILE_DATA -> R.string.viewer_off_wifi
     }
-    Text(
-        text = stringResource(message),
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onErrorContainer,
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        shape = MaterialTheme.shapes.large,
         modifier = modifier
-            .background(MaterialTheme.colorScheme.errorContainer, MaterialTheme.shapes.large)
-            .padding(horizontal = 16.dp, vertical = 12.dp)
             // Worth interrupting for, and only ever a sentence — nothing like
             // the countdown next door, which changes every second.
             .semantics { liveRegion = LiveRegionMode.Polite }
             .testTag("network-notice"),
-    )
+    ) {
+        Text(
+            text = stringResource(message),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        )
+    }
 }
 
 /** Enabled but not listenable: say so rather than imply full coverage. */
 @Composable
 private fun UnmonitorableNotice(cameras: List<Camera>) {
-    Text(
-        text = pluralStringResource(
-            R.plurals.viewer_unmonitorable,
-            cameras.size,
-            cameras.size,
-            cameras.joinToString { it.name },
-        ),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onErrorContainer,
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.errorContainer)
-            .padding(horizontal = 16.dp, vertical = 8.dp)
             .testTag("unmonitorable-notice"),
-    )
+    ) {
+        Text(
+            text = pluralStringResource(
+                R.plurals.viewer_unmonitorable,
+                cameras.size,
+                cameras.size,
+                cameras.joinToString { it.name },
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        )
+    }
 }

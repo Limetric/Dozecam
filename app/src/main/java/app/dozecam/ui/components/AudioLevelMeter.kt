@@ -10,11 +10,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 
@@ -32,13 +32,11 @@ fun AudioLevelMeter(
     level: Float,
     threshold: Float,
     modifier: Modifier = Modifier,
-    /**
-     * The tick's color is the caller's problem: on a settings card the theme's
-     * onSurface reads fine, but the same color vanishes against the dark scrim
-     * a camera tile draws this on in day theme.
-     */
-    thresholdColor: Color = MaterialTheme.colorScheme.onSurface,
 ) {
+    // Inherited from whatever surface the meter was placed on, so the tick is
+    // legible on a settings card and on a tile's overlay over video without
+    // either caller having to know which it is.
+    val thresholdColor = LocalContentColor.current
     val scale = 0.5f
     val levelFraction = (level / scale).coerceIn(0f, 1f)
     val thresholdFraction = (threshold / scale).coerceIn(0f, 1f)

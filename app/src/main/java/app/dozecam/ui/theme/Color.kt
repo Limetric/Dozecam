@@ -103,8 +103,3 @@ internal val NightRedColorScheme = darkColorScheme(
     onErrorContainer = Color(0xFFE89896),
     scrim = Color.Black,
 )
-
-/** Live-state accents that must stay legible on top of arbitrary video. */
-internal val StatusLive = Color(0xFF66BB6A)
-internal val StatusWaiting = Color(0xFFFFB74D)
-internal val StatusOffline = Color(0xFFEF5350)
