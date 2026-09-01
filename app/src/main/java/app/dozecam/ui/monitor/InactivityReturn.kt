@@ -1,6 +1,5 @@
 package app.dozecam.ui.monitor
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -19,7 +18,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -27,7 +25,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import app.dozecam.R
-import app.dozecam.ui.theme.LocalNightTheme
 import kotlinx.coroutines.delay
 import kotlin.math.ceil
 
@@ -133,11 +130,10 @@ internal fun rememberInactivityCountdown(
  */
 @Composable
 internal fun InactivityBar(countdown: InactivityCountdown, modifier: Modifier = Modifier) {
-    val night = LocalNightTheme.current
     LinearProgressIndicator(
         progress = { countdown.fraction },
-        color = if (night) MaterialTheme.colorScheme.primary else Color.White,
-        trackColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.55f),
+        color = MaterialTheme.colorScheme.primary,
+        trackColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = VIDEO_OVERLAY_ALPHA),
         modifier = modifier
             .fillMaxWidth()
             .testTag("inactivity-bar"),
@@ -157,31 +153,27 @@ internal fun InactivityNotice(
     onStay: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val night = LocalNightTheme.current
-    val content = if (night) MaterialTheme.colorScheme.primary else Color.White
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier
-            .background(
-                MaterialTheme.colorScheme.scrim.copy(alpha = 0.55f),
-                MaterialTheme.shapes.large,
-            )
-            .padding(start = 16.dp, end = 4.dp)
-            .testTag("inactivity-notice"),
-    ) {
-        Text(
-            // Deliberately not a live region: a screen reader announcing a new
-            // number every second would be its own kind of alarm.
-            text = stringResource(R.string.viewer_returning_in, countdown.remainingSeconds),
-            style = MaterialTheme.typography.labelLarge,
-            color = content,
-            modifier = Modifier.testTag("inactivity-countdown"),
-        )
-        TextButton(
-            onClick = onStay,
-            modifier = Modifier.testTag("inactivity-stay"),
+    VideoOverlaySurface(modifier = modifier.testTag("inactivity-notice")) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(start = 16.dp, end = 4.dp),
         ) {
-            Text(text = stringResource(R.string.viewer_stay), color = content)
+            Text(
+                // Deliberately not a live region: a screen reader announcing a
+                // new number every second would be its own kind of alarm.
+                text = stringResource(R.string.viewer_returning_in, countdown.remainingSeconds),
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.testTag("inactivity-countdown"),
+            )
+            // Left to the theme's own accent rather than tinted to match the
+            // sentence beside it: this is the one thing here that can be
+            // pressed, and it should look like it.
+            TextButton(
+                onClick = onStay,
+                modifier = Modifier.testTag("inactivity-stay"),
+            ) {
+                Text(text = stringResource(R.string.viewer_stay))
+            }
         }
     }
 }

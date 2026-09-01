@@ -7,16 +7,7 @@ import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalContext
-
-/**
- * Whether the dim red night palette is in force. Content drawn over video sits
- * outside the colour scheme's control and has to make its own call about how
- * much light it may emit.
- */
-val LocalNightTheme = staticCompositionLocalOf { false }
 
 /**
  * Material 3 Expressive theming for Dozecam.
@@ -26,6 +17,11 @@ val LocalNightTheme = staticCompositionLocalOf { false }
  * rather than a fallback, and light/dark tracks the system setting. Only two
  * things override it — the night palette the user asks for explicitly, and
  * [dynamicColor] = false for previews and host-side tests.
+ *
+ * Nothing reads the palette's identity, only its roles. Chrome drawn over video
+ * used to ask whether the night palette was in force so it could decide how
+ * much light to emit; it takes the surface and accent roles now, which the
+ * night palette has already dimmed, so there is one code path for every theme.
  */
 @Composable
 fun DozecamTheme(
@@ -42,11 +38,9 @@ fun DozecamTheme(
         darkTheme -> DarkColorScheme
         else -> LightColorScheme
     }
-    CompositionLocalProvider(LocalNightTheme provides nightTheme) {
-        MaterialExpressiveTheme(
-            colorScheme = colorScheme,
-            motionScheme = MotionScheme.expressive(),
-            content = content,
-        )
-    }
+    MaterialExpressiveTheme(
+        colorScheme = colorScheme,
+        motionScheme = MotionScheme.expressive(),
+        content = content,
+    )
 }

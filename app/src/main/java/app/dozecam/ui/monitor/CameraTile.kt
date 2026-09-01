@@ -39,7 +39,6 @@ import app.dozecam.player.CameraStreams
 import app.dozecam.player.ConnectionState
 import app.dozecam.player.StreamSource
 import app.dozecam.ui.components.AudioLevelMeter
-import app.dozecam.ui.theme.LocalNightTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -208,23 +207,22 @@ fun CameraTile(
                 .padding(end = if (audible) 44.dp else 0.dp),
         ) {
             if (showLabel) {
-                Text(
-                    text = camera.name,
-                    style = MaterialTheme.typography.labelLargeEmphasized,
-                    color = Color.White,
+                VideoOverlaySurface(
+                    shape = MaterialTheme.shapes.small,
                     modifier = Modifier
                         // Weighted so the meter is measured first: names are
                         // user-typed and unbounded, and an unweighted label
                         // would swallow the whole row and squeeze the meter to
                         // nothing. A long name wraps instead.
                         .weight(1f, fill = false)
-                        .background(
-                            MaterialTheme.colorScheme.scrim.copy(alpha = 0.55f),
-                            MaterialTheme.shapes.small,
-                        )
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
                         .testTag("camera-label-${camera.name}"),
-                )
+                ) {
+                    Text(
+                        text = camera.name,
+                        style = MaterialTheme.typography.labelLargeEmphasized,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    )
+                }
             }
             if (audioLevel != null) {
                 AudioMeterPill(
@@ -238,9 +236,9 @@ fun CameraTile(
 }
 
 /**
- * The live level in a scrim pill, styled to sit over video next to the other
- * tile overlays. Shared by the grid tiles and the fullscreen controls so the
- * meter looks the same wherever the same fact is being shown.
+ * The live level on the same overlay surface as the rest of the tile's chrome.
+ * Shared by the grid tiles and the fullscreen controls so the meter looks the
+ * same wherever the same fact is being shown.
  */
 @Composable
 internal fun AudioMeterPill(
@@ -249,20 +247,16 @@ internal fun AudioMeterPill(
     threshold: Float,
     modifier: Modifier = Modifier,
 ) {
-    Box(
-        modifier = modifier
-            .background(
-                MaterialTheme.colorScheme.scrim.copy(alpha = 0.55f),
-                MaterialTheme.shapes.small,
-            )
-            .padding(horizontal = 10.dp, vertical = 4.dp)
-            .testTag("camera-meter-$cameraName"),
+    VideoOverlaySurface(
+        shape = MaterialTheme.shapes.small,
+        modifier = modifier.testTag("camera-meter-$cameraName"),
     ) {
         AudioLevelMeter(
             level = level,
             threshold = threshold,
-            thresholdColor = Color.White,
-            modifier = Modifier.width(64.dp),
+            modifier = Modifier
+                .padding(horizontal = 10.dp, vertical = 4.dp)
+                .width(64.dp),
         )
     }
 }
@@ -274,16 +268,17 @@ internal fun AudioMeterPill(
  */
 @Composable
 private fun AudibleBadge(cameraName: String, modifier: Modifier = Modifier) {
-    val night = LocalNightTheme.current
-    val colorScheme = MaterialTheme.colorScheme
-    Icon(
-        painter = painterResource(R.drawable.ic_volume_up),
-        contentDescription = stringResource(R.string.viewer_audible_camera, cameraName),
-        tint = if (night) colorScheme.primary else Color.White,
-        modifier = modifier
-            .background(colorScheme.scrim.copy(alpha = 0.55f), CircleShape)
-            .padding(8.dp)
-            .size(20.dp)
-            .testTag("audible-badge-$cameraName"),
-    )
+    VideoOverlaySurface(
+        shape = CircleShape,
+        modifier = modifier.testTag("audible-badge-$cameraName"),
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_volume_up),
+            contentDescription = stringResource(R.string.viewer_audible_camera, cameraName),
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .padding(8.dp)
+                .size(20.dp),
+        )
+    }
 }

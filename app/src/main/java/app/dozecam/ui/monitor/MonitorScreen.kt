@@ -38,6 +38,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -1121,36 +1122,43 @@ private fun NetworkNotice(reach: NetworkReach, modifier: Modifier = Modifier) {
         NetworkReach.OFFLINE -> R.string.viewer_no_network
         NetworkReach.MOBILE_DATA -> R.string.viewer_off_wifi
     }
-    Text(
-        text = stringResource(message),
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onErrorContainer,
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        shape = MaterialTheme.shapes.large,
         modifier = modifier
-            .background(MaterialTheme.colorScheme.errorContainer, MaterialTheme.shapes.large)
-            .padding(horizontal = 16.dp, vertical = 12.dp)
             // Worth interrupting for, and only ever a sentence — nothing like
             // the countdown next door, which changes every second.
             .semantics { liveRegion = LiveRegionMode.Polite }
             .testTag("network-notice"),
-    )
+    ) {
+        Text(
+            text = stringResource(message),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        )
+    }
 }
 
 /** Enabled but not listenable: say so rather than imply full coverage. */
 @Composable
 private fun UnmonitorableNotice(cameras: List<Camera>) {
-    Text(
-        text = pluralStringResource(
-            R.plurals.viewer_unmonitorable,
-            cameras.size,
-            cameras.size,
-            cameras.joinToString { it.name },
-        ),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onErrorContainer,
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.errorContainer)
-            .padding(horizontal = 16.dp, vertical = 8.dp)
             .testTag("unmonitorable-notice"),
-    )
+    ) {
+        Text(
+            text = pluralStringResource(
+                R.plurals.viewer_unmonitorable,
+                cameras.size,
+                cameras.size,
+                cameras.joinToString { it.name },
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        )
+    }
 }

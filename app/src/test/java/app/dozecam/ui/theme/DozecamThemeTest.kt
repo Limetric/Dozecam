@@ -47,18 +47,20 @@ class DozecamThemeTest {
     }
 
     @Test
-    fun `night theme overrides the user's colours and is published to overlays`() {
-        var applied: Color? = null
-        var night: Boolean? = null
+    fun `night theme overrides the user's colours`() {
+        var primary: Color? = null
+        var surface: Color? = null
         composeRule.setContent {
             DozecamTheme(nightTheme = true) {
-                applied = MaterialTheme.colorScheme.primary
-                night = LocalNightTheme.current
+                primary = MaterialTheme.colorScheme.primary
+                // Overlays over video take their container from this role, so
+                // the night palette dims them without a branch of their own.
+                surface = MaterialTheme.colorScheme.surfaceContainer
             }
         }
 
-        assertEquals(NightRedColorScheme.primary, applied)
-        assertEquals(true, night)
+        assertEquals(NightRedColorScheme.primary, primary)
+        assertEquals(NightRedColorScheme.surfaceContainer, surface)
     }
 
     @Test

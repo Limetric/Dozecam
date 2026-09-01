@@ -1,6 +1,5 @@
 package app.dozecam.ui.monitor
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Row
@@ -18,7 +17,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -28,7 +26,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.dozecam.R
 import app.dozecam.audio.talkback.TalkbackAvailability
-import app.dozecam.ui.theme.LocalNightTheme
 
 /**
  * Hold to talk into the room on screen.
@@ -67,21 +64,22 @@ internal fun TalkbackButton(
     // would be worse than one that arrives once.
     if (availability is TalkbackAvailability.Resolving) return
 
-    val night = LocalNightTheme.current
     val colorScheme = MaterialTheme.colorScheme
     val ready = availability is TalkbackAvailability.Ready
 
+    // Talking is the one state that takes the accent for itself: an open
+    // microphone is worth seeing from the other side of the room, and the
+    // filled container says it before the label is read.
+    val container = if (talking) colorScheme.primary else colorScheme.surfaceContainer
     val content = when {
         talking -> colorScheme.onPrimary
-        ready && night -> colorScheme.primary
-        ready -> Color.White
+        ready -> colorScheme.onSurface
         // Dimmed rather than hidden: the feature exists on this screen even
         // when this camera cannot use it, and hiding it invites the question
-        // again on every visit.
-        else -> Color.White.copy(alpha = 0.5f)
+        // again on every visit. The disabled alpha is Material's, so the
+        // control reads as unavailable the same way the rest of the app's do.
+        else -> colorScheme.onSurface.copy(alpha = 0.38f)
     }
-    val background =
-        if (talking) colorScheme.primary else colorScheme.scrim.copy(alpha = 0.55f)
 
     val description = stringResource(
         when {
@@ -125,30 +123,34 @@ internal fun TalkbackButton(
         Modifier.clickable(onClick = onExplain)
     }
 
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
+    VideoOverlaySurface(
+        shape = CircleShape,
+        color = container,
+        contentColor = content,
         modifier = modifier
-            .background(background, CircleShape)
             .then(gestures)
-            .padding(horizontal = if (talking) 14.dp else 8.dp, vertical = 8.dp)
             .semantics { contentDescription = description }
             .testTag("talkback-button"),
     ) {
-        Icon(
-            painter = painterResource(if (ready || talking) R.drawable.ic_mic else R.drawable.ic_mic_off),
-            contentDescription = null,
-            tint = content,
-            modifier = Modifier.size(20.dp),
-        )
-        if (talking) {
-            Text(
-                text = stringResource(R.string.talkback_talking),
-                style = MaterialTheme.typography.labelLarge,
-                color = content,
-                modifier = Modifier
-                    .padding(start = 8.dp)
-                    .testTag("talkback-talking"),
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .padding(horizontal = if (talking) 14.dp else 8.dp, vertical = 8.dp),
+        ) {
+            Icon(
+                painter = painterResource(if (ready || talking) R.drawable.ic_mic else R.drawable.ic_mic_off),
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
             )
+            if (talking) {
+                Text(
+                    text = stringResource(R.string.talkback_talking),
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .testTag("talkback-talking"),
+                )
+            }
         }
     }
 }
@@ -167,20 +169,14 @@ internal fun TalkbackNotice(
     modifier: Modifier = Modifier,
 ) {
     val reason = availability.explanation() ?: return
-    val night = LocalNightTheme.current
 
-    Text(
-        text = stringResource(reason),
-        style = MaterialTheme.typography.labelLarge,
-        color = if (night) MaterialTheme.colorScheme.primary else Color.White,
-        modifier = modifier
-            .background(
-                MaterialTheme.colorScheme.scrim.copy(alpha = 0.55f),
-                MaterialTheme.shapes.large,
-            )
-            .padding(horizontal = 16.dp, vertical = 10.dp)
-            .testTag("talkback-notice"),
-    )
+    VideoOverlaySurface(modifier = modifier.testTag("talkback-notice")) {
+        Text(
+            text = stringResource(reason),
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+        )
+    }
 }
 
 private fun TalkbackAvailability.explanation(): Int? = when (this) {

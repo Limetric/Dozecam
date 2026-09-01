@@ -870,6 +870,24 @@ class MonitorScreenTest {
             .assertExists()
     }
 
+    /**
+     * The overlays are Material surfaces now, and a surface takes pointer
+     * input for itself so taps cannot fall through to whatever is behind it.
+     * The tile is not behind them, though — it is around them — and a tap on
+     * the name of a room is a tap on that room.
+     */
+    @Test
+    fun `tapping a camera's name opens that camera`() {
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery, playroom), audioLevels = mapOf("a" to 0.3f))
+        }
+
+        composeRule.onNodeWithTag("camera-label-Nursery", useUnmergedTree = true)
+            .performClick()
+
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+    }
+
     @Test
     fun `a camera the monitor is not hearing shows no meter`() {
         // The monitor reports on the nursery only — the play room might be
