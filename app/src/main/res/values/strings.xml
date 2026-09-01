@@ -83,9 +83,15 @@
     <string name="section_monitoring">Monitoring</string>
     <string name="section_cameras">Cameras</string>
     <string name="section_detection">Sound detection</string>
-    <string name="section_appearance">Appearance</string>
     <string name="section_alerts">Alerts</string>
-    <string name="section_monitor">Monitor</string>
+    <string name="section_display">Display</string>
+    <string name="category_cameras_summary">Add, switch on, and edit cameras</string>
+    <string name="category_detection_summary">How loud, how long, and when to re-arm</string>
+    <string name="category_alerts_summary">Chime, vibration, sound, and volume</string>
+    <string name="category_display_summary">Theme, screen, orientation, and talk-back</string>
+    <string name="settings_search_hint">Search settings</string>
+    <string name="settings_search_clear">Clear search</string>
+    <string name="settings_search_empty">No settings match</string>
     <string name="detector_threshold_label">Sound threshold: %1$d%%</string>
     <string name="detector_sustain_label">Trigger after: %1$.1f s of sound</string>
     <string name="detector_quiet_label">Re-arm after: %1$d s of quiet</string>

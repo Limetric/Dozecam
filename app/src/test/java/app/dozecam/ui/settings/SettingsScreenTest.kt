@@ -1,17 +1,14 @@
 package app.dozecam.ui.settings
 
-import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.semantics.SemanticsActions
-import androidx.test.core.app.ApplicationProvider
-import app.dozecam.R
 import app.dozecam.data.AppSettings
 import app.dozecam.data.Camera
 import app.dozecam.data.DetectorSettings
@@ -89,213 +86,26 @@ class SettingsScreenTest {
         }
     }
 
-    @Test
-    fun `toggling night theme reports the change`() {
-        var changed: AppSettings? = null
-        composeRule.setContent {
-            Screen(
-                settings = AppSettings(nightTheme = false),
-                onSettingsChange = { changed = it(AppSettings(nightTheme = false)) },
-            )
-        }
-
-        composeRule.onNodeWithTag("night-theme-switch").performScrollTo().performClick()
-
-        assertEquals(true, changed?.nightTheme)
+    /** The rows now live behind category doors; tests walk through them too. */
+    private fun openCategory(category: SettingsCategory) {
+        composeRule.onNodeWithTag("category-${category.name}").performScrollTo().performClick()
     }
 
-    @Test
-    fun `toggling keep screen awake reports the change`() {
-        var changed: AppSettings? = null
-        composeRule.setContent {
-            Screen(
-                settings = AppSettings(keepScreenOn = true),
-                onSettingsChange = { changed = it(AppSettings(keepScreenOn = true)) },
-            )
-        }
-
-        composeRule.onNodeWithTag("keep-screen-switch").performScrollTo().performClick()
-
-        assertEquals(false, changed?.keepScreenOn)
-    }
+    // ---- Hub ----
 
     @Test
-    fun `choosing an orientation lock reports the change`() {
-        var changed: AppSettings? = null
-        composeRule.setContent {
-            Screen(onSettingsChange = { changed = it(AppSettings()) })
-        }
-
-        composeRule.onNodeWithTag("orientation-LANDSCAPE").performScrollTo().performClick()
-
-        assertEquals(OrientationLock.LANDSCAPE, changed?.orientationLock)
-    }
-
-    @Test
-    fun `disabling the chime reports the change`() {
-        var changed: AppSettings? = null
-        composeRule.setContent {
-            Screen(
-                settings = AppSettings(alertChime = true),
-                onSettingsChange = { changed = it(AppSettings(alertChime = true)) },
-            )
-        }
-
-        composeRule.onNodeWithTag("chime-switch").performScrollTo().performClick()
-
-        assertEquals(false, changed?.alertChime)
-    }
-
-    @Test
-    fun `the alert sound row opens the picker`() {
-        var picked = false
-        composeRule.setContent { Screen(onPickAlertSound = { picked = true }) }
-
-        composeRule.onNodeWithTag("alert-sound-row").performScrollTo().performClick()
-
-        assertEquals(true, picked)
-    }
-
-    /** Nobody should first hear their alert sound at 3am. */
-    @Test
-    fun `the alert sound can be previewed without leaving settings`() {
-        var previewed = false
-        composeRule.setContent { Screen(onPreviewAlertSound = { previewed = true }) }
-
-        composeRule.onNodeWithTag("alert-sound-preview").performScrollTo().performClick()
-
-        assertEquals(true, previewed)
-    }
-
-    @Test
-    fun `switching the ramp off reports the change`() {
-        var changed: AppSettings? = null
-        composeRule.setContent {
-            Screen(
-                settings = AppSettings(alertRamp = true),
-                onSettingsChange = { changed = it(AppSettings(alertRamp = true)) },
-            )
-        }
-
-        composeRule.onNodeWithTag("alert-ramp-switch").performScrollTo().performClick()
-
-        assertEquals(false, changed?.alertRamp)
-    }
-
-    @Test
-    fun `the alert volume and repeat interval are settable`() {
-        var changed: AppSettings? = null
-        composeRule.setContent {
-            Screen(onSettingsChange = { changed = it(AppSettings()) })
-        }
-
-        composeRule.onNodeWithTag("alert-volume-slider").performScrollTo()
-            .performSemanticsAction(SemanticsActions.SetProgress) { it(0.5f) }
-        assertEquals(0.5f, changed?.alertVolume)
-
-        composeRule.onNodeWithTag("alert-repeat-slider").performScrollTo()
-            .performSemanticsAction(SemanticsActions.SetProgress) { it(15f) }
-        assertEquals(15_000L, changed?.alertRepeatIntervalMs)
-    }
-
-    @Test
-    fun `the talk-back volume is settable`() {
-        var changed: AppSettings? = null
-        composeRule.setContent {
-            Screen(onSettingsChange = { changed = it(AppSettings()) })
-        }
-
-        composeRule.onNodeWithTag("talkback-volume-slider").performScrollTo()
-            .performSemanticsAction(SemanticsActions.SetProgress) { it(0.3f) }
-
-        assertEquals(0.3f, changed?.talkbackVolume)
-    }
-
-    @Test
-    fun `switching a camera off reports it by id`() {
-        var call: Pair<String, Boolean>? = null
-        composeRule.setContent { Screen(onCameraEnabled = { id, on -> call = id to on }) }
-
-        composeRule.onNodeWithTag("camera-enabled-Nursery").performScrollTo().performClick()
-
-        assertEquals("a" to false, call)
-    }
-
-    @Test
-    fun `switching a disabled camera back on reports it`() {
-        var call: Pair<String, Boolean>? = null
-        composeRule.setContent { Screen(onCameraEnabled = { id, on -> call = id to on }) }
-
-        composeRule.onNodeWithTag("camera-enabled-Play room").performScrollTo().performClick()
-
-        assertEquals("b" to true, call)
-    }
-
-    @Test
-    fun `editing a camera hands back the whole camera`() {
-        var edited: Camera? = null
-        composeRule.setContent { Screen(onEditCamera = { edited = it }) }
-
-        composeRule.onNodeWithTag("camera-edit-Nursery").performScrollTo().performClick()
-
-        assertEquals(nursery, edited)
-    }
-
-    @Test
-    fun `deleting a camera reports its id`() {
-        var deleted: String? = null
-        composeRule.setContent { Screen(onDeleteCamera = { deleted = it }) }
-
-        composeRule.onNodeWithTag("camera-delete-Play room").performScrollTo().performClick()
-
-        assertEquals("b", deleted)
-    }
-
-    @Test
-    fun `the detector sliders live here now`() {
-        var changed: DetectorSettings? = null
-        composeRule.setContent {
-            Screen(onDetectorChange = { changed = it(DetectorSettings()) })
-        }
-
-        composeRule.onNodeWithTag("threshold-slider").performScrollTo()
-            .performSemanticsAction(SemanticsActions.SetProgress) { it(0.4f) }
-
-        assertEquals(0.4f, changed?.threshold)
-    }
-
-    @Test
-    fun `an unsaveable form cannot be saved`() {
-        var saved = false
-        composeRule.setContent {
-            Screen(
-                form = CameraFormState(name = "Nursery", url = "not-a-url"),
-                onFormSave = { saved = true },
-            )
-        }
-
-        composeRule.onNodeWithTag("camera-save").performScrollTo().performClick()
-
-        assertFalse(saved)
-    }
-
-    @Test
-    fun `an empty camera list still offers the console route`() {
-        composeRule.setContent { Screen(cameras = emptyList()) }
-
-        composeRule.onNodeWithTag("open-onboarding").performScrollTo().assertIsDisplayed()
-    }
-
-    @Test
-    fun `choosing which camera to monitor is gone`() {
+    fun `the hub offers every category`() {
         composeRule.setContent { Screen() }
 
-        // Enabled is the whole story now: there is no second "monitor this" pick.
-        composeRule.onNodeWithTag("camera-select-Nursery").assertDoesNotExist()
+        SettingsCategory.entries.forEach { category ->
+            composeRule.onNodeWithTag("category-${category.name}")
+                .performScrollTo()
+                .assertIsDisplayed()
+        }
     }
 
     @Test
-    fun `arming monitoring lives here now`() {
+    fun `arming monitoring lives on the hub`() {
         var toggled: Boolean? = null
         composeRule.setContent {
             Screen(monitoringRunning = false, onToggleMonitoring = { toggled = it })
@@ -332,5 +142,327 @@ class SettingsScreenTest {
         composeRule.setContent { Screen(monitoringRunning = true, audioLevel = 0.3f) }
 
         composeRule.onNodeWithTag("audio-level-meter").performScrollTo().assertExists()
+    }
+
+    @Test
+    fun `leaving a category returns to the hub`() {
+        composeRule.setContent { Screen() }
+        openCategory(SettingsCategory.ALERTS)
+        composeRule.onNodeWithTag("category-ALERTS").assertDoesNotExist()
+
+        composeRule.onNodeWithTag("settings-back").performClick()
+
+        composeRule.onNodeWithTag("category-ALERTS").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun `the back arrow on the hub leaves settings`() {
+        var left = false
+        composeRule.setContent { Screen(onBack = { left = true }) }
+
+        composeRule.onNodeWithTag("settings-back").performClick()
+
+        assertEquals(true, left)
+    }
+
+    // ---- Search ----
+
+    @Test
+    fun `searching finds a setting and jumps into its category`() {
+        composeRule.setContent { Screen() }
+
+        composeRule.onNodeWithTag("settings-search").performTextInput("vibration")
+        composeRule.onNodeWithTag("search-result-vibrate").performScrollTo().performClick()
+
+        // The jump landed in Alerts with the row on screen and the query gone.
+        composeRule.onNodeWithTag("vibrate-switch").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("settings-search").assertDoesNotExist()
+
+        // Backing out lands on the hub proper, not on the stale result list.
+        composeRule.onNodeWithTag("settings-back").performClick()
+        composeRule.onNodeWithTag("category-ALERTS").performScrollTo().assertIsDisplayed()
+    }
+
+    /** Cameras are content, not settings; search deliberately skips them. */
+    @Test
+    fun `camera names are not searchable`() {
+        composeRule.setContent { Screen() }
+
+        composeRule.onNodeWithTag("settings-search").performTextInput("Nursery")
+
+        composeRule.onNodeWithTag("search-empty").assertExists()
+    }
+
+    @Test
+    fun `a search that matches nothing says so`() {
+        composeRule.setContent { Screen() }
+
+        composeRule.onNodeWithTag("settings-search").performTextInput("zzz")
+
+        composeRule.onNodeWithTag("search-empty").assertExists()
+        composeRule.onNodeWithTag("category-ALERTS").assertDoesNotExist()
+    }
+
+    @Test
+    fun `clearing the search brings the hub back`() {
+        composeRule.setContent { Screen() }
+        composeRule.onNodeWithTag("settings-search").performTextInput("volume")
+        composeRule.onNodeWithTag("category-ALERTS").assertDoesNotExist()
+
+        composeRule.onNodeWithTag("settings-search-clear").performClick()
+
+        composeRule.onNodeWithTag("category-ALERTS").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun `the back arrow clears an open search instead of leaving`() {
+        var left = false
+        composeRule.setContent { Screen(onBack = { left = true }) }
+        composeRule.onNodeWithTag("settings-search").performTextInput("volume")
+
+        composeRule.onNodeWithTag("settings-back").performClick()
+
+        assertFalse(left)
+        composeRule.onNodeWithTag("category-ALERTS").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun `a search result on the hub itself just puts the hub back`() {
+        composeRule.setContent { Screen() }
+
+        composeRule.onNodeWithTag("settings-search").performTextInput("Monitoring")
+        composeRule.onNodeWithTag("search-result-monitoring").performScrollTo().performClick()
+
+        composeRule.onNodeWithTag("monitoring-switch").performScrollTo().assertIsDisplayed()
+    }
+
+    // ---- Display ----
+
+    @Test
+    fun `toggling night theme reports the change`() {
+        var changed: AppSettings? = null
+        composeRule.setContent {
+            Screen(
+                settings = AppSettings(nightTheme = false),
+                onSettingsChange = { changed = it(AppSettings(nightTheme = false)) },
+            )
+        }
+        openCategory(SettingsCategory.DISPLAY)
+
+        composeRule.onNodeWithTag("night-theme-switch").performScrollTo().performClick()
+
+        assertEquals(true, changed?.nightTheme)
+    }
+
+    @Test
+    fun `toggling keep screen awake reports the change`() {
+        var changed: AppSettings? = null
+        composeRule.setContent {
+            Screen(
+                settings = AppSettings(keepScreenOn = true),
+                onSettingsChange = { changed = it(AppSettings(keepScreenOn = true)) },
+            )
+        }
+        openCategory(SettingsCategory.DISPLAY)
+
+        composeRule.onNodeWithTag("keep-screen-switch").performScrollTo().performClick()
+
+        assertEquals(false, changed?.keepScreenOn)
+    }
+
+    @Test
+    fun `choosing an orientation lock reports the change`() {
+        var changed: AppSettings? = null
+        composeRule.setContent {
+            Screen(onSettingsChange = { changed = it(AppSettings()) })
+        }
+        openCategory(SettingsCategory.DISPLAY)
+
+        composeRule.onNodeWithTag("orientation-LANDSCAPE").performScrollTo().performClick()
+
+        assertEquals(OrientationLock.LANDSCAPE, changed?.orientationLock)
+    }
+
+    @Test
+    fun `the talk-back volume is settable`() {
+        var changed: AppSettings? = null
+        composeRule.setContent {
+            Screen(onSettingsChange = { changed = it(AppSettings()) })
+        }
+        openCategory(SettingsCategory.DISPLAY)
+
+        composeRule.onNodeWithTag("talkback-volume-slider").performScrollTo()
+            .performSemanticsAction(SemanticsActions.SetProgress) { it(0.3f) }
+
+        assertEquals(0.3f, changed?.talkbackVolume)
+    }
+
+    // ---- Alerts ----
+
+    @Test
+    fun `disabling the chime reports the change`() {
+        var changed: AppSettings? = null
+        composeRule.setContent {
+            Screen(
+                settings = AppSettings(alertChime = true),
+                onSettingsChange = { changed = it(AppSettings(alertChime = true)) },
+            )
+        }
+        openCategory(SettingsCategory.ALERTS)
+
+        composeRule.onNodeWithTag("chime-switch").performScrollTo().performClick()
+
+        assertEquals(false, changed?.alertChime)
+    }
+
+    @Test
+    fun `the alert sound row opens the picker`() {
+        var picked = false
+        composeRule.setContent { Screen(onPickAlertSound = { picked = true }) }
+        openCategory(SettingsCategory.ALERTS)
+
+        composeRule.onNodeWithTag("alert-sound-row").performScrollTo().performClick()
+
+        assertEquals(true, picked)
+    }
+
+    /** Nobody should first hear their alert sound at 3am. */
+    @Test
+    fun `the alert sound can be previewed without leaving settings`() {
+        var previewed = false
+        composeRule.setContent { Screen(onPreviewAlertSound = { previewed = true }) }
+        openCategory(SettingsCategory.ALERTS)
+
+        composeRule.onNodeWithTag("alert-sound-preview").performScrollTo().performClick()
+
+        assertEquals(true, previewed)
+    }
+
+    @Test
+    fun `switching the ramp off reports the change`() {
+        var changed: AppSettings? = null
+        composeRule.setContent {
+            Screen(
+                settings = AppSettings(alertRamp = true),
+                onSettingsChange = { changed = it(AppSettings(alertRamp = true)) },
+            )
+        }
+        openCategory(SettingsCategory.ALERTS)
+
+        composeRule.onNodeWithTag("alert-ramp-switch").performScrollTo().performClick()
+
+        assertEquals(false, changed?.alertRamp)
+    }
+
+    @Test
+    fun `the alert volume and repeat interval are settable`() {
+        var changed: AppSettings? = null
+        composeRule.setContent {
+            Screen(onSettingsChange = { changed = it(AppSettings()) })
+        }
+        openCategory(SettingsCategory.ALERTS)
+
+        composeRule.onNodeWithTag("alert-volume-slider").performScrollTo()
+            .performSemanticsAction(SemanticsActions.SetProgress) { it(0.5f) }
+        assertEquals(0.5f, changed?.alertVolume)
+
+        composeRule.onNodeWithTag("alert-repeat-slider").performScrollTo()
+            .performSemanticsAction(SemanticsActions.SetProgress) { it(15f) }
+        assertEquals(15_000L, changed?.alertRepeatIntervalMs)
+    }
+
+    // ---- Cameras ----
+
+    @Test
+    fun `switching a camera off reports it by id`() {
+        var call: Pair<String, Boolean>? = null
+        composeRule.setContent { Screen(onCameraEnabled = { id, on -> call = id to on }) }
+        openCategory(SettingsCategory.CAMERAS)
+
+        composeRule.onNodeWithTag("camera-enabled-Nursery").performScrollTo().performClick()
+
+        assertEquals("a" to false, call)
+    }
+
+    @Test
+    fun `switching a disabled camera back on reports it`() {
+        var call: Pair<String, Boolean>? = null
+        composeRule.setContent { Screen(onCameraEnabled = { id, on -> call = id to on }) }
+        openCategory(SettingsCategory.CAMERAS)
+
+        composeRule.onNodeWithTag("camera-enabled-Play room").performScrollTo().performClick()
+
+        assertEquals("b" to true, call)
+    }
+
+    @Test
+    fun `editing a camera hands back the whole camera`() {
+        var edited: Camera? = null
+        composeRule.setContent { Screen(onEditCamera = { edited = it }) }
+        openCategory(SettingsCategory.CAMERAS)
+
+        composeRule.onNodeWithTag("camera-edit-Nursery").performScrollTo().performClick()
+
+        assertEquals(nursery, edited)
+    }
+
+    @Test
+    fun `deleting a camera reports its id`() {
+        var deleted: String? = null
+        composeRule.setContent { Screen(onDeleteCamera = { deleted = it }) }
+        openCategory(SettingsCategory.CAMERAS)
+
+        composeRule.onNodeWithTag("camera-delete-Play room").performScrollTo().performClick()
+
+        assertEquals("b", deleted)
+    }
+
+    @Test
+    fun `an unsaveable form cannot be saved`() {
+        var saved = false
+        composeRule.setContent {
+            Screen(
+                form = CameraFormState(name = "Nursery", url = "not-a-url"),
+                onFormSave = { saved = true },
+            )
+        }
+        openCategory(SettingsCategory.CAMERAS)
+
+        composeRule.onNodeWithTag("camera-save").performScrollTo().performClick()
+
+        assertFalse(saved)
+    }
+
+    @Test
+    fun `an empty camera list still offers the console route`() {
+        composeRule.setContent { Screen(cameras = emptyList()) }
+        openCategory(SettingsCategory.CAMERAS)
+
+        composeRule.onNodeWithTag("open-onboarding").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun `choosing which camera to monitor is gone`() {
+        composeRule.setContent { Screen() }
+        openCategory(SettingsCategory.CAMERAS)
+
+        // Enabled is the whole story now: there is no second "monitor this" pick.
+        composeRule.onNodeWithTag("camera-select-Nursery").assertDoesNotExist()
+    }
+
+    // ---- Detection ----
+
+    @Test
+    fun `the detector sliders live behind the detection door`() {
+        var changed: DetectorSettings? = null
+        composeRule.setContent {
+            Screen(onDetectorChange = { changed = it(DetectorSettings()) })
+        }
+        openCategory(SettingsCategory.DETECTION)
+
+        composeRule.onNodeWithTag("threshold-slider").performScrollTo()
+            .performSemanticsAction(SemanticsActions.SetProgress) { it(0.4f) }
+
+        assertEquals(0.4f, changed?.threshold)
     }
 }
