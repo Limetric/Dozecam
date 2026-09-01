@@ -31,12 +31,14 @@ import app.dozecam.monitoring.shouldArmMonitoring
 import app.dozecam.network.NetworkMonitor
 import app.dozecam.network.NetworkReach
 import app.dozecam.permissions.LocalNetworkPermission
+import app.dozecam.permissions.LocalNetworkPermissionRequest
 import app.dozecam.permissions.MicrophonePermission
 import app.dozecam.protect.ProtectApiException
 import app.dozecam.player.LivestreamVideoPlayerController
 import app.dozecam.player.StreamSource
 import app.dozecam.player.VideoPlayerController
 import app.dozecam.player.VlcVideoPlayerController
+import app.dozecam.ui.components.LocalNetworkPermissionDialog
 import app.dozecam.ui.monitor.MonitorScreen
 import app.dozecam.ui.monitor.MonitorViewModel
 import app.dozecam.ui.onboarding.OnboardingActivity
@@ -78,13 +80,13 @@ class MainActivity : ComponentActivity() {
 
     // Nothing in the app can reach the LAN without this, so ask up front rather
     // than letting the first console or stream connection time out.
-    private val localNetworkPermission = registerForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) {
-        // No arming here, unlike SettingsActivity's: the prompt is an activity,
-        // so answering it resumes this one, and the RESUMED autoArm below picks
-        // a grant up on its own. Denial is surfaced where the connection fails.
-    }
+    //
+    // No arming on the answer: the prompt is an activity, so answering it
+    // resumes this one and the RESUMED autoArm below picks a grant up on its
+    // own. A refusal of the ask made on launch is left to the connection that
+    // fails; one the user brought on by reaching for the monitoring badge is
+    // explained, because that path has no connection left to fail.
+    private val localNetwork = LocalNetworkPermissionRequest(this)
 
     /**
      * Asked for on the first press of a talk-back control and never on the way
@@ -125,7 +127,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (savedInstanceState == null && !LocalNetworkPermission.isGranted(this)) {
-            localNetworkPermission.launch(LocalNetworkPermission.name)
+            localNetwork.ask(explainRefusal = false)
         }
         applyAlertIntent(intent)
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -229,6 +231,7 @@ class MainActivity : ComponentActivity() {
                 val reach by networkReach.collectAsStateWithLifecycle()
                 val alertCamera by alertCameraId.collectAsStateWithLifecycle()
                 val soundGranted by audioFocus.granted.collectAsStateWithLifecycle()
+                val localNetworkDenial by localNetwork.denial.collectAsStateWithLifecycle()
 
                 // Coming back to the front may mean a different console was
                 // signed in while we were away.
@@ -289,6 +292,16 @@ class MainActivity : ComponentActivity() {
                         microphonePermission.launch(MicrophonePermission.name)
                     },
                 )
+                // Over the viewer rather than in it: the badge asked for this
+                // grant, and its refusal leaves nothing on the grid to read as
+                // a cause — every camera goes on playing exactly as it was.
+                localNetworkDenial?.let { denial ->
+                    LocalNetworkPermissionDialog(
+                        denial = denial,
+                        onAllow = localNetwork::resolve,
+                        onDismiss = localNetwork::dismiss,
+                    )
+                }
             }
         }
     }
@@ -441,14 +454,16 @@ class MainActivity : ComponentActivity() {
      * misfire — except that the gate refuses outright without local-network
      * access, which would make this the one control on screen that visibly
      * does nothing when tapped and never says why. Asked for here instead, the
-     * way the settings switch asks, with [autoArm] left to the answer.
+     * way the settings switch asks, with [autoArm] left to a grant and a
+     * dialog to a refusal — including the refusal Android answers instantly,
+     * with no prompt of its own, once the permission is permanently denied.
      */
     private fun startMonitoring() {
         appContainer.monitoringState.userStopped.value = false
         if (LocalNetworkPermission.isGranted(this)) {
             lifecycleScope.launch { autoArm() }
         } else {
-            localNetworkPermission.launch(LocalNetworkPermission.name)
+            localNetwork.ask()
         }
     }
 

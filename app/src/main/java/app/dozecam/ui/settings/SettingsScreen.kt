@@ -59,6 +59,7 @@ fun SettingsScreen(
     onSettingsChange: ((AppSettings) -> AppSettings) -> Unit,
     monitoringRunning: Boolean,
     canMonitor: Boolean,
+    localNetworkGranted: Boolean,
     onToggleMonitoring: (Boolean) -> Unit,
     audioLevel: Float,
     cameras: List<Camera>,
@@ -151,6 +152,7 @@ fun SettingsScreen(
                     },
                     monitoringRunning = monitoringRunning,
                     canMonitor = canMonitor,
+                    localNetworkGranted = localNetworkGranted,
                     onToggleMonitoring = onToggleMonitoring,
                     audioLevel = audioLevel,
                     threshold = detector.threshold,
@@ -207,6 +209,7 @@ private fun SettingsHub(
     onOpenCategory: (SettingsCategory) -> Unit,
     monitoringRunning: Boolean,
     canMonitor: Boolean,
+    localNetworkGranted: Boolean,
     onToggleMonitoring: (Boolean) -> Unit,
     audioLevel: Float,
     threshold: Float,
@@ -223,6 +226,7 @@ private fun SettingsHub(
         MonitoringSection(
             running = monitoringRunning,
             canMonitor = canMonitor,
+            localNetworkGranted = localNetworkGranted,
             onToggle = onToggleMonitoring,
             audioLevel = audioLevel,
             threshold = threshold,
@@ -339,6 +343,7 @@ private fun SearchResults(
 private fun MonitoringSection(
     running: Boolean,
     canMonitor: Boolean,
+    localNetworkGranted: Boolean,
     onToggle: (Boolean) -> Unit,
     audioLevel: Float,
     threshold: Float,
@@ -357,8 +362,12 @@ private fun MonitoringSection(
                     supporting = stringResource(
                         when {
                             running -> R.string.monitoring_listening
-                            canMonitor -> R.string.monitoring_idle
-                            else -> R.string.monitoring_unavailable
+                            !canMonitor -> R.string.monitoring_unavailable
+                            // Named before the switch is ever touched, because
+                            // arming refuses without it and the row would
+                            // otherwise report the refusal as idleness.
+                            !localNetworkGranted -> R.string.monitoring_needs_local_network
+                            else -> R.string.monitoring_idle
                         },
                     ),
                     containerColor = if (running) {
@@ -374,6 +383,10 @@ private fun MonitoringSection(
                     },
                     trailing = {
                         Switch(
+                            // Left live without the grant on purpose: tapping
+                            // it is how the grant gets asked for, and a switch
+                            // greyed out over a missing permission would have
+                            // no way left to fix it.
                             checked = running,
                             onCheckedChange = onToggle,
                             enabled = canMonitor,
