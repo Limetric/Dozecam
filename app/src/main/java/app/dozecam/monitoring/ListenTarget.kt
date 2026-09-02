@@ -72,4 +72,29 @@ object ListenTarget {
      */
     fun alertSounds(cameraId: String, aloud: Set<String>): Boolean =
         cameraId !in aloud
+
+    /**
+     * What of [aloud] is actually reaching anyone. Decoding a room is not the
+     * same as someone hearing it: with the media stream at zero or muted the
+     * mix is playing into nothing, and an alert withheld on the strength of it
+     * would be withheld from an empty room. The route is not second-guessed —
+     * a Bluetooth speaker or a pair of headphones is a legitimate way to
+     * listen, and which side of the door it is on is not knowable from here.
+     */
+    fun heard(aloud: Set<String>, mediaSilenced: Boolean): Set<String> =
+        if (mediaSilenced) emptySet() else aloud
+
+    /**
+     * Whether an alert for [cameraId] should be withheld altogether because an
+     * alarm is already sounding for [alarmingCameraId], a room nobody can hear.
+     *
+     * There is one alert notification, and dismissing it acknowledges the
+     * alarm. A withheld alert — one whose room is being heard — must not
+     * replace the notification of a sounding one: the parent would be sent to
+     * the room they can already hear, and clearing that card would silence an
+     * alarm for the room they cannot. The alarm's own room may still refresh
+     * its notification; it says the same thing.
+     */
+    fun alertYields(cameraId: String, aloud: Set<String>, alarmingCameraId: String?): Boolean =
+        !alertSounds(cameraId, aloud) && alarmingCameraId != null && alarmingCameraId != cameraId
 }

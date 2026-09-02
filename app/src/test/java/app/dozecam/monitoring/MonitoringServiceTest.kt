@@ -2,6 +2,7 @@ package app.dozecam.monitoring
 
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
 import android.media.AudioManager
 import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
@@ -45,6 +46,18 @@ class MonitoringServiceTest {
     @Before
     fun forgetOtherTestsWakeLocks() {
         ShadowPowerManager.clearWakeLocks()
+    }
+
+    /**
+     * The shadow's media stream starts at volume zero, which the service reads
+     * as "nobody can hear the mix" — true to the rule, and the opposite of
+     * what most of these tests are about. A phone with its volume up is the
+     * baseline; the one test about volume turns it down itself.
+     */
+    @Before
+    fun turnTheVolumeUp() {
+        context.getSystemService(AudioManager::class.java)
+            .setStreamVolume(AudioManager.STREAM_MUSIC, 5, 0)
     }
 
     @Test
@@ -155,6 +168,34 @@ class MonitoringServiceTest {
         state.stopListening()
         shadowOf(Looper.getMainLooper()).idle()
 
+        assertEquals("a", container.alertSignaler.alarmingCameraId.value)
+        container.alertSignaler.stop()
+    }
+
+    /**
+     * Decoding is not hearing. With the media volume turned to zero the mix
+     * plays into nothing, and the aloud set does not move — so the withheld
+     * alarm has to be raised by the volume change itself.
+     */
+    @Test
+    fun `media volume turned to zero mid-cry raises the alarm that was withheld`() = runTest {
+        container.appSettings.update { it.copy(alertChime = false, alertVibrate = false) }
+        val audio = context.getSystemService(AudioManager::class.java)
+        Robolectric.buildService(MonitoringService::class.java).create().get()
+        val state = container.monitoringState
+        state.put(live("a", "Nursery"))
+        state.listenRequest.value = true
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(setOf("a"), state.listeningCameraIds.value)
+        state.update("a") { it.copy(phase = SoundDetector.Phase.TRIGGERED) }
+        assertNull(container.alertSignaler.alarmingCameraId.value)
+
+        audio.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
+        context.sendBroadcast(Intent("android.media.VOLUME_CHANGED_ACTION"))
+        shadowOf(Looper.getMainLooper()).idle()
+
+        // Still in the aloud set — it is the volume that changed, not the mix.
+        assertEquals(setOf("a"), state.listeningCameraIds.value)
         assertEquals("a", container.alertSignaler.alarmingCameraId.value)
         container.alertSignaler.stop()
     }
