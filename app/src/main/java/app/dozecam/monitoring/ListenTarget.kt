@@ -13,6 +13,12 @@ package app.dozecam.monitoring
  * bedtime; the question a mix leaves open — *which* room that was — is
  * answered by the alert, which lights the screen with the name whenever more
  * than one room is audible (see [alertWakesScreen]).
+ *
+ * Listen mode assumes the listener is awake: the alarm is for a person whose
+ * eyes are shut, and a room already coming out of the speaker is being heard.
+ * So while a room plays aloud its alerts do not sound (see [alertSounds]); the
+ * screen is the only thing they may touch, and only to name a room the mix
+ * cannot.
  */
 object ListenTarget {
 
@@ -53,4 +59,17 @@ object ListenTarget {
      */
     fun alertWakesScreen(cameraId: String, aloud: Set<String>): Boolean =
         aloud != setOf(cameraId)
+
+    /**
+     * Whether an alert for [cameraId] should sound the alarm — chime, ramp,
+     * vibration — while [aloud] is what the speaker is playing.
+     *
+     * Not while the room is already aloud. The alarm exists to wake someone
+     * asleep, and whoever switched the speaker on is awake and hearing the cry
+     * itself; a ramp on top of it is noise, not urgency. The moment the speaker
+     * is lost — a call, the viewer, a stream going down — the room drops out of
+     * [aloud] and its alerts sound again, because then nobody is hearing it.
+     */
+    fun alertSounds(cameraId: String, aloud: Set<String>): Boolean =
+        cameraId !in aloud
 }

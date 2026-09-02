@@ -59,6 +59,9 @@ class MonitoringService : Service() {
 
     private val monitors = mutableMapOf<String, CameraAudioMonitor>()
 
+    /** What [setListenTarget] last put out of the speaker; see its escalation. */
+    private var appliedAloud: Set<String> = emptySet()
+
     private val heartbeat = StatusHeartbeat()
 
     /** What each running monitor was built with, to notice when that stops being true. */
@@ -308,8 +311,25 @@ class MonitoringService : Service() {
      * — reads the record rather than the players.
      */
     private fun setListenTarget(cameraIds: Set<String>) {
-        appContainer.monitoringState.listeningCameraIds.value = cameraIds
+        val state = appContainer.monitoringState
+        // The service's own record of what was aloud, not the shared one:
+        // stopListening() clears that synchronously from wherever the speaker
+        // was lost, before this collector gets its turn, and a diff against an
+        // already-empty set would find nothing to escalate.
+        val before = appliedAloud
+        appliedAloud = cameraIds
+        state.listeningCameraIds.value = cameraIds
         applyListenTarget()
+        // A room that was aloud when its cry began had its alarm withheld,
+        // because someone was hearing it. If the speaker is now gone — a call,
+        // the viewer, a stream down — and the cry has not paused long enough
+        // for the detector to re-arm, no second trigger is coming; the
+        // withheld alarm is raised here instead, or an unheard room could stay
+        // silent for as long as the crying lasts.
+        (before - cameraIds).forEach { id ->
+            val camera = state.cameras.value[id] ?: return@forEach
+            if (camera.phase == SoundDetector.Phase.TRIGGERED) raiseAlert(id, camera.name)
+        }
     }
 
     /**
@@ -334,23 +354,29 @@ class MonitoringService : Service() {
         appContainer.monitoringState.remove(cameraId)
     }
 
-    private fun onTrigger(camera: Camera) {
+    private fun onTrigger(camera: Camera) = raiseAlert(camera.id, camera.name)
+
+    private fun raiseAlert(cameraId: String, fallbackName: String) {
         val state = appContainer.monitoringState
         state.lastAlertAtMs.value = System.currentTimeMillis()
-        state.lastAlertCameraId.value = camera.id
+        state.lastAlertCameraId.value = cameraId
         // Current name rather than the one captured when this monitor started,
         // so an alert never names a camera by a name the user has since changed.
-        val name = state.cameras.value[camera.id]?.name ?: camera.name
+        val name = state.cameras.value[cameraId]?.name ?: fallbackName
         // Notification first, always: the full-screen intent is the fastest
         // signal there is, and sound is for the person whose eyes are shut.
         //
-        // Whether it also lights the screen depends on what the speaker is
-        // already saying — see ListenTarget.alertWakesScreen. The chime and
-        // the vibration go either way, because the point of an alert is the
+        // Whether it also lights the screen, and whether the alarm sounds at
+        // all, depend on what the speaker is already saying — see
+        // ListenTarget.alertWakesScreen and ListenTarget.alertSounds. A room
+        // playing aloud is being heard by someone awake; the alarm is for the
         // person whose eyes are shut.
-        val wakeScreen = ListenTarget.alertWakesScreen(camera.id, state.listeningCameraIds.value)
-        MonitoringNotifications.postAlert(this, camera.id, name, wakeScreen = wakeScreen)
-        appContainer.alertSignaler.signal(camera.id, appSettings)
+        val aloud = state.listeningCameraIds.value
+        val wakeScreen = ListenTarget.alertWakesScreen(cameraId, aloud)
+        MonitoringNotifications.postAlert(this, cameraId, name, wakeScreen = wakeScreen)
+        if (ListenTarget.alertSounds(cameraId, aloud)) {
+            appContainer.alertSignaler.signal(cameraId, appSettings)
+        }
     }
 
     private fun updateStatusNotification(display: StatusHeartbeat.Display) {

@@ -6,11 +6,13 @@ import android.media.AudioManager
 import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
 import app.dozecam.DozecamApp
+import app.dozecam.audio.SoundDetector
 import app.dozecam.data.Camera
 import app.dozecam.player.ConnectionState
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -102,6 +104,77 @@ class MonitoringServiceTest {
 
     private fun live(id: String, name: String) =
         CameraMonitorState(id, name, level = 0f, connection = ConnectionState.Live)
+
+    /**
+     * A room's cry began while it was aloud, so its alarm was withheld: someone
+     * awake was hearing it. Losing the speaker mid-cry must not leave that room
+     * silent — the detector will not fire again until the crying pauses, so the
+     * withheld alarm has to be raised by the loss itself.
+     */
+    @Test
+    fun `losing the speaker mid-cry raises the alarm that was withheld`() = runTest {
+        // The alarm's own noise is beside the point; only whether it is raised.
+        container.appSettings.update { it.copy(alertChime = false, alertVibrate = false) }
+        Robolectric.buildService(MonitoringService::class.java).create().get()
+        val state = container.monitoringState
+        state.put(live("a", "Nursery"))
+        state.listenRequest.value = true
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(setOf("a"), state.listeningCameraIds.value)
+        state.update("a") { it.copy(phase = SoundDetector.Phase.TRIGGERED) }
+        assertNull(container.alertSignaler.alarmingCameraId.value)
+
+        state.viewerAudible.value = true
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(emptySet<String>(), state.listeningCameraIds.value)
+        assertEquals("a", container.alertSignaler.alarmingCameraId.value)
+        val alert = shadowOf(context.getSystemService(NotificationManager::class.java))
+            .getNotification(MonitoringNotifications.ALERT_NOTIFICATION_ID)
+        assertNotNull(alert.fullScreenIntent)
+        container.alertSignaler.stop()
+    }
+
+    /**
+     * The speaker can also go by way of [MonitoringState.stopListening] — the
+     * notification's action, a lost audio focus, headphones unplugged — which
+     * empties the shared record before the service hears about it. The withheld
+     * alarm must still be raised.
+     */
+    @Test
+    fun `listen mode switched off mid-cry raises the alarm that was withheld`() = runTest {
+        container.appSettings.update { it.copy(alertChime = false, alertVibrate = false) }
+        Robolectric.buildService(MonitoringService::class.java).create().get()
+        val state = container.monitoringState
+        state.put(live("a", "Nursery"))
+        state.listenRequest.value = true
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(setOf("a"), state.listeningCameraIds.value)
+        state.update("a") { it.copy(phase = SoundDetector.Phase.TRIGGERED) }
+
+        state.stopListening()
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals("a", container.alertSignaler.alarmingCameraId.value)
+        container.alertSignaler.stop()
+    }
+
+    @Test
+    fun `a room that has settled is not alarmed for when the speaker goes`() = runTest {
+        container.appSettings.update { it.copy(alertChime = false, alertVibrate = false) }
+        Robolectric.buildService(MonitoringService::class.java).create().get()
+        val state = container.monitoringState
+        state.put(live("a", "Nursery"))
+        state.listenRequest.value = true
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(setOf("a"), state.listeningCameraIds.value)
+
+        state.viewerAudible.value = true
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(emptySet<String>(), state.listeningCameraIds.value)
+        assertNull(container.alertSignaler.alarmingCameraId.value)
+    }
 
     @Test
     fun `every room the monitor can hear plays aloud together`() = runTest {

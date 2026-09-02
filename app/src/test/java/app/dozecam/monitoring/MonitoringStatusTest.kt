@@ -34,7 +34,7 @@ class MonitoringStatusTest {
     fun `the listening line carries the loudest camera's level`() {
         val status = of(listOf(live("a", level = 0.1f), live("b", level = 0.4f)))
 
-        assertEquals("Listening to 2 cameras", status.text)
+        assertEquals("Monitoring 2 cameras", status.text)
         assertEquals(0.4f, status.level)
     }
 
@@ -77,7 +77,7 @@ class MonitoringStatusTest {
         assertEquals(0.3f, mixed.level)
 
         val unmeasured = of(listOf(live("a").copy(level = null)))
-        assertEquals("Listening to 1 camera", unmeasured.text)
+        assertEquals("Monitoring 1 camera", unmeasured.text)
         assertNull(unmeasured.level)
     }
 
@@ -98,7 +98,7 @@ class MonitoringStatusTest {
     fun `partial coverage says so and still proves the rest is live`() {
         val status = of(listOf(live("a", level = 0.2f)), enabledCount = 2)
 
-        assertEquals("Listening to 1 camera · 1 not monitorable", status.text)
+        assertEquals("Monitoring 1 camera · 1 not monitorable", status.text)
         assertEquals(0.2f, status.level)
     }
 
@@ -114,7 +114,7 @@ class MonitoringStatusTest {
 
         // A phone quietly broadcasting a bedroom is exactly what a persistent
         // notification exists to admit to.
-        assertEquals("Nursery aloud · Listening to 2 cameras", status.text)
+        assertEquals("Nursery aloud · Monitoring 2 cameras", status.text)
         assertEquals(0.2f, status.level)
     }
 
@@ -130,7 +130,7 @@ class MonitoringStatusTest {
 
         // One line, and a list of bedrooms cut off mid-word would say less
         // than a number.
-        assertEquals("3 rooms aloud · Listening to 3 cameras", status.text)
+        assertEquals("3 rooms aloud · Monitoring 3 cameras", status.text)
     }
 
     @Test
@@ -163,7 +163,7 @@ class MonitoringStatusTest {
             aloudCameraIds = setOf("gone"),
         )
 
-        assertEquals("Listening to 1 camera", status.text)
+        assertEquals("Monitoring 1 camera", status.text)
     }
 
     @Test

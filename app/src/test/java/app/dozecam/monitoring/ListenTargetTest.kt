@@ -73,4 +73,20 @@ class ListenTargetTest {
         assertTrue(ListenTarget.alertWakesScreen("c", aloud = setOf("a")))
         assertTrue(ListenTarget.alertWakesScreen("c", aloud = emptySet()))
     }
+
+    @Test
+    fun `a room playing aloud does not sound the alarm`() {
+        // Whoever switched the speaker on is awake and hearing the cry
+        // itself; the alarm is for a person whose eyes are shut.
+        assertFalse(ListenTarget.alertSounds("a", aloud = setOf("a")))
+        assertFalse(ListenTarget.alertSounds("a", aloud = setOf("a", "b")))
+    }
+
+    @Test
+    fun `a room nobody can hear sounds the alarm`() {
+        // With nothing aloud — or this room dropped from the mix by a lost
+        // speaker or a downed stream — nobody is hearing it, so it must wake.
+        assertTrue(ListenTarget.alertSounds("c", aloud = emptySet()))
+        assertTrue(ListenTarget.alertSounds("c", aloud = setOf("a")))
+    }
 }
