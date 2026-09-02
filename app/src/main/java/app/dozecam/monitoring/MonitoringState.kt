@@ -29,6 +29,15 @@ data class CameraMonitorState(
         connection = connection,
         level = if (connection == ConnectionState.Live) level else null,
     )
+
+    /**
+     * Whether there is audio coming through this camera to turn up: live, and
+     * with at least one buffer decoded on the current connection. Both, because
+     * a player can reach Live off its clock alone, and a transport that cannot
+     * be decoded plays on without ever producing a sample.
+     */
+    val isAudible: Boolean
+        get() = connection == ConnectionState.Live && level != null
 }
 
 /**
@@ -63,42 +72,33 @@ class MonitoringState {
     val userStopped = MutableStateFlow(false)
 
     /**
-     * The room the user has asked to hear out of the speaker, or null for
-     * none — listen mode's switch and its target in a single value. Written by
-     * the viewer and the notification, read by the service.
+     * Whether the user has asked to hear the nursery out of the speaker —
+     * listen mode's switch. Written by the viewer and the notification, read
+     * by the service.
      *
-     * One value rather than a switch here and a camera id in stored settings,
-     * because they are one decision and splitting them gave them different
-     * speeds: the switch is an assignment and the settings write is a disk
-     * round trip, so the service learned that listening had begun before it
-     * learned which room to play. It spent that window playing whichever room
-     * was chosen the night before — and the viewer, reading the same state,
-     * announced that room by name and never took it back. A monitor whose
-     * whole claim is that you know which room you are hearing cannot have that
-     * window, and the only way to be sure it is closed is to leave nothing to
-     * arrive late.
+     * Only the switch. Which rooms play is not a choice: every camera the
+     * monitor can hear does (see [ListenTarget]), so there is no second value
+     * that could arrive at the service a beat after this one and leave it
+     * broadcasting the wrong thing in between.
      *
      * In memory only, like [userStopped] and for a sharper version of the same
-     * reason: the chosen camera is worth remembering — [
-     * app.dozecam.data.AppSettings.listenCameraId] does that, so the picker
-     * opens on it — but the fact that a speaker was on is not. A phone that
-     * reboots itself in the night and comes back broadcasting a bedroom is a
-     * thing nobody asked for, and the person who would have to notice is
-     * asleep.
+     * reason: a phone that reboots itself in the night and comes back
+     * broadcasting a bedroom is a thing nobody asked for, and the person who
+     * would have to notice is asleep.
      */
-    val listenRequest = MutableStateFlow<String?>(null)
+    val listenRequest = MutableStateFlow(false)
 
     /**
-     * The camera actually coming out of the speaker right now, or null.
+     * The cameras actually coming out of the speaker right now, or none.
      *
      * Deliberately separate from [listenRequest], which is only the ask: the
-     * speaker can be lost to a call, handed to the viewer, or pointed at a
-     * camera the monitor has stopped listening to. Everything that *tells* the
-     * user something is audible — the notification's status line, the offer to
-     * stop, the decision not to light the screen for an alert — reads this one,
-     * because it is the only one that is a fact.
+     * speaker can be lost to a call, handed to the viewer, or a room's stream
+     * can be down. Everything that *tells* the user something is
+     * audible — the notification's status line, the offer to stop, the decision
+     * whether to light the screen for an alert — reads this one, because it is
+     * the only one that is a fact.
      */
-    val listeningCameraId = MutableStateFlow<String?>(null)
+    val listeningCameraIds = MutableStateFlow<Set<String>>(emptySet())
 
     /**
      * Whether the viewer itself is making noise. Written by the activity while
@@ -154,7 +154,7 @@ class MonitoringState {
      * unasked.
      */
     fun stopListening() {
-        listenRequest.value = null
-        listeningCameraId.value = null
+        listenRequest.value = false
+        listeningCameraIds.value = emptySet()
     }
 }

@@ -7,6 +7,7 @@ import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
 import app.dozecam.DozecamApp
 import app.dozecam.data.Camera
+import app.dozecam.player.ConnectionState
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -99,94 +100,142 @@ class MonitoringServiceTest {
         )
     }
 
-    /**
-     * The regression this shape exists for. The room used to reach the service
-     * through a DataStore write while the switch reached it as an assignment,
-     * so the service began listening before it knew what to play and spent that
-     * window on whichever room had been chosen the night before — which the
-     * viewer then announced by name.
-     */
+    private fun live(id: String, name: String) =
+        CameraMonitorState(id, name, level = 0f, connection = ConnectionState.Live)
+
     @Test
-    fun `the room that plays is the one just asked for, not the one remembered`() = runTest {
-        container.appSettings.update { it.copy(listenCameraId = "a") }
+    fun `every room the monitor can hear plays aloud together`() = runTest {
         Robolectric.buildService(MonitoringService::class.java).create().get()
         val state = container.monitoringState
-        state.put(CameraMonitorState("a", "Nursery"))
-        state.put(CameraMonitorState("b", "Play room"))
+        state.put(live("a", "Nursery"))
+        state.put(live("b", "Play room"))
         shadowOf(Looper.getMainLooper()).idle()
 
-        state.listenRequest.value = "b"
+        state.listenRequest.value = true
         shadowOf(Looper.getMainLooper()).idle()
 
-        // Never "a", not even for the instant it takes a disk write to land:
-        // there is no longer a second route for the room to arrive by.
-        assertEquals("b", state.listeningCameraId.value)
+        assertEquals(setOf("a", "b"), state.listeningCameraIds.value)
     }
 
     @Test
-    fun `a room the monitor is not listening to plays nothing rather than something else`() =
-        runTest {
-            Robolectric.buildService(MonitoringService::class.java).create().get()
-            val state = container.monitoringState
-            state.put(CameraMonitorState("a", "Nursery"))
-            shadowOf(Looper.getMainLooper()).idle()
+    fun `a room the monitor starts hearing later joins the mix`() = runTest {
+        Robolectric.buildService(MonitoringService::class.java).create().get()
+        val state = container.monitoringState
+        state.put(live("a", "Nursery"))
+        state.listenRequest.value = true
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(setOf("a"), state.listeningCameraIds.value)
 
-            state.listenRequest.value = "gone"
-            shadowOf(Looper.getMainLooper()).idle()
+        state.put(live("b", "Play room"))
+        shadowOf(Looper.getMainLooper()).idle()
 
-            // Substituting the one remaining bedroom would be worse than
-            // silence, which at least reads as something being wrong.
-            assertNull(state.listeningCameraId.value)
-        }
+        // The switch means "the house", not the rooms that happened to exist
+        // when it was flipped.
+        assertEquals(setOf("a", "b"), state.listeningCameraIds.value)
+    }
 
     /**
-     * The target flow refuses to play a substitute room, but refusing quietly
-     * would leave the viewer's switch reading "on" beside a silent phone —
-     * and somebody putting that phone down believing the nursery was still
-     * audible is the one mistake this app cannot make.
+     * A room whose stream is down has no audio to turn up. Claiming it would
+     * make the notification overstate what is playing — and an alert from the
+     * one room that *is* playing would light the screen to name it, as though
+     * there were another it could be mistaken for.
      */
     @Test
-    fun `switching off the room being played aloud switches listen mode off too`() = runTest {
+    fun `a room whose stream is down is not claimed aloud`() = runTest {
+        Robolectric.buildService(MonitoringService::class.java).create().get()
+        val state = container.monitoringState
+        state.put(live("a", "Nursery"))
+        state.put(live("b", "Play room"))
+        state.listenRequest.value = true
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(setOf("a", "b"), state.listeningCameraIds.value)
+
+        state.update("b") { it.withConnection(ConnectionState.Reconnecting(1)) }
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(setOf("a"), state.listeningCameraIds.value)
+        // The switch stays on: the outage is the network's, not the user's.
+        assertTrue(state.listenRequest.value)
+
+        state.update("b") { it.withConnection(ConnectionState.Live) }
+        shadowOf(Looper.getMainLooper()).idle()
+
+        // Live off the player's clock alone, nothing decoded yet on the new
+        // connection: still not something the speaker can be claimed to play.
+        assertEquals(setOf("a"), state.listeningCameraIds.value)
+
+        state.update("b") { it.copy(level = 0.1f) }
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(setOf("a", "b"), state.listeningCameraIds.value)
+    }
+
+    /**
+     * Losing one room does not stop the others, and does not touch the
+     * switch: there is still something behind it.
+     */
+    @Test
+    fun `switching off one room leaves the rest playing`() = runTest {
         container.cameras.upsert(Camera("a", "Nursery", "rtsp://127.0.0.1:1/a"))
         container.cameras.upsert(Camera("b", "Hall", "rtsp://127.0.0.1:1/b"))
         Robolectric.buildService(MonitoringService::class.java).create().get()
         shadowOf(Looper.getMainLooper()).idle()
         val state = container.monitoringState
-        state.listenRequest.value = "a"
+        state.listenRequest.value = true
         shadowOf(Looper.getMainLooper()).idle()
-        assertEquals("a", state.listeningCameraId.value)
 
         container.cameras.setEnabled("a", false)
         shadowOf(Looper.getMainLooper()).idle()
 
-        // The ask goes, not just the sound: the hall is still monitored, so a
-        // rule that only cleared the target would leave a switch on with
-        // nothing behind it.
-        assertNull(state.listenRequest.value)
-        assertNull(state.listeningCameraId.value)
+        // Which rooms play follows the monitors on its own (see the tests
+        // above); what matters here is that the switch is left alone.
+        assertTrue(state.listenRequest.value)
+        assertFalse("a" in state.listeningCameraIds.value)
+    }
+
+    /**
+     * The target flow plays nothing once nothing is monitored, but going quiet
+     * is not enough: the viewer's switch would read "on" beside a silent phone
+     * — and somebody putting that phone down believing the nursery was still
+     * audible is the one mistake this app cannot make.
+     */
+    @Test
+    fun `switching off the last room switches listen mode off too`() = runTest {
+        container.cameras.upsert(Camera("a", "Nursery", "rtsp://127.0.0.1:1/a"))
+        Robolectric.buildService(MonitoringService::class.java).create().get()
+        shadowOf(Looper.getMainLooper()).idle()
+        val state = container.monitoringState
+        state.listenRequest.value = true
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(state.listenRequest.value)
+
+        container.cameras.setEnabled("a", false)
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertFalse(state.listenRequest.value)
+        assertEquals(emptySet<String>(), state.listeningCameraIds.value)
     }
 
     @Test
-    fun `a room asked for before the monitors exist is not snatched away`() = runTest {
+    fun `a speaker asked for before the monitors exist is not snatched away`() = runTest {
         container.cameras.upsert(Camera("a", "Nursery", "rtsp://127.0.0.1:1/a"))
         val state = container.monitoringState
 
         // The viewer offers the switch as soon as the service is running, which
-        // is before the first reconcile has resolved anything. "Not in the set"
-        // means "not yet" here, and must not be read as "gone".
+        // is before the first reconcile has resolved anything. "Nothing
+        // monitored" means "not yet" here, and must not be read as "gone".
         Robolectric.buildService(MonitoringService::class.java).create().get()
-        state.listenRequest.value = "a"
+        state.listenRequest.value = true
         shadowOf(Looper.getMainLooper()).idle()
 
-        assertEquals("a", state.listenRequest.value)
-        assertEquals("a", state.listeningCameraId.value)
+        assertTrue(state.listenRequest.value)
     }
 
     @Test
     fun `stopping takes the speaker with it`() = runTest {
         val controller = Robolectric.buildService(MonitoringService::class.java).create()
-        container.monitoringState.listenRequest.value = "a"
-        container.monitoringState.listeningCameraId.value = "a"
+        container.monitoringState.listenRequest.value = true
+        container.monitoringState.listeningCameraIds.value = setOf("a")
 
         controller.destroy()
 
@@ -194,8 +243,8 @@ class MonitoringServiceTest {
         // something already stopped — and would start talking again the moment
         // the monitor came back, which is the one thing it must never do
         // unasked.
-        assertNull(container.monitoringState.listenRequest.value)
-        assertNull(container.monitoringState.listeningCameraId.value)
+        assertFalse(container.monitoringState.listenRequest.value)
+        assertEquals(emptySet<String>(), container.monitoringState.listeningCameraIds.value)
     }
 
     @Test
@@ -207,13 +256,13 @@ class MonitoringServiceTest {
         )
         Robolectric.buildService(MonitoringService::class.java).create().get()
 
-        container.monitoringState.listenRequest.value = "a"
+        container.monitoringState.listenRequest.value = true
         shadowOf(Looper.getMainLooper()).idle()
 
         // A control that says "on" next to a phone that is silent is worse
         // than one that visibly did not take.
-        assertNull(container.monitoringState.listenRequest.value)
-        assertNull(container.monitoringState.listeningCameraId.value)
+        assertFalse(container.monitoringState.listenRequest.value)
+        assertEquals(emptySet<String>(), container.monitoringState.listeningCameraIds.value)
     }
 
     @Test
