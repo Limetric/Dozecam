@@ -139,6 +139,49 @@ class MonitoringServiceTest {
             assertNull(state.listeningCameraId.value)
         }
 
+    /**
+     * The target flow refuses to play a substitute room, but refusing quietly
+     * would leave the viewer's switch reading "on" beside a silent phone —
+     * and somebody putting that phone down believing the nursery was still
+     * audible is the one mistake this app cannot make.
+     */
+    @Test
+    fun `switching off the room being played aloud switches listen mode off too`() = runTest {
+        container.cameras.upsert(Camera("a", "Nursery", "rtsp://127.0.0.1:1/a"))
+        container.cameras.upsert(Camera("b", "Hall", "rtsp://127.0.0.1:1/b"))
+        Robolectric.buildService(MonitoringService::class.java).create().get()
+        shadowOf(Looper.getMainLooper()).idle()
+        val state = container.monitoringState
+        state.listenRequest.value = "a"
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("a", state.listeningCameraId.value)
+
+        container.cameras.setEnabled("a", false)
+        shadowOf(Looper.getMainLooper()).idle()
+
+        // The ask goes, not just the sound: the hall is still monitored, so a
+        // rule that only cleared the target would leave a switch on with
+        // nothing behind it.
+        assertNull(state.listenRequest.value)
+        assertNull(state.listeningCameraId.value)
+    }
+
+    @Test
+    fun `a room asked for before the monitors exist is not snatched away`() = runTest {
+        container.cameras.upsert(Camera("a", "Nursery", "rtsp://127.0.0.1:1/a"))
+        val state = container.monitoringState
+
+        // The viewer offers the switch as soon as the service is running, which
+        // is before the first reconcile has resolved anything. "Not in the set"
+        // means "not yet" here, and must not be read as "gone".
+        Robolectric.buildService(MonitoringService::class.java).create().get()
+        state.listenRequest.value = "a"
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals("a", state.listenRequest.value)
+        assertEquals("a", state.listeningCameraId.value)
+    }
+
     @Test
     fun `stopping takes the speaker with it`() = runTest {
         val controller = Robolectric.buildService(MonitoringService::class.java).create()

@@ -278,6 +278,22 @@ class MonitoringService : Service() {
         // one that emptied the set.
         holdWakeLock(monitors.isNotEmpty())
 
+        // The room somebody asked to hear is not being listened to any more —
+        // switched off in settings, deleted, or gone with the console that
+        // issued it. The target flow already refuses to play a substitute, but
+        // refusing quietly is not enough: the ask is what the viewer's switch
+        // shows, and left standing it would read "on" beside a phone that has
+        // gone silent. Somebody would put that phone down believing the nursery
+        // was still audible, which is the one mistake this app cannot make.
+        //
+        // Decided here rather than in the flow because this is the only moment
+        // the set is authoritative. Before the first reconcile the set is merely
+        // empty, and a rule that read "not in the set" there would snap the
+        // switch off under a user who had just reached for it.
+        appContainer.monitoringState.listenRequest.value
+            ?.takeIf { it !in monitors }
+            ?.let { state.stopListening() }
+
         // The set just changed underneath listen mode. A monitor rebuilt onto
         // another transport comes back with a fresh, silent player, and the
         // flow above would not fire for it — the camera ids it watches are the
