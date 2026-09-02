@@ -39,6 +39,18 @@ data class AppSettings(
      */
     val viewerSound: Boolean = false,
     /**
+     * The camera listen mode plays aloud, or null for a choice nobody has made
+     * yet — which is also what a phone with one camera never needs to make.
+     *
+     * The camera is remembered; whether the speaker is actually on is not, and
+     * deliberately lives in memory instead (see
+     * [app.dozecam.monitoring.MonitoringState.listening]). Restoring the choice
+     * saves the nightly ritual a tap. Restoring the *state* would mean a phone
+     * that rebooted itself at 4am starts broadcasting a bedroom with nobody
+     * having asked it to.
+     */
+    val listenCameraId: String? = null,
+    /**
      * Whether the viewer holds the display awake while cameras are showing.
      * On by default: a monitor propped up for the night that went dark at the
      * system timeout would be a broken baby monitor, so sleeping is the choice
@@ -81,6 +93,12 @@ class AppSettingsRepository(private val dataStore: DataStore<Preferences>) : App
             prefs[KEY_ALERT_VOLUME] = next.alertVolume
             prefs[KEY_ORIENTATION] = next.orientationLock.name
             prefs[KEY_VIEWER_SOUND] = next.viewerSound
+            // Absent rather than empty, for the same reason the alert sound is:
+            // "no camera chosen" has to stay distinguishable from a camera
+            // whose id happens to be blank.
+            next.listenCameraId
+                ?.let { prefs[KEY_LISTEN_CAMERA] = it }
+                ?: prefs.remove(KEY_LISTEN_CAMERA)
             prefs[KEY_KEEP_SCREEN_ON] = next.keepScreenOn
             prefs[KEY_TALKBACK_VOLUME] = next.talkbackVolume
         }
@@ -100,6 +118,7 @@ class AppSettingsRepository(private val dataStore: DataStore<Preferences>) : App
                 ?.let { stored -> OrientationLock.entries.firstOrNull { it.name == stored } }
                 ?: defaults.orientationLock,
             viewerSound = prefs[KEY_VIEWER_SOUND] ?: defaults.viewerSound,
+            listenCameraId = prefs[KEY_LISTEN_CAMERA] ?: defaults.listenCameraId,
             keepScreenOn = prefs[KEY_KEEP_SCREEN_ON] ?: defaults.keepScreenOn,
             talkbackVolume = prefs[KEY_TALKBACK_VOLUME] ?: defaults.talkbackVolume,
         )
@@ -115,6 +134,7 @@ class AppSettingsRepository(private val dataStore: DataStore<Preferences>) : App
         val KEY_ALERT_VOLUME = floatPreferencesKey("alert_volume")
         val KEY_ORIENTATION = stringPreferencesKey("orientation_lock")
         val KEY_VIEWER_SOUND = booleanPreferencesKey("viewer_sound")
+        val KEY_LISTEN_CAMERA = stringPreferencesKey("listen_camera_id")
         val KEY_KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
         val KEY_TALKBACK_VOLUME = floatPreferencesKey("talkback_volume")
     }

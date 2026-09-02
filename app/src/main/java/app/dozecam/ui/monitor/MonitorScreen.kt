@@ -1,6 +1,8 @@
 package app.dozecam.ui.monitor
 
+import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -25,6 +27,7 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Settings
@@ -35,6 +38,7 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -55,6 +59,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -65,6 +70,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -103,6 +109,17 @@ private val TWO_COLUMN_BREAKPOINT = 600.dp
 
 /** Above this, a third column still leaves each tile big enough to read. */
 private val THREE_COLUMN_BREAKPOINT = 1000.dp
+
+/**
+ * How long the viewer gives listen mode's speaker to arrive before it says out
+ * loud that it did not.
+ *
+ * The switch lives in the monitoring service's state and reaches this screen
+ * through a flow, so "the request has not landed yet" and "the request was
+ * refused" look identical for a frame or two. Long enough to cover that hop,
+ * short enough that a phone which stayed silent does not stay unexplained.
+ */
+private const val LISTEN_REFUSAL_GRACE_MS = 750L
 
 /**
  * How long the viewer gives monitoring to start before it says out loud that it
@@ -239,6 +256,27 @@ fun MonitorScreen(
      */
     soundGranted: Boolean = true,
     /**
+     * Listen mode: whether the monitor has been asked to keep a room coming out
+     * of the speaker after this screen is gone.
+     *
+     * A different promise from [soundEnabled], and deliberately a different
+     * switch. The viewer's sound is about the screen being looked at, and is
+     * off after a restart for that reason; this one arms an all-night speaker,
+     * and opening the app to check on a nap must not do that by accident.
+     */
+    listening: Boolean = false,
+    onListeningChange: (Boolean) -> Unit = {},
+    /**
+     * The camera actually coming out of the speaker, or null. The outcome
+     * rather than the request, for the same reason [soundGranted] is kept apart
+     * from [soundEnabled]: this screen must not confirm a room is audible
+     * before it is.
+     */
+    listeningCameraId: String? = null,
+    /** The remembered choice, which the picker opens on. */
+    listenCameraId: String? = null,
+    onListenCameraChange: (String) -> Unit = {},
+    /**
      * What the monitor is hearing from each camera, keyed by camera id. A
      * camera with no entry gets no meter: the level is the monitor's report,
      * not the player's, so it exists exactly when monitoring does.
@@ -253,6 +291,8 @@ fun MonitorScreen(
     talkbackMinPressMs: Long = TALKBACK_MIN_PRESS_MS,
     /** Injectable so tests need not wait out a real turn. */
     soundRotationIntervalMs: Long = SOUND_ROTATION_INTERVAL_MS,
+    /** Injectable so tests need not wait out a real refusal. */
+    listenRefusalGraceMs: Long = LISTEN_REFUSAL_GRACE_MS,
     /** Injectable so tests need not wait out a real minute. */
     inactivityTimeoutMs: Long = FULLSCREEN_INACTIVITY_TIMEOUT_MS,
     alertCameraId: String? = null,
@@ -457,6 +497,70 @@ fun MonitorScreen(
             soundOnRequested = false
             announce(R.string.viewer_sound_refused)
         }
+    }
+
+    // Only rooms the monitor can actually hear. A camera it cannot listen to
+    // has no audio to play aloud, and offering it would be a switch that
+    // silently does nothing all night.
+    val listenCandidates = remember(cameras, unmonitorable) {
+        val cannot = unmonitorable.mapTo(mutableSetOf()) { it.id }
+        cameras.filter { it.id !in cannot }
+    }
+    var choosingListenCamera by rememberSaveable { mutableStateOf(false) }
+
+    // The same request-versus-outcome caution the sound toggle takes: the
+    // speaker still has to be won from whatever else might hold it.
+    var listenOnRequested by remember { mutableStateOf(false) }
+    val startListening = { cameraId: String ->
+        choosingListenCamera = false
+        // The viewer's own sound is the same speaker asked for a different
+        // room, and listen mode stands down while it is on — so a switch left
+        // up here would arm a nursery that never arrives. Switched off rather
+        // than fought over: this request is the newer of the two, and the
+        // confirmation below says what the phone will actually be doing.
+        if (soundEnabled) {
+            soundOnRequested = false
+            onSoundEnabledChange(false)
+        }
+        onListenCameraChange(cameraId)
+        listenOnRequested = true
+        onListeningChange(true)
+    }
+    val listenToggled = { enabled: Boolean ->
+        when {
+            !enabled -> {
+                listenOnRequested = false
+                announce(R.string.viewer_listen_off_confirmed)
+                onListeningChange(false)
+            }
+            // One camera is not a question: there is nothing else it could
+            // mean. Any more and the screen being off leaves nothing to say
+            // which room is talking, so the user says which.
+            listenCandidates.size == 1 -> startListening(listenCandidates.first().id)
+            else -> choosingListenCamera = true
+        }
+    }
+    // Keyed on the request as well as the outcome, unlike the sound toggle
+    // above: this switch is held in memory rather than in a stored setting, so
+    // a refusal can arrive in the same frame as the request and never move
+    // [listening] at all. Watching only the outcome would let exactly that case
+    // — the one where the phone stays silent — pass without a word.
+    LaunchedEffect(listeningCameraId, listenOnRequested) {
+        val playing = listenCandidates.firstOrNull { it.id == listeningCameraId }
+        if (playing != null && listenOnRequested) {
+            listenOnRequested = false
+            announce(R.string.viewer_listen_on_confirmed, playing.name)
+        }
+    }
+    LaunchedEffect(listening, listenOnRequested, listenRefusalGraceMs) {
+        if (listening || !listenOnRequested) return@LaunchedEffect
+        // Still off with an "on" outstanding. Waited out rather than announced
+        // at once, because the answer has a flow to travel down first — and
+        // this effect is re-keyed the moment the switch moves, so a speaker
+        // that does arrive cancels the wait instead of being talked over.
+        delay(listenRefusalGraceMs)
+        listenOnRequested = false
+        announce(R.string.viewer_listen_refused)
     }
 
     if (fullscreen != null) {
@@ -762,6 +866,17 @@ fun MonitorScreen(
                         onKeepScreenOnChange(enabled)
                     },
                 )
+                // Only while something is actually listening. Listen mode is
+                // the monitor's decoding turned up, so with the monitor
+                // stopped this would be a switch for a speaker with nothing
+                // behind it — and the badge beside it is already the honest
+                // account of why.
+                if (monitoringRunning && listenCandidates.isNotEmpty()) {
+                    ListenToggle(
+                        listening = listening,
+                        onListeningChange = listenToggled,
+                    )
+                }
             }
             FilledTonalIconButton(
                 onClick = onOpenSettings,
@@ -788,6 +903,18 @@ fun MonitorScreen(
         ) {
             NetworkNotice(reach = networkReach)
             ToggleSnackbarHost(snackbarHostState)
+        }
+
+        // Guarded on the candidates as well as the flag: a camera switched off
+        // in settings while this is up must not leave a dialog asking about a
+        // list that has emptied underneath it.
+        if (choosingListenCamera && listenCandidates.isNotEmpty()) {
+            ListenCameraDialog(
+                cameras = listenCandidates,
+                selectedId = listenCameraId,
+                onPick = startListening,
+                onDismiss = { choosingListenCamera = false },
+            )
         }
 
         if (confirmingStop) {
@@ -945,6 +1072,98 @@ private fun SoundToggle(
 }
 
 /**
+ * Listen mode's switch: whether a room keeps coming out of the speaker once
+ * this screen is gone.
+ *
+ * Next to the viewer's sound button rather than folded into it, because the two
+ * mean different things. That one is "the camera I am looking at, while I am
+ * looking at it"; this one is "the room I want to hear while the phone is face
+ * down on the nightstand", and it is the monitoring service, not this screen,
+ * that keeps its promise.
+ *
+ * On the grid only, not on a camera opened alone. Watching one room is the
+ * opposite end of the day from setting the phone down for the night, and the
+ * fullscreen chrome is already the busiest corner on the screen.
+ */
+@Composable
+private fun ListenToggle(
+    listening: Boolean,
+    onListeningChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    FilledTonalIconButton(
+        onClick = { onListeningChange(!listening) },
+        shapes = IconButtonDefaults.shapes(),
+        modifier = modifier.testTag("toggle-listen"),
+    ) {
+        Icon(
+            painter = painterResource(
+                if (listening) R.drawable.ic_broadcast else R.drawable.ic_broadcast_off,
+            ),
+            contentDescription = stringResource(
+                if (listening) R.string.viewer_listen_off else R.string.viewer_listen_on,
+            ),
+        )
+    }
+}
+
+/**
+ * Which room to play aloud, asked once there is more than one it could be.
+ *
+ * The grid answers this question by highlighting a tile; with the display off
+ * there is no tile to highlight, so the answer has to be given in advance and
+ * out loud. It is also the only place with room to say what listen mode does to
+ * an alert, which is the part a parent would otherwise discover at 3am.
+ */
+@Composable
+private fun ListenCameraDialog(
+    cameras: List<Camera>,
+    selectedId: String?,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.viewer_listen_pick_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(stringResource(R.string.viewer_listen_pick_body))
+                Column {
+                    cameras.forEach { camera ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(MaterialTheme.shapes.small)
+                                .selectable(
+                                    selected = camera.id == selectedId,
+                                    role = Role.RadioButton,
+                                    onClick = { onPick(camera.id) },
+                                )
+                                .padding(vertical = 8.dp)
+                                .testTag("listen-camera-${camera.id}"),
+                        ) {
+                            // Null onClick: the whole row is the target, and a
+                            // button with its own would halve it in the dark.
+                            RadioButton(selected = camera.id == selectedId, onClick = null)
+                            Spacer(Modifier.width(12.dp))
+                            Text(camera.name, style = MaterialTheme.typography.bodyLarge)
+                        }
+                    }
+                }
+            }
+        },
+        // Picking a room is the confirmation; a separate one would only ask the
+        // same question twice.
+        confirmButton = {
+            TextButton(onClick = onDismiss, modifier = Modifier.testTag("cancel-listen")) {
+                Text(stringResource(R.string.cancel))
+            }
+        },
+    )
+}
+
+/**
  * Whether a propped-up monitor may go dark at the system timeout. Also in
  * settings with room for an explanation; it lives here too because the moment
  * the choice matters — the phone being set down for the night, or picked up
@@ -977,18 +1196,25 @@ private fun KeepScreenToggle(
  * off whatever the last one was saying: someone tapping twice to undo a slip
  * should read the outcome, not a queue of everything that happened on the way.
  */
+private class Announcer(
+    private val context: Context,
+    private val show: (String) -> Unit,
+) {
+    /** [args] for the messages that have to name the room they are about. */
+    operator fun invoke(@StringRes message: Int, vararg args: Any) {
+        show(context.getString(message, *args))
+    }
+}
+
 @Composable
-private fun rememberAnnouncer(hostState: SnackbarHostState): (Int) -> Unit {
+private fun rememberAnnouncer(hostState: SnackbarHostState): Announcer {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     return remember(hostState, context) {
-        { message: Int ->
+        Announcer(context) { message ->
             hostState.currentSnackbarData?.dismiss()
             scope.launch {
-                hostState.showSnackbar(
-                    message = context.getString(message),
-                    duration = SnackbarDuration.Short,
-                )
+                hostState.showSnackbar(message = message, duration = SnackbarDuration.Short)
             }
         }
     }

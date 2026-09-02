@@ -10,6 +10,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import app.dozecam.R
 import app.dozecam.appContainer
+import app.dozecam.audio.MediaAudioFocus
 import app.dozecam.audio.SoundDetector
 import app.dozecam.data.AppSettings
 import app.dozecam.data.Camera
@@ -22,6 +23,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -39,6 +41,13 @@ import kotlinx.coroutines.withContext
  * The set of monitors follows [app.dozecam.data.CameraStore.enabledCameras]
  * live, so switching a camera on or off in settings takes effect without
  * restarting the service.
+ *
+ * Listen mode is the same decoding, turned up. One monitor at a time may play
+ * its camera out of the speaker so the nursery stays audible with the display
+ * off — which is what makes this service's `mediaPlayback` type an honest
+ * description of it rather than a borderline one. The speaker is held here
+ * rather than by the viewer for the same reason: the viewer is the thing that
+ * is not there at 3am.
  */
 class MonitoringService : Service() {
 
@@ -122,10 +131,53 @@ class MonitoringService : Service() {
                 .collect { (cameras, usable) -> reconcile(cameras, usable) }
         }
 
+        // Listen mode's switch, and the speaker it needs. Asked for here rather
+        // than in the viewer because the whole promise is that it outlives the
+        // viewer.
+        scope.launch {
+            container.monitoringState.listening.collect { wanted ->
+                if (!wanted) {
+                    container.audioFocus.release(MediaAudioFocus.Client.LISTEN)
+                    return@collect
+                }
+                // Losing it later is treated the same way as being refused it
+                // now: the switch goes back off rather than standing on next
+                // to a phone that has gone quiet.
+                val granted = container.audioFocus.request(MediaAudioFocus.Client.LISTEN) {
+                    container.monitoringState.stopListening()
+                }
+                if (!granted) container.monitoringState.stopListening()
+            }
+        }
+
+        // Who is actually audible, recomputed from every reason it could stop
+        // being true. Only one camera is ever named, so moving the target moves
+        // the sound instead of adding to it.
+        scope.launch {
+            combine(
+                container.monitoringState.listening,
+                container.audioFocus.granted,
+                container.monitoringState.viewerAudible,
+                container.appSettings.settings
+                    .map { it.listenCameraId }
+                    .distinctUntilChanged(),
+                // The map itself churns with every decoded buffer; which
+                // cameras are in it does not.
+                container.monitoringState.cameras
+                    .map { it.keys }
+                    .distinctUntilChanged(),
+            ) { listening, granted, viewerAudible, chosen, monitored ->
+                ListenTarget.of(listening, granted, viewerAudible, chosen, monitored)
+            }
+                .distinctUntilChanged()
+                .collect(::setListenTarget)
+        }
+
         scope.launch {
             combine(
                 container.monitoringState.cameras,
                 container.cameras.enabledCameras,
+                container.monitoringState.listeningCameraId,
                 // The camera map changes on almost every decoded audio buffer —
                 // but not on every one: a run of identical levels (digital
                 // silence, exactly 0f) is conflated away by the StateFlow, and
@@ -134,12 +186,16 @@ class MonitoringService : Service() {
                 // point of a heartbeat; a wedged process runs no ticker, so it
                 // still cannot fake one.
                 heartbeatTicks(),
-            ) { states, enabled, _ ->
+            ) { states, enabled, aloudCameraId, _ ->
                 MonitoringStatus.of(
                     context = this@MonitoringService,
                     anyMonitors = monitors.isNotEmpty(),
                     states = states.values,
                     enabledCount = enabled.size,
+                    // A phone quietly broadcasting a bedroom is exactly the
+                    // thing a persistent notification exists to disclose, so
+                    // the line says so whatever else it has to report.
+                    aloudCameraId = aloudCameraId,
                 )
             }
                 // Unmetered this would rebuild and repost the foreground
@@ -216,6 +272,34 @@ class MonitoringService : Service() {
         // silently stay off. Settings stops the service outright when it is the
         // one that emptied the set.
         holdWakeLock(monitors.isNotEmpty())
+
+        // The set just changed underneath listen mode. A monitor rebuilt onto
+        // another transport comes back with a fresh, silent player, and the
+        // flow above would not fire for it — the camera ids it watches are the
+        // same ones. Re-applied here so the speaker follows the target across a
+        // rebuild rather than going quiet mid-night with the switch still on.
+        applyListenTarget()
+    }
+
+    /**
+     * Points the speaker at [cameraId], or at nothing. Recorded before it is
+     * applied, because everything that discloses listen mode — the status line,
+     * the offer to stop, the decision not to light the screen for an alert —
+     * reads the record rather than the players.
+     */
+    private fun setListenTarget(cameraId: String?) {
+        appContainer.monitoringState.listeningCameraId.value = cameraId
+        applyListenTarget()
+    }
+
+    /**
+     * Exactly one monitor audible, every other one silent — stated over the
+     * whole set rather than as a hand-off, so no path through here can leave
+     * two rooms coming out of the speaker at once.
+     */
+    private fun applyListenTarget() {
+        val target = appContainer.monitoringState.listeningCameraId.value
+        monitors.forEach { (id, monitor) -> monitor.setAudible(id == target) }
     }
 
     /** Held only while there is audio to decode; a monitor with no cameras costs nothing. */
@@ -240,7 +324,17 @@ class MonitoringService : Service() {
         val name = state.cameras.value[camera.id]?.name ?: camera.name
         // Notification first, always: the full-screen intent is the fastest
         // signal there is, and sound is for the person whose eyes are shut.
-        MonitoringNotifications.postAlert(this, camera.id, name)
+        //
+        // Except for the room already coming out of the speaker. Whoever
+        // switched listen mode on is being told about that room continuously,
+        // in the most direct way there is; lighting a bedroom at 3am on top of
+        // it wakes the parent who is already listening, and the one beside
+        // them. The chime and the vibration still go, because the point of an
+        // alert is the person whose eyes are shut — and every *other* camera
+        // still wakes the screen, because a room nobody can hear is exactly
+        // what the full-screen view is for.
+        val alreadyHeard = state.listeningCameraId.value == camera.id
+        MonitoringNotifications.postAlert(this, camera.id, name, wakeScreen = !alreadyHeard)
         appContainer.alertSignaler.signal(camera.id, appSettings)
     }
 
@@ -253,6 +347,7 @@ class MonitoringService : Service() {
                     display.text,
                     display.levelBucket,
                     display.checkedAtMs,
+                    aloud = appContainer.monitoringState.listeningCameraId.value != null,
                 ),
             )
         } catch (_: SecurityException) {
@@ -263,6 +358,12 @@ class MonitoringService : Service() {
     override fun onDestroy() {
         val state = appContainer.monitoringState
         state.serviceRunning.value = false
+        // The speaker goes with the monitor that was feeding it. Released here
+        // rather than left to the flow above, which is about to be cancelled
+        // with the scope — an abandoned focus request would leave every other
+        // app on the phone ducked for a service that no longer exists.
+        state.stopListening()
+        appContainer.audioFocus.release(MediaAudioFocus.Client.LISTEN)
         // Monitoring ending takes its alert with it: an alarm still sounding for
         // a camera nobody is listening to any more has nothing left to mean —
         // and neither does the card offering to open a live view of it.

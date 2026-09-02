@@ -27,6 +27,7 @@ object MonitoringNotifications {
     private const val REQUEST_ALERT_TAP = 1
     private const val REQUEST_STATUS_TAP = 2
     private const val REQUEST_STATUS_STOP = 3
+    private const val REQUEST_STATUS_STOP_LISTENING = 4
 
     fun ensureChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -63,12 +64,19 @@ object MonitoringNotifications {
      * tell a quiet night from a stale notification. Deliberately not a
      * chronometer: System UI would keep one ticking over a dead process,
      * which is exactly the false comfort this exists to rule out.
+     *
+     * [aloud] adds the way to silence a room that is coming out of the
+     * speaker. Only the way to *stop*: starting means choosing which room, and
+     * a notification cannot ask. It is also the one direction that has to be
+     * within reach of someone who did not expect it — a phone broadcasting a
+     * bedroom needs an off switch on the same surface that admits to it.
      */
     fun statusNotification(
         context: Context,
         text: String,
         levelBucket: Int? = null,
         checkedAtMs: Long? = null,
+        aloud: Boolean = false,
     ): Notification =
         NotificationCompat.Builder(context, STATUS_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
@@ -114,19 +122,52 @@ object MonitoringNotifications {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 ),
             )
+            .apply {
+                if (!aloud) return@apply
+                addAction(
+                    R.drawable.ic_volume_off,
+                    context.getString(R.string.notification_stop_listening),
+                    PendingIntent.getBroadcast(
+                        context,
+                        REQUEST_STATUS_STOP_LISTENING,
+                        Intent(context, StopListeningReceiver::class.java),
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                    ),
+                )
+            }
             .build()
 
     /**
      * High-priority full-screen alert: wakes the display and surfaces the
      * monitor over the lock screen when sound is detected.
      */
-    fun alertNotification(context: Context, cameraId: String, cameraName: String): Notification {
-        val fullScreenIntent = PendingIntent.getActivity(
-            context,
-            REQUEST_ALERT_FULL_SCREEN,
-            MainActivity.alertIntent(context, cameraId),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
+    fun alertNotification(
+        context: Context,
+        cameraId: String,
+        cameraName: String,
+        /**
+         * False for the one room already coming out of the speaker, where
+         * listen mode has been telling the user about it continuously. The rest
+         * of the alert is unchanged — the chime, the vibration, the tap that
+         * opens the camera — but a bedroom whose occupant is already hearing
+         * the nursery does not also need lighting up at 3am.
+         */
+        wakeScreen: Boolean = true,
+    ): Notification {
+        // Built only when it will be used: minting one spends nothing, but
+        // MainActivity.alertIntent stamps a single-use wake token into it, and
+        // an alert that has decided not to wake the screen has no business
+        // carrying the right to.
+        val fullScreenIntent = if (wakeScreen) {
+            PendingIntent.getActivity(
+                context,
+                REQUEST_ALERT_FULL_SCREEN,
+                MainActivity.alertIntent(context, cameraId),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+        } else {
+            null
+        }
         return NotificationCompat.Builder(context, ALERT_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(context.getString(R.string.notification_alert_title, cameraName))
@@ -142,7 +183,12 @@ object MonitoringNotifications {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 ),
             )
-            .setFullScreenIntent(fullScreenIntent, true)
+            // Left off entirely rather than posted with a suppressed flag:
+            // without one Android treats this as an ordinary high-priority
+            // notification, which is exactly what a room the user is already
+            // hearing deserves — a heads-up if the screen happens to be on,
+            // and a quiet entry in the shade if it is not.
+            .apply { fullScreenIntent?.let { setFullScreenIntent(it, true) } }
             // When Android suppresses the full-screen launch (screen already
             // on, or 14+ special access denied) the heads-up fallback must
             // still open the live view on tap.
@@ -164,10 +210,18 @@ object MonitoringNotifications {
             .build()
     }
 
-    fun postAlert(context: Context, cameraId: String, cameraName: String) {
+    fun postAlert(
+        context: Context,
+        cameraId: String,
+        cameraName: String,
+        wakeScreen: Boolean = true,
+    ) {
         val manager = NotificationManagerCompat.from(context)
         try {
-            manager.notify(ALERT_NOTIFICATION_ID, alertNotification(context, cameraId, cameraName))
+            manager.notify(
+                ALERT_NOTIFICATION_ID,
+                alertNotification(context, cameraId, cameraName, wakeScreen),
+            )
         } catch (_: SecurityException) {
             // Notification permission revoked mid-run; monitoring continues,
             // the status notification (FGS-exempt) still reflects the alert.

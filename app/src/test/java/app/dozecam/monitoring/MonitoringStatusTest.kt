@@ -103,6 +103,55 @@ class MonitoringStatusTest {
     }
 
     @Test
+    fun `a room coming out of the speaker is disclosed in front of everything else`() {
+        val status = MonitoringStatus.of(
+            context,
+            anyMonitors = true,
+            states = listOf(live("a", "Nursery", level = 0.2f), live("b", "Hall")),
+            enabledCount = 2,
+            aloudCameraId = "a",
+        )
+
+        // A phone quietly broadcasting a bedroom is exactly what a persistent
+        // notification exists to admit to.
+        assertEquals("Nursery aloud · Listening to 2 cameras", status.text)
+        assertEquals(0.2f, status.level)
+    }
+
+    @Test
+    fun `the disclosure does not push aside what is wrong`() {
+        val status = MonitoringStatus.of(
+            context,
+            anyMonitors = true,
+            states = listOf(
+                live("a", "Nursery"),
+                CameraMonitorState("b", "Hall", connection = ConnectionState.Offline),
+            ),
+            enabledCount = 2,
+            aloudCameraId = "a",
+        )
+
+        // Both facts are true at once, and an offline camera does not stop
+        // being the more urgent half of the line.
+        assertEquals("Nursery aloud · Offline — waiting for network", status.text)
+    }
+
+    @Test
+    fun `nothing is claimed for a camera that is not actually being played`() {
+        val status = MonitoringStatus.of(
+            context,
+            anyMonitors = true,
+            states = listOf(live("a", "Nursery", level = 0.2f)),
+            enabledCount = 1,
+            // The switch may still be on — the speaker was lost to a call, or
+            // the chosen camera is one the monitor has stopped listening to.
+            aloudCameraId = "gone",
+        )
+
+        assertEquals("Listening to 1 camera", status.text)
+    }
+
+    @Test
     fun `with no monitors there is nothing to overstate`() {
         val status = MonitoringStatus.of(
             context,

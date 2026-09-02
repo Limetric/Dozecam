@@ -2,6 +2,8 @@ package app.dozecam.monitoring
 
 import android.app.NotificationManager
 import android.content.Context
+import android.media.AudioManager
+import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
 import app.dozecam.DozecamApp
 import app.dozecam.data.Camera
@@ -94,6 +96,40 @@ class MonitoringServiceTest {
             shadowOf(context.getSystemService(NotificationManager::class.java))
                 .getNotification(MonitoringNotifications.ALERT_NOTIFICATION_ID),
         )
+    }
+
+    @Test
+    fun `stopping takes the speaker with it`() = runTest {
+        val controller = Robolectric.buildService(MonitoringService::class.java).create()
+        container.monitoringState.listening.value = true
+        container.monitoringState.listeningCameraId.value = "a"
+
+        controller.destroy()
+
+        // A switch left on with no service behind it would offer to stop
+        // something already stopped — and would start talking again the moment
+        // the monitor came back, which is the one thing it must never do
+        // unasked.
+        assertFalse(container.monitoringState.listening.value)
+        assertNull(container.monitoringState.listeningCameraId.value)
+    }
+
+    @Test
+    fun `a speaker nothing will grant switches itself back off`() = runTest {
+        // Something else owns the speaker for the whole of this test.
+        val audioManager = context.getSystemService(AudioManager::class.java)
+        shadowOf(audioManager).setNextFocusRequestResponse(
+            AudioManager.AUDIOFOCUS_REQUEST_FAILED,
+        )
+        Robolectric.buildService(MonitoringService::class.java).create().get()
+
+        container.monitoringState.listening.value = true
+        shadowOf(Looper.getMainLooper()).idle()
+
+        // A control that says "on" next to a phone that is silent is worse
+        // than one that visibly did not take.
+        assertFalse(container.monitoringState.listening.value)
+        assertNull(container.monitoringState.listeningCameraId.value)
     }
 
     @Test

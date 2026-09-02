@@ -75,6 +75,10 @@
             android:name=".monitoring.StopMonitoringReceiver"
             android:exported="false" />
 
+        <receiver
+            android:name=".monitoring.StopListeningReceiver"
+            android:exported="false" />
+
         <service
             android:name=".monitoring.MonitoringService"
             android:exported="false"

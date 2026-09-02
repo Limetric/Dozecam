@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Listen mode on: a source with sound leaving it in both directions. Not a
+  speaker glyph, which the viewer's own sound button already owns — this one
+  says "the room is coming out of the phone", not "this tile is the loud one".
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M12,10.4A1.6,1.6 0 1,0 12,13.6A1.6,1.6 0 1,0 12,10.4Z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:pathData="M8.6,9.6 A3.4,3.4 0 0,0 8.6,14.4" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:pathData="M15.4,9.6 A3.4,3.4 0 0,1 15.4,14.4" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:pathData="M5.9,6.8 A6.6,6.6 0 0,0 5.9,17.2" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:pathData="M18.1,6.8 A6.6,6.6 0 0,1 18.1,17.2" />
+</vector>

@@ -4,6 +4,9 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import app.dozecam.monitoring.AlarmSchedule
 import java.io.File
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -75,6 +78,44 @@ class AppSettingsRepositoryTest {
             defaults.alertRepeatIntervalMs in
                 AlarmSchedule.MIN_REPEAT_INTERVAL_MS..AlarmSchedule.MAX_REPEAT_INTERVAL_MS,
         )
+    }
+
+    /**
+     * Listen mode remembers the room, not the fact that a speaker was on. The
+     * first saves the nightly ritual a tap; the second would mean a phone that
+     * rebooted itself at 4am comes back broadcasting a bedroom, with the only
+     * person who could notice asleep.
+     */
+    @Test
+    fun `the listen camera survives a restart and the speaker does not`() = runTest {
+        val file = File(tmp.root, "listen.preferences_pb")
+        val beforeRestart = CoroutineScope(backgroundScope.coroutineContext + Job())
+        AppSettingsRepository(
+            PreferenceDataStoreFactory.create(scope = beforeRestart, produceFile = { file }),
+        ).update { it.copy(listenCameraId = "nursery") }
+        beforeRestart.cancel()
+
+        // Everything about listen mode that is stored at all is stored here;
+        // there is nowhere else for an "it was on" to have gone.
+        val reopened = AppSettingsRepository(
+            PreferenceDataStoreFactory.create(scope = backgroundScope, produceFile = { file }),
+        )
+
+        assertEquals("nursery", reopened.settings.first().listenCameraId)
+    }
+
+    @Test
+    fun `no listen camera has been chosen until one is`() = runTest {
+        val repository = AppSettingsRepository(
+            PreferenceDataStoreFactory.create(
+                scope = backgroundScope,
+                produceFile = { File(tmp.root, "unchosen.preferences_pb") },
+            ),
+        )
+
+        // Null rather than a first camera picked for them: with the display off
+        // nothing says which room is talking, so nobody guesses.
+        assertNull(repository.settings.first().listenCameraId)
     }
 
     /** Clearing the choice has to mean "the phone's alarm sound", not an empty URI. */

@@ -24,6 +24,40 @@ internal object MonitoringStatus {
         anyMonitors: Boolean,
         states: Collection<CameraMonitorState>,
         enabledCount: Int,
+        /** The camera listen mode is playing out of the speaker, if any. */
+        aloudCameraId: String? = null,
+    ): Status = disclose(
+        context = context,
+        states = states,
+        aloudCameraId = aloudCameraId,
+        status = listening(context, anyMonitors, states, enabledCount),
+    )
+
+    /**
+     * A phone broadcasting a bedroom says so, in front of whatever else it has
+     * to report. Not instead of it: an offline camera is still the more urgent
+     * half of the line, and a speaker that is on does not make it less true.
+     *
+     * Reads the camera that is *actually* audible rather than the switch, so
+     * this can only ever understate what the phone is doing.
+     */
+    private fun disclose(
+        context: Context,
+        states: Collection<CameraMonitorState>,
+        aloudCameraId: String?,
+        status: Status,
+    ): Status {
+        val name = states.firstOrNull { it.cameraId == aloudCameraId }?.name ?: return status
+        return status.copy(
+            text = context.getString(R.string.monitoring_status_aloud, name, status.text),
+        )
+    }
+
+    private fun listening(
+        context: Context,
+        anyMonitors: Boolean,
+        states: Collection<CameraMonitorState>,
+        enabledCount: Int,
     ): Status {
         if (!anyMonitors) return Status(context.getString(R.string.monitoring_status_nothing), null)
         if (states.isEmpty()) {
