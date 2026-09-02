@@ -3,6 +3,7 @@ package app.dozecam.monitoring
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -67,6 +68,13 @@ class CameraAudioMonitor(
 ) {
     private val detector = SoundDetector(detectorSettings)
     private var player: ExoPlayer? = null
+
+    /**
+     * Whether this camera is the one listen mode is playing out loud. Silent
+     * by default: measuring a room is what every monitor does, and being heard
+     * is something exactly one of them is asked for.
+     */
+    private var audible = false
     private var jobs = mutableListOf<Job>()
 
     /** Which of [transports] is being listened on, and when to give up on it. */
@@ -174,6 +182,28 @@ class CameraAudioMonitor(
         detector.updateSettings(settings)
     }
 
+    /**
+     * Turns this camera's audio up to the speaker, or back down to silence.
+     *
+     * The decoding is already happening — it is how the level that drives the
+     * detector is measured — so this is only the last few inches of it: the
+     * AudioTrack the sink was going to write nothing audible into. Applied to
+     * the player rather than to a stream volume, so it moves the instant the
+     * caller says and cannot outlive this monitor.
+     *
+     * Remembered as well as applied, because a monitor restarted onto another
+     * transport builds a new player and would otherwise come back silent
+     * mid-night with the switch still on.
+     */
+    fun setAudible(audible: Boolean) {
+        if (this.audible == audible) return
+        this.audible = audible
+        player?.volume = volumeFor(audible)
+    }
+
+    /** Visible for testing: what this camera is actually putting into the speaker. */
+    internal val playerVolume: Float? get() = player?.volume
+
     fun onNetworkAvailable() = watchdog.onNetworkAvailable()
 
     fun onNetworkLost() = watchdog.onNetworkLost()
@@ -254,9 +284,28 @@ class CameraAudioMonitor(
             trackSelectionParameters = trackSelectionParameters.buildUpon()
                 .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
                 .build()
-            volume = 0f // monitor silently; the wake alert surfaces the live view
+            // Media rather than the default: this is the stream the volume
+            // rocker reaches, which is the gesture someone half-asleep uses on
+            // a nursery that has come out of the speaker too loud.
+            //
+            // The focus is emphatically not ExoPlayer's to manage. One request
+            // per monitor would have every camera on the phone asking the
+            // system for the same speaker, and the answer decides whether
+            // listen mode is on at all — see [app.dozecam.audio.MediaAudioFocus].
+            setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                    .build(),
+                /* handleAudioFocus= */ false,
+            )
+            // Silent unless this is the camera listen mode was pointed at; the
+            // wake alert is what surfaces the live view for every other one.
+            volume = volumeFor(audible)
         }
     }
+
+    private fun volumeFor(audible: Boolean): Float = if (audible) 1f else 0f
 
     private companion object {
         const val TAG = "Dozecam"

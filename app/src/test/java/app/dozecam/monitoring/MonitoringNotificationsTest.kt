@@ -45,6 +45,38 @@ class MonitoringNotificationsTest {
     }
 
     @Test
+    fun `a room already coming out of the speaker is not also lit up`() {
+        MonitoringNotifications.ensureChannels(context)
+
+        val notification = MonitoringNotifications
+            .alertNotification(context, "a", "Nursery", wakeScreen = false)
+
+        // Whoever switched listen mode on is already being told about this
+        // room, continuously and in the most direct way there is.
+        assertNull(notification.fullScreenIntent)
+        // Everything else about the alert stands: the chime and vibration are
+        // the signaller's, and the tap still opens the camera.
+        assertNotNull(notification.contentIntent)
+    }
+
+    @Test
+    fun `the status notification offers to stop a speaker it admits to`() {
+        MonitoringNotifications.ensureChannels(context)
+
+        val silent = MonitoringNotifications.statusNotification(context, "Listening")
+        val aloud = MonitoringNotifications.statusNotification(context, "Listening", aloud = true)
+
+        // Stop monitoring, and nothing else, while nothing is playing aloud.
+        assertEquals(1, silent.actions.size)
+        // A phone broadcasting a bedroom needs its off switch on the same
+        // surface that admits to it — and separately from the one that would
+        // switch the baby monitor off altogether.
+        assertEquals(2, aloud.actions.size)
+        assertEquals("Stop monitoring", aloud.actions[0].title)
+        assertEquals("Stop listening", aloud.actions[1].title)
+    }
+
+    @Test
     fun `the alert wakes the viewer onto the camera that got loud`() {
         MonitoringNotifications.ensureChannels(context)
 

@@ -2,6 +2,7 @@ package app.dozecam
 
 import android.app.Application
 import android.content.Context
+import app.dozecam.audio.MediaAudioFocus
 import app.dozecam.data.AppSettingsRepository
 import app.dozecam.data.CameraRepository
 import app.dozecam.data.DetectorSettingsRepository
@@ -42,6 +43,14 @@ class AppContainer(context: Context) {
      * preview the sound with no service running at all.
      */
     val alertSignaler by lazy { AlertSignaler(context.applicationContext) }
+
+    /**
+     * App-scoped for the same reason [alertSignaler] is, and one degree more
+     * so: the viewer and the monitoring service both make noise, they outlive
+     * each other in both directions, and two focus requests from one process
+     * arrive at each other as losses.
+     */
+    val audioFocus by lazy { MediaAudioFocus(context.applicationContext) }
 
     /** Shared by every RTSP tile on screen; builds its native instance on first use. */
     val vlcRuntime = VlcRuntime(context.applicationContext)

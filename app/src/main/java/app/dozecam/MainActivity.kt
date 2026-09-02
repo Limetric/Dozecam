@@ -21,7 +21,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import app.dozecam.audio.ViewerAudioFocus
+import app.dozecam.audio.MediaAudioFocus
 import app.dozecam.audio.talkback.ProtectTalkback
 import app.dozecam.data.AppSettings
 import app.dozecam.data.OrientationLock
@@ -72,11 +72,11 @@ class MainActivity : ComponentActivity() {
     private val monitoringStarter = MonitoringStarter(this)
 
     /**
-     * Losing focus for good is treated as the user's own switch being turned
-     * off, so the viewer comes back silent rather than jumping back in when
-     * whatever took the speaker is finished with it.
+     * The app's one owner of the speaker, shared with the monitoring service so
+     * listen mode can go on holding it after this activity is gone. The viewer
+     * is only ever one of its holders, and lets go as it leaves.
      */
-    private val audioFocus by lazy { ViewerAudioFocus(this) { setViewerSound(false) } }
+    private val audioFocus by lazy { appContainer.audioFocus }
 
     // Nothing in the app can reach the LAN without this, so ask up front rather
     // than letting the first console or stream connection time out.
@@ -184,17 +184,46 @@ class MainActivity : ComponentActivity() {
                         .distinctUntilChanged()
                         .collect { wanted ->
                             when {
-                                !wanted -> audioFocus.release()
+                                !wanted -> audioFocus.release(MediaAudioFocus.Client.VIEWER)
                                 // Refused means something else owns the
                                 // speaker. Switching back off is the honest
                                 // answer: a sound button that is on while the
                                 // phone stays silent is worse than one that
                                 // did not take.
-                                !audioFocus.request() -> setViewerSound(false)
+                                //
+                                // Losing it for good is treated the same way,
+                                // so the viewer comes back silent rather than
+                                // jumping back in when whatever took the
+                                // speaker is finished with it.
+                                !audioFocus.request(MediaAudioFocus.Client.VIEWER) {
+                                    setViewerSound(false)
+                                } -> setViewerSound(false)
                             }
                         }
                 } finally {
-                    audioFocus.release()
+                    audioFocus.release(MediaAudioFocus.Client.VIEWER)
+                }
+            }
+        }
+
+        // Listen mode stands down while the viewer is making noise of its own.
+        // Reported from here rather than inferred by the service, because only
+        // this side knows all three parts of it: the switch, the speaker, and
+        // whether the viewer is on screen at all.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                try {
+                    combine(
+                        appContainer.appSettings.settings.map { it.viewerSound },
+                        audioFocus.granted,
+                    ) { soundOn, granted -> soundOn && granted }
+                        .distinctUntilChanged()
+                        .collect { appContainer.monitoringState.viewerAudible.value = it }
+                } finally {
+                    // Backgrounded silences the players whatever the switch
+                    // says, so the nursery must be free to come back at once —
+                    // this is the moment listen mode exists for.
+                    appContainer.monitoringState.viewerAudible.value = false
                 }
             }
         }
@@ -231,6 +260,10 @@ class MainActivity : ComponentActivity() {
                 val reach by networkReach.collectAsStateWithLifecycle()
                 val alertCamera by alertCameraId.collectAsStateWithLifecycle()
                 val soundGranted by audioFocus.granted.collectAsStateWithLifecycle()
+                val listenRequest by container.monitoringState.listenRequest
+                    .collectAsStateWithLifecycle()
+                val listeningCamera by container.monitoringState.listeningCameraId
+                    .collectAsStateWithLifecycle()
                 val localNetworkDenial by localNetwork.denial.collectAsStateWithLifecycle()
 
                 // Coming back to the front may mean a different console was
@@ -278,6 +311,14 @@ class MainActivity : ComponentActivity() {
                     // asked for likewise waits for the request to be granted
                     // rather than starting on the strength of the setting.
                     soundGranted = soundGranted,
+                    listening = listenRequest != null,
+                    onListenCameraChange = ::setListenCamera,
+                    // What is actually coming out of the speaker, not what was
+                    // asked for — the same distinction [soundGranted] draws,
+                    // and for the same reason: the viewer must never confirm a
+                    // room is audible before it is.
+                    listeningCameraId = listeningCamera,
+                    listenCameraId = appSettings.listenCameraId,
                     audioLevels = audioLevels,
                     audioThreshold = audioThreshold,
                     alertCameraId = alertCamera,
@@ -471,6 +512,33 @@ class MainActivity : ComponentActivity() {
     private fun setViewerSound(enabled: Boolean) {
         lifecycleScope.launch {
             appContainer.appSettings.update { it.copy(viewerSound = enabled) }
+        }
+    }
+
+    /**
+     * The room to play aloud, or null to stop — listen mode's whole control.
+     *
+     * The service is told first and in one assignment, so it cannot begin
+     * listening a moment before it knows what to play. Remembering the choice
+     * is a side effect and deliberately not the route: it is a disk write, and
+     * a service that had to wait for one would spend that wait broadcasting
+     * whichever room was chosen the night before.
+     *
+     * The switch itself is held in the app container rather than here so it
+     * survives this activity going away, which is the entire point of it — and
+     * pointedly not persisted, so a phone that reboots itself in the night does
+     * not come back broadcasting a bedroom.
+     */
+    private fun setListenCamera(cameraId: String?) {
+        appContainer.monitoringState.listenRequest.value = cameraId
+        if (cameraId == null) {
+            appContainer.monitoringState.stopListening()
+            return
+        }
+        // Remembered so the picker opens on it tomorrow night, and for nothing
+        // else: what plays tonight was settled by the line above.
+        lifecycleScope.launch {
+            appContainer.appSettings.update { it.copy(listenCameraId = cameraId) }
         }
     }
 

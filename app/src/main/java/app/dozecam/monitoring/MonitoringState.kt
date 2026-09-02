@@ -63,6 +63,55 @@ class MonitoringState {
     val userStopped = MutableStateFlow(false)
 
     /**
+     * The room the user has asked to hear out of the speaker, or null for
+     * none — listen mode's switch and its target in a single value. Written by
+     * the viewer and the notification, read by the service.
+     *
+     * One value rather than a switch here and a camera id in stored settings,
+     * because they are one decision and splitting them gave them different
+     * speeds: the switch is an assignment and the settings write is a disk
+     * round trip, so the service learned that listening had begun before it
+     * learned which room to play. It spent that window playing whichever room
+     * was chosen the night before — and the viewer, reading the same state,
+     * announced that room by name and never took it back. A monitor whose
+     * whole claim is that you know which room you are hearing cannot have that
+     * window, and the only way to be sure it is closed is to leave nothing to
+     * arrive late.
+     *
+     * In memory only, like [userStopped] and for a sharper version of the same
+     * reason: the chosen camera is worth remembering — [
+     * app.dozecam.data.AppSettings.listenCameraId] does that, so the picker
+     * opens on it — but the fact that a speaker was on is not. A phone that
+     * reboots itself in the night and comes back broadcasting a bedroom is a
+     * thing nobody asked for, and the person who would have to notice is
+     * asleep.
+     */
+    val listenRequest = MutableStateFlow<String?>(null)
+
+    /**
+     * The camera actually coming out of the speaker right now, or null.
+     *
+     * Deliberately separate from [listenRequest], which is only the ask: the
+     * speaker can be lost to a call, handed to the viewer, or pointed at a
+     * camera the monitor has stopped listening to. Everything that *tells* the
+     * user something is audible — the notification's status line, the offer to
+     * stop, the decision not to light the screen for an alert — reads this one,
+     * because it is the only one that is a fact.
+     */
+    val listeningCameraId = MutableStateFlow<String?>(null)
+
+    /**
+     * Whether the viewer itself is making noise. Written by the activity while
+     * it is on screen with its sound on and the speaker granted.
+     *
+     * Listen mode stands down while it is true. Both would otherwise play the
+     * same nursery a second or two apart out of one speaker — and the viewer is
+     * the better of the two to hear, because it is the room somebody is looking
+     * at.
+     */
+    val viewerAudible = MutableStateFlow(false)
+
+    /**
      * Bumped whenever the signed-in console changes, which rewrites which
      * cameras have a livestream to listen over — and can happen without the
      * camera list moving at all: sign in, then leave onboarding without
@@ -95,5 +144,17 @@ class MonitoringState {
 
     fun clear() {
         cameras.value = emptyMap()
+    }
+
+    /**
+     * Monitoring has ended, so the speaker it was feeding has too. Both flags,
+     * not just the fact: a switch left on with no service behind it would offer
+     * to stop something that already stopped, and would start talking again the
+     * moment the monitor came back — which is the one thing this must never do
+     * unasked.
+     */
+    fun stopListening() {
+        listenRequest.value = null
+        listeningCameraId.value = null
     }
 }
