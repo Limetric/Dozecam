@@ -4,11 +4,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.semantics.SemanticsActions
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import app.dozecam.R
 import app.dozecam.data.AppSettings
 import app.dozecam.data.Camera
 import app.dozecam.data.DetectorSettings
@@ -41,6 +45,7 @@ class SettingsScreenTest {
         onSettingsChange: ((AppSettings) -> AppSettings) -> Unit = {},
         monitoringRunning: Boolean = false,
         canMonitor: Boolean = true,
+        localNetworkGranted: Boolean = true,
         onToggleMonitoring: (Boolean) -> Unit = {},
         audioLevel: Float = 0f,
         cameras: List<Camera> = listOf(nursery, playroom),
@@ -65,6 +70,7 @@ class SettingsScreenTest {
                 onSettingsChange = onSettingsChange,
                 monitoringRunning = monitoringRunning,
                 canMonitor = canMonitor,
+                localNetworkGranted = localNetworkGranted,
                 onToggleMonitoring = onToggleMonitoring,
                 audioLevel = audioLevel,
                 cameras = cameras,
@@ -85,6 +91,9 @@ class SettingsScreenTest {
             )
         }
     }
+
+    private fun text(resId: Int): String =
+        ApplicationProvider.getApplicationContext<Context>().getString(resId)
 
     /** The rows now live behind category doors; tests walk through them too. */
     private fun openCategory(category: SettingsCategory) {
@@ -128,6 +137,41 @@ class SettingsScreenTest {
         // Offering to start a service that would immediately stop itself is
         // worse than showing the switch as unavailable.
         assertNull(toggled)
+    }
+
+    @Test
+    fun `a missing local network grant is named, not reported as idleness`() {
+        composeRule.setContent { Screen(localNetworkGranted = false) }
+
+        // "Not monitoring" beside a switch that flips itself back is a bug
+        // report waiting to happen; the reason belongs on the row before the
+        // switch is ever touched.
+        composeRule.onNodeWithText(text(R.string.monitoring_needs_local_network))
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule.onNodeWithText(text(R.string.monitoring_idle)).assertDoesNotExist()
+    }
+
+    @Test
+    fun `the switch still answers without the grant, because it is how to ask`() {
+        var toggled: Boolean? = null
+        composeRule.setContent {
+            Screen(localNetworkGranted = false, onToggleMonitoring = { toggled = it })
+        }
+
+        composeRule.onNodeWithTag("monitoring-switch").performScrollTo().performClick()
+
+        assertEquals(true, toggled)
+    }
+
+    @Test
+    fun `having nothing to listen to outranks the missing grant`() {
+        composeRule.setContent { Screen(canMonitor = false, localNetworkGranted = false) }
+
+        // A permission would buy nothing here: there is no camera behind it.
+        composeRule.onNodeWithText(text(R.string.monitoring_unavailable))
+            .performScrollTo()
+            .assertIsDisplayed()
     }
 
     @Test

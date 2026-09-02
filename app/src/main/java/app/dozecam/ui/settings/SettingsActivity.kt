@@ -25,6 +25,8 @@ import app.dozecam.monitoring.MonitoringStarter
 import app.dozecam.monitoring.shouldArmMonitoring
 import app.dozecam.monitoring.shouldStopMonitoring
 import app.dozecam.permissions.LocalNetworkPermission
+import app.dozecam.permissions.LocalNetworkPermissionRequest
+import app.dozecam.ui.components.LocalNetworkPermissionDialog
 import app.dozecam.ui.onboarding.OnboardingActivity
 import app.dozecam.ui.theme.DozecamTheme
 import kotlinx.coroutines.flow.combine
@@ -36,10 +38,11 @@ class SettingsActivity : ComponentActivity() {
 
     // Switching monitoring on is the moment LAN access stops being optional:
     // without it every RTSP connection is dropped as a timeout, which looks
-    // like a broken camera rather than a missing permission.
-    private val localNetworkPermission = registerForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted -> if (granted) armIfNeeded() }
+    // like a broken camera rather than a missing permission. A grant re-arms
+    // through the collector below, which watches this alongside the cameras;
+    // a refusal is explained rather than left to flip the switch back in
+    // silence.
+    private val localNetwork = LocalNetworkPermissionRequest(this)
 
     private val alertSoundPicker = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -83,10 +86,15 @@ class SettingsActivity : ComponentActivity() {
                 // had stopped itself reports that it is finally gone — without
                 // which a camera switched off and straight back on could land in
                 // that gap and leave monitoring off.
+                // Local-network access joins them because granting it is the
+                // other way a refused arm becomes an armable one — and it can
+                // be granted outside the app entirely, in Android's settings,
+                // with nothing else here changing to notice.
                 combine(
                     appContainer.cameras.enabledCameras,
                     appContainer.monitoringState.serviceRunning,
-                ) { _, _ -> }.collect {
+                    localNetwork.granted,
+                ) { _, _, _ -> }.collect {
                     if (appContainer.shouldArmMonitoring(this@SettingsActivity)) {
                         monitoringStarter.startWithAlertPermissions()
                     } else if (appContainer.shouldStopMonitoring()) {
@@ -116,6 +124,8 @@ class SettingsActivity : ComponentActivity() {
             val monitoringRunning by settingsViewModel.monitoringRunning
                 .collectAsStateWithLifecycle()
             val canMonitor by settingsViewModel.canMonitor.collectAsStateWithLifecycle()
+            val hasLocalNetwork by localNetwork.granted.collectAsStateWithLifecycle()
+            val localNetworkDenial by localNetwork.denial.collectAsStateWithLifecycle()
             val audioLevel by settingsViewModel.audioLevel.collectAsStateWithLifecycle()
             DozecamTheme(nightTheme = settings.nightTheme) {
                 SettingsScreen(
@@ -123,6 +133,7 @@ class SettingsActivity : ComponentActivity() {
                     onSettingsChange = settingsViewModel::update,
                     monitoringRunning = monitoringRunning,
                     canMonitor = canMonitor,
+                    localNetworkGranted = hasLocalNetwork,
                     onToggleMonitoring = { enabled ->
                         settingsViewModel.onMonitoringIntent(enabled)
                         if (enabled) {
@@ -132,7 +143,7 @@ class SettingsActivity : ComponentActivity() {
                             if (LocalNetworkPermission.isGranted(this)) {
                                 armIfNeeded()
                             } else {
-                                localNetworkPermission.launch(LocalNetworkPermission.name)
+                                localNetwork.ask()
                             }
                         } else {
                             MonitoringService.stop(this)
@@ -155,6 +166,13 @@ class SettingsActivity : ComponentActivity() {
                     onPickAlertSound = { pickAlertSound(settings.alertSoundUri) },
                     onPreviewAlertSound = { appContainer.alertSignaler.preview(settings) },
                 )
+                localNetworkDenial?.let { denial ->
+                    LocalNetworkPermissionDialog(
+                        denial = denial,
+                        onAllow = localNetwork::resolve,
+                        onDismiss = localNetwork::dismiss,
+                    )
+                }
             }
         }
     }

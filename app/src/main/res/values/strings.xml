@@ -31,6 +31,18 @@
     <string name="monitoring_listening">Listening for sound</string>
     <string name="monitoring_idle">Not monitoring</string>
     <string name="monitoring_unavailable">No camera is switched on that can be listened to</string>
+    <!--
+        A missing local-network grant is not idleness: the switch would flip
+        straight back and the row would say "Not monitoring", which reads as a
+        broken control rather than as a permission nobody has been asked for.
+    -->
+    <string name="monitoring_needs_local_network">Needs local network access to reach your cameras</string>
+    <string name="local_network_title">Allow local network access</string>
+    <string name="local_network_body">Dozecam listens to your cameras over your home network. Without local network access it cannot reach them, so monitoring stays off.</string>
+    <string name="local_network_body_blocked">Dozecam listens to your cameras over your home network. Without local network access it cannot reach them, so monitoring stays off.\n\nAndroid will not ask again — turn local network access on in this app\'s system settings.</string>
+    <string name="local_network_allow">Allow</string>
+    <string name="local_network_open_settings">Open app settings</string>
+    <string name="local_network_not_now">Not now</string>
     <string name="viewer_no_cameras">No cameras yet. Connect your UniFi Protect console to add them.</string>
     <string name="viewer_all_disabled">Every camera is switched off. Turn one on in settings to watch and monitor it.</string>
     <string name="viewer_add_manually">Add one manually</string>
