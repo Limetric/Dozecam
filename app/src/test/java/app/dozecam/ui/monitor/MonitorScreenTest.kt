@@ -150,10 +150,9 @@ class MonitorScreenTest {
         onKeepScreenOnChange: (Boolean) -> Unit = {},
         soundGranted: Boolean = true,
         listening: Boolean = false,
-        onListeningChange: (Boolean) -> Unit = {},
+        onListenCameraChange: (String?) -> Unit = {},
         listeningCameraId: String? = null,
         listenCameraId: String? = null,
-        onListenCameraChange: (String) -> Unit = {},
         audioLevels: Map<String, Float> = emptyMap(),
         audioThreshold: Float = 0.10f,
         soundRotationIntervalMs: Long = ROTATION_MS,
@@ -189,10 +188,9 @@ class MonitorScreenTest {
                 onKeepScreenOnChange = onKeepScreenOnChange,
                 soundGranted = soundGranted,
                 listening = listening,
-                onListeningChange = onListeningChange,
+                onListenCameraChange = onListenCameraChange,
                 listeningCameraId = listeningCameraId,
                 listenCameraId = listenCameraId,
-                onListenCameraChange = onListenCameraChange,
                 audioLevels = audioLevels,
                 audioThreshold = audioThreshold,
                 soundRotationIntervalMs = soundRotationIntervalMs,
@@ -224,32 +222,30 @@ class MonitorScreenTest {
 
     @Test
     fun `one camera is not a question worth asking`() {
-        var listening: Boolean? = null
-        var chosen: String? = null
+        var asked: String? = null
         composeRule.setContent {
             Screen(
                 cameras = listOf(nursery),
                 monitoringRunning = true,
-                onListeningChange = { listening = it },
-                onListenCameraChange = { chosen = it },
+                onListenCameraChange = { asked = it },
             )
         }
 
         composeRule.onNodeWithTag("toggle-listen").performClick()
         composeRule.waitForIdle()
 
-        assertEquals(true, listening)
-        assertEquals(nursery.id, chosen)
+        assertEquals(nursery.id, asked)
     }
 
     @Test
     fun `several cameras get asked which room should be heard`() {
-        var listening: Boolean? = null
+        var asked: String? = null
+        var calls = 0
         composeRule.setContent {
             Screen(
                 cameras = listOf(nursery, playroom),
                 monitoringRunning = true,
-                onListeningChange = { listening = it },
+                onListenCameraChange = { asked = it; calls++ },
             )
         }
 
@@ -258,21 +254,21 @@ class MonitorScreenTest {
 
         // Nothing starts until the room is named: with the display off there is
         // no tile to say which one is talking.
-        assertNull(listening)
+        assertEquals(0, calls)
+        assertNull(asked)
         composeRule.onNodeWithTag("listen-camera-${nursery.id}").assertExists()
         composeRule.onNodeWithTag("listen-camera-${playroom.id}").assertExists()
     }
 
     @Test
-    fun `picking a room starts it and remembers it`() {
-        var listening: Boolean? = null
-        var chosen: String? = null
+    fun `picking a room starts it, and names it in the same breath`() {
+        val asks = mutableListOf<String?>()
         composeRule.setContent {
             Screen(
                 cameras = listOf(nursery, playroom),
                 monitoringRunning = true,
-                onListeningChange = { listening = it },
-                onListenCameraChange = { chosen = it },
+                listenCameraId = nursery.id,
+                onListenCameraChange = { asks += it },
             )
         }
 
@@ -281,8 +277,11 @@ class MonitorScreenTest {
         composeRule.onNodeWithTag("listen-camera-${playroom.id}").performClick()
         composeRule.waitForIdle()
 
-        assertEquals(playroom.id, chosen)
-        assertEquals(true, listening)
+        // Exactly one call, carrying the room. Starting and naming used to be
+        // two calls down two routes of different speeds, and the monitor spent
+        // the gap between them playing last night's room — with a remembered
+        // nursery sitting right there to be played by mistake.
+        assertEquals(listOf(playroom.id), asks)
     }
 
     @Test
@@ -332,7 +331,7 @@ class MonitorScreenTest {
                 cameras = listOf(nursery),
                 monitoringRunning = true,
                 listening = listening,
-                onListeningChange = { listening = it },
+                onListenCameraChange = { listening = it != null },
                 // The speaker has not been won yet.
                 listeningCameraId = null,
             )
@@ -355,9 +354,10 @@ class MonitorScreenTest {
                 cameras = listOf(nursery),
                 monitoringRunning = true,
                 listening = listening,
-                onListeningChange = {
-                    listening = it
-                    playing = if (it) nursery.id else null
+                // The service, in miniature: what was asked for is what plays.
+                onListenCameraChange = {
+                    listening = it != null
+                    playing = it
                 },
                 listeningCameraId = playing,
             )
@@ -383,7 +383,7 @@ class MonitorScreenTest {
                 // The service's honesty rule, from this side: a refused request
                 // switches itself back off rather than leaving a control that
                 // says "on" next to a silent phone.
-                onListeningChange = { listening = false },
+                onListenCameraChange = { listening = false },
             )
         }
 
@@ -399,21 +399,21 @@ class MonitorScreenTest {
 
     @Test
     fun `switching the speaker off says so at once`() {
-        var listening: Boolean? = null
+        val asks = mutableListOf<String?>()
         composeRule.setContent {
             Screen(
                 cameras = listOf(nursery),
                 monitoringRunning = true,
                 listening = true,
                 listeningCameraId = nursery.id,
-                onListeningChange = { listening = it },
+                onListenCameraChange = { asks += it },
             )
         }
 
         composeRule.onNodeWithTag("toggle-listen").performClick()
         composeRule.waitForIdle()
 
-        assertEquals(false, listening)
+        assertEquals(listOf<String?>(null), asks)
         // Letting go of the speaker cannot fail, so this needs no waiting on.
         composeRule.onNodeWithText(LISTEN_OFF_CONFIRMED).assertExists()
     }

@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
 import app.dozecam.appContainer
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -20,13 +19,13 @@ class StopListeningReceiverTest {
     @Test
     fun `the notification action silences the speaker`() {
         val state = context.appContainer.monitoringState
-        state.listening.value = true
+        state.listenRequest.value = "a"
         state.listeningCameraId.value = "a"
 
         StopListeningReceiver().onReceive(context, Intent())
 
-        assertFalse(state.listening.value)
-        // Both, not just the switch: a target left standing would be picked
+        assertNull(state.listenRequest.value)
+        // Both, not just the ask: a target left standing would be picked
         // straight back up the next time the speaker came free.
         assertNull(state.listeningCameraId.value)
     }
@@ -39,7 +38,7 @@ class StopListeningReceiverTest {
      */
     @Test
     fun `silencing the speaker leaves the monitor running`() {
-        context.appContainer.monitoringState.listening.value = true
+        context.appContainer.monitoringState.listenRequest.value = "a"
 
         StopListeningReceiver().onReceive(context, Intent())
 

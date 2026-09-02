@@ -9,10 +9,11 @@ package app.dozecam.monitoring
  * rooms at once is worse still — the whole question a parent asks a monitor is
  * *which* child that was.
  *
- * So the target is the camera the user chose, and the only camera there is when
- * they have not been asked. Anything else — no choice made with several to
- * choose from, or a choice that names a camera the monitor is not listening to
- * any more — resolves to nothing, and the viewer asks rather than guessing.
+ * And always the room that was actually asked for. Nothing here reaches for a
+ * remembered choice or a nearest-available camera: a monitor that substitutes
+ * one bedroom for another is worse than one that stays quiet, because the
+ * silence is at least legible. Whether the user still has to be *asked* is the
+ * viewer's question, settled before any of this — see MonitorScreen.
  */
 object ListenTarget {
 
@@ -21,33 +22,18 @@ object ListenTarget {
      * being this camera's is visible together rather than spread across the
      * flows that feed it.
      *
-     * [speakerGranted] rather than the switch, because playing on without audio
-     * focus is not ours to do. Not while [viewerAudible], because that is the
-     * same nursery a second apart out of one speaker, and the room somebody is
-     * looking at is the better of the two to hear.
+     * [request] is the room the user asked for, or null for none.
+     * [speakerGranted] rather than the ask alone, because playing on without
+     * audio focus is not ours to do. Not while [viewerAudible], because that is
+     * the same nursery a second apart out of one speaker, and the room somebody
+     * is looking at is the better of the two to hear. And only while the
+     * request is still among [monitored] — a camera switched off, or gone with
+     * the console that issued it, has no audio to play and no stand-in.
      */
     fun of(
-        listening: Boolean,
+        request: String?,
         speakerGranted: Boolean,
         viewerAudible: Boolean,
-        chosen: String?,
         monitored: Collection<String>,
-    ): String? = if (listening && speakerGranted && !viewerAudible) {
-        resolve(chosen, monitored)
-    } else {
-        null
-    }
-
-    /**
-     * [chosen] is the remembered camera id, [monitored] the cameras that
-     * actually have a monitor decoding audio right now. A remembered choice
-     * that is no longer being monitored is not silently replaced by another
-     * room: whoever set it asked for that one.
-     */
-    fun resolve(chosen: String?, monitored: Collection<String>): String? =
-        chosen?.takeIf { it in monitored } ?: monitored.singleOrNull()
-
-    /** Whether turning listen mode on still needs an answer from the user. */
-    fun needsChoice(chosen: String?, monitored: Collection<String>): Boolean =
-        monitored.isNotEmpty() && resolve(chosen, monitored) == null
+    ): String? = request?.takeIf { speakerGranted && !viewerAudible && it in monitored }
 }

@@ -265,7 +265,13 @@ fun MonitorScreen(
      * and opening the app to check on a nap must not do that by accident.
      */
     listening: Boolean = false,
-    onListeningChange: (Boolean) -> Unit = {},
+    /**
+     * The room to play aloud, or null to stop. One callback rather than a
+     * switch and a camera, because they are one decision: sent separately, the
+     * switch would reach the monitor ahead of the room it was asked about, and
+     * the phone would spend that gap broadcasting whichever room came last.
+     */
+    onListenCameraChange: (String?) -> Unit = {},
     /**
      * The camera actually coming out of the speaker, or null. The outcome
      * rather than the request, for the same reason [soundGranted] is kept apart
@@ -275,7 +281,6 @@ fun MonitorScreen(
     listeningCameraId: String? = null,
     /** The remembered choice, which the picker opens on. */
     listenCameraId: String? = null,
-    onListenCameraChange: (String) -> Unit = {},
     /**
      * What the monitor is hearing from each camera, keyed by camera id. A
      * camera with no entry gets no meter: the level is the monitor's report,
@@ -522,16 +527,15 @@ fun MonitorScreen(
             soundOnRequested = false
             onSoundEnabledChange(false)
         }
-        onListenCameraChange(cameraId)
         listenOnRequested = true
-        onListeningChange(true)
+        onListenCameraChange(cameraId)
     }
     val listenToggled = { enabled: Boolean ->
         when {
             !enabled -> {
                 listenOnRequested = false
                 announce(R.string.viewer_listen_off_confirmed)
-                onListeningChange(false)
+                onListenCameraChange(null)
             }
             // One camera is not a question: there is nothing else it could
             // mean. Any more and the screen being off leaves nothing to say

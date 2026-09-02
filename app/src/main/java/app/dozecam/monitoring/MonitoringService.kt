@@ -135,19 +135,25 @@ class MonitoringService : Service() {
         // than in the viewer because the whole promise is that it outlives the
         // viewer.
         scope.launch {
-            container.monitoringState.listening.collect { wanted ->
-                if (!wanted) {
-                    container.audioFocus.release(MediaAudioFocus.Client.LISTEN)
-                    return@collect
+            container.monitoringState.listenRequest
+                // Only whether a room is wanted, not which: moving the speaker
+                // from one camera to another is not a reason to hand the focus
+                // back and ask the system for it again.
+                .map { it != null }
+                .distinctUntilChanged()
+                .collect { wanted ->
+                    if (!wanted) {
+                        container.audioFocus.release(MediaAudioFocus.Client.LISTEN)
+                        return@collect
+                    }
+                    // Losing it later is treated the same way as being refused
+                    // it now: the switch goes back off rather than standing on
+                    // next to a phone that has gone quiet.
+                    val granted = container.audioFocus.request(MediaAudioFocus.Client.LISTEN) {
+                        container.monitoringState.stopListening()
+                    }
+                    if (!granted) container.monitoringState.stopListening()
                 }
-                // Losing it later is treated the same way as being refused it
-                // now: the switch goes back off rather than standing on next
-                // to a phone that has gone quiet.
-                val granted = container.audioFocus.request(MediaAudioFocus.Client.LISTEN) {
-                    container.monitoringState.stopListening()
-                }
-                if (!granted) container.monitoringState.stopListening()
-            }
         }
 
         // Who is actually audible, recomputed from every reason it could stop
@@ -155,19 +161,18 @@ class MonitoringService : Service() {
         // the sound instead of adding to it.
         scope.launch {
             combine(
-                container.monitoringState.listening,
+                // The room and the switch are one value, so the service cannot
+                // learn that listening has begun before it learns what to play.
+                container.monitoringState.listenRequest,
                 container.audioFocus.granted,
                 container.monitoringState.viewerAudible,
-                container.appSettings.settings
-                    .map { it.listenCameraId }
-                    .distinctUntilChanged(),
                 // The map itself churns with every decoded buffer; which
                 // cameras are in it does not.
                 container.monitoringState.cameras
                     .map { it.keys }
                     .distinctUntilChanged(),
-            ) { listening, granted, viewerAudible, chosen, monitored ->
-                ListenTarget.of(listening, granted, viewerAudible, chosen, monitored)
+            ) { request, granted, viewerAudible, monitored ->
+                ListenTarget.of(request, granted, viewerAudible, monitored)
             }
                 .distinctUntilChanged()
                 .collect(::setListenTarget)
