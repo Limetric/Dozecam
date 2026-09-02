@@ -262,7 +262,7 @@ class MainActivity : ComponentActivity() {
                 val soundGranted by audioFocus.granted.collectAsStateWithLifecycle()
                 val listenRequest by container.monitoringState.listenRequest
                     .collectAsStateWithLifecycle()
-                val listeningCamera by container.monitoringState.listeningCameraId
+                val listeningCameras by container.monitoringState.listeningCameraIds
                     .collectAsStateWithLifecycle()
                 val localNetworkDenial by localNetwork.denial.collectAsStateWithLifecycle()
 
@@ -311,14 +311,13 @@ class MainActivity : ComponentActivity() {
                     // asked for likewise waits for the request to be granted
                     // rather than starting on the strength of the setting.
                     soundGranted = soundGranted,
-                    listening = listenRequest != null,
-                    onListenCameraChange = ::setListenCamera,
+                    listening = listenRequest,
+                    onListeningChange = ::setListening,
                     // What is actually coming out of the speaker, not what was
                     // asked for — the same distinction [soundGranted] draws,
                     // and for the same reason: the viewer must never confirm a
                     // room is audible before it is.
-                    listeningCameraId = listeningCamera,
-                    listenCameraId = appSettings.listenCameraId,
+                    listeningCameraIds = listeningCameras,
                     audioLevels = audioLevels,
                     audioThreshold = audioThreshold,
                     alertCameraId = alertCamera,
@@ -516,29 +515,18 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * The room to play aloud, or null to stop — listen mode's whole control.
+     * Listen mode's whole control: play every room aloud, or stop.
      *
-     * The service is told first and in one assignment, so it cannot begin
-     * listening a moment before it knows what to play. Remembering the choice
-     * is a side effect and deliberately not the route: it is a disk write, and
-     * a service that had to wait for one would spend that wait broadcasting
-     * whichever room was chosen the night before.
-     *
-     * The switch itself is held in the app container rather than here so it
-     * survives this activity going away, which is the entire point of it — and
+     * The switch is held in the app container rather than here so it survives
+     * this activity going away, which is the entire point of it — and
      * pointedly not persisted, so a phone that reboots itself in the night does
      * not come back broadcasting a bedroom.
      */
-    private fun setListenCamera(cameraId: String?) {
-        appContainer.monitoringState.listenRequest.value = cameraId
-        if (cameraId == null) {
+    private fun setListening(enabled: Boolean) {
+        if (enabled) {
+            appContainer.monitoringState.listenRequest.value = true
+        } else {
             appContainer.monitoringState.stopListening()
-            return
-        }
-        // Remembered so the picker opens on it tomorrow night, and for nothing
-        // else: what plays tonight was settled by the line above.
-        lifecycleScope.launch {
-            appContainer.appSettings.update { it.copy(listenCameraId = cameraId) }
         }
     }
 

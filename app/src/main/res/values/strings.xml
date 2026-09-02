@@ -23,6 +23,10 @@
     <string name="monitoring_status_partial">%1$s · %2$d not monitorable</string>
     <string name="monitoring_status_checked">Checked %1$s</string>
     <string name="monitoring_status_aloud">%1$s aloud · %2$s</string>
+    <plurals name="monitoring_status_aloud_rooms">
+        <item quantity="one">%1$d room</item>
+        <item quantity="other">%1$d rooms</item>
+    </plurals>
     <string name="notification_stop_listening">Stop listening</string>
     <!--
         The switch for monitoring itself, not a preference about how it behaves.
@@ -64,13 +68,20 @@
     <string name="viewer_sound_refused">Something else is using the speaker — sound stays off</string>
     <string name="viewer_keep_screen_on_confirmed">The screen will stay awake while cameras are showing</string>
     <string name="viewer_keep_screen_off_confirmed">The screen will sleep as usual</string>
-    <string name="viewer_listen_on">Play a camera aloud</string>
+    <string name="viewer_listen_on">Play every camera aloud</string>
     <string name="viewer_listen_off">Stop playing aloud</string>
-    <string name="viewer_listen_on_confirmed">%1$s is playing aloud, and keeps playing with the screen off. Alerts chime without lighting the screen.</string>
+    <!--
+        "While it is the only room": a camera switched on later joins the mix,
+        and from then on an alert lights the screen to say which room.
+    -->
+    <string name="viewer_listen_on_confirmed">%1$s is playing aloud, and keeps playing with the screen off. While it is the only room aloud, alerts chime without lighting the screen.</string>
+    <!--
+        Several rooms out of one speaker cannot say which one a cry came from,
+        so the alert does: this is where that is promised.
+    -->
+    <string name="viewer_listen_on_confirmed_rooms">%1$d rooms are playing aloud, and keep playing with the screen off. An alert lights the screen to say which room.</string>
     <string name="viewer_listen_off_confirmed">Nothing is playing aloud</string>
     <string name="viewer_listen_refused">Something else is using the speaker — nothing is playing aloud</string>
-    <string name="viewer_listen_pick_title">Which camera should play aloud?</string>
-    <string name="viewer_listen_pick_body">One room at a time, so it is always clear which one you are hearing. While a room is playing aloud, an alert still chimes but leaves the screen dark.</string>
     <string name="viewer_audible_camera">Sound from %1$s</string>
     <string name="viewer_returning_in">All cameras in %1$ds</string>
     <string name="viewer_stay">Stay</string>

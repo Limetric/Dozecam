@@ -24,12 +24,12 @@ internal object MonitoringStatus {
         anyMonitors: Boolean,
         states: Collection<CameraMonitorState>,
         enabledCount: Int,
-        /** The camera listen mode is playing out of the speaker, if any. */
-        aloudCameraId: String? = null,
+        /** The cameras listen mode is playing out of the speaker, if any. */
+        aloudCameraIds: Set<String> = emptySet(),
     ): Status = disclose(
         context = context,
         states = states,
-        aloudCameraId = aloudCameraId,
+        aloudCameraIds = aloudCameraIds,
         status = listening(context, anyMonitors, states, enabledCount),
     )
 
@@ -38,18 +38,30 @@ internal object MonitoringStatus {
      * to report. Not instead of it: an offline camera is still the more urgent
      * half of the line, and a speaker that is on does not make it less true.
      *
-     * Reads the camera that is *actually* audible rather than the switch, so
-     * this can only ever understate what the phone is doing.
+     * Reads the cameras that are *actually* audible rather than the switch, so
+     * this can only ever understate what the phone is doing. One room is named;
+     * more than one is counted, because the line has room for a name or a
+     * number and a list of bedrooms cut off mid-word would say less than
+     * either.
      */
     private fun disclose(
         context: Context,
         states: Collection<CameraMonitorState>,
-        aloudCameraId: String?,
+        aloudCameraIds: Set<String>,
         status: Status,
     ): Status {
-        val name = states.firstOrNull { it.cameraId == aloudCameraId }?.name ?: return status
+        val aloud = states.filter { it.cameraId in aloudCameraIds }
+        val what = when (aloud.size) {
+            0 -> return status
+            1 -> aloud.single().name
+            else -> context.resources.getQuantityString(
+                R.plurals.monitoring_status_aloud_rooms,
+                aloud.size,
+                aloud.size,
+            )
+        }
         return status.copy(
-            text = context.getString(R.string.monitoring_status_aloud, name, status.text),
+            text = context.getString(R.string.monitoring_status_aloud, what, status.text),
         )
     }
 

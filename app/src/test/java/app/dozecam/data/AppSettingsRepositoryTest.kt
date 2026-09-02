@@ -1,6 +1,8 @@
 package app.dozecam.data
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
 import app.dozecam.monitoring.AlarmSchedule
 import java.io.File
 import kotlinx.coroutines.flow.first
@@ -81,41 +83,27 @@ class AppSettingsRepositoryTest {
     }
 
     /**
-     * Listen mode remembers the room, not the fact that a speaker was on. The
-     * first saves the nightly ritual a tap; the second would mean a phone that
-     * rebooted itself at 4am comes back broadcasting a bedroom, with the only
-     * person who could notice asleep.
+     * Listen mode once remembered a chosen room here. It plays every room now,
+     * so the entry has nothing left to mean — and the fact that a speaker was
+     * on has never been stored at all: a phone that rebooted itself at 4am
+     * must not come back broadcasting a bedroom with nobody having asked.
      */
     @Test
-    fun `the listen camera survives a restart and the speaker does not`() = runTest {
+    fun `a room once chosen for listen mode is forgotten on the next write`() = runTest {
         val file = File(tmp.root, "listen.preferences_pb")
-        val beforeRestart = CoroutineScope(backgroundScope.coroutineContext + Job())
-        AppSettingsRepository(
-            PreferenceDataStoreFactory.create(scope = beforeRestart, produceFile = { file }),
-        ).update { it.copy(listenCameraId = "nursery") }
-        beforeRestart.cancel()
+        val legacyKey = stringPreferencesKey("listen_camera_id")
+        val before = CoroutineScope(backgroundScope.coroutineContext + Job())
+        PreferenceDataStoreFactory.create(scope = before, produceFile = { file })
+            .edit { it[legacyKey] = "nursery" }
+        before.cancel()
 
-        // Everything about listen mode that is stored at all is stored here;
-        // there is nowhere else for an "it was on" to have gone.
-        val reopened = AppSettingsRepository(
-            PreferenceDataStoreFactory.create(scope = backgroundScope, produceFile = { file }),
+        val dataStore = PreferenceDataStoreFactory.create(
+            scope = backgroundScope,
+            produceFile = { file },
         )
+        AppSettingsRepository(dataStore).update { it.copy(nightTheme = true) }
 
-        assertEquals("nursery", reopened.settings.first().listenCameraId)
-    }
-
-    @Test
-    fun `no listen camera has been chosen until one is`() = runTest {
-        val repository = AppSettingsRepository(
-            PreferenceDataStoreFactory.create(
-                scope = backgroundScope,
-                produceFile = { File(tmp.root, "unchosen.preferences_pb") },
-            ),
-        )
-
-        // Null rather than a first camera picked for them: with the display off
-        // nothing says which room is talking, so nobody guesses.
-        assertNull(repository.settings.first().listenCameraId)
+        assertNull(dataStore.data.first()[legacyKey])
     }
 
     /** Clearing the choice has to mean "the phone's alarm sound", not an empty URI. */
