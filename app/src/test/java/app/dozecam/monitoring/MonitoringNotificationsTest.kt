@@ -73,7 +73,7 @@ class MonitoringNotificationsTest {
         // switch the baby monitor off altogether.
         assertEquals(2, aloud.actions.size)
         assertEquals("Stop monitoring", aloud.actions[0].title)
-        assertEquals("Stop listening", aloud.actions[1].title)
+        assertEquals("Stop playing aloud", aloud.actions[1].title)
     }
 
     @Test

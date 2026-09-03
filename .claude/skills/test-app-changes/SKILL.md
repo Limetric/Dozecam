@@ -63,7 +63,7 @@ Wait ~10 s, then take two screenshots a few seconds apart
 (`adb -s emulator-5554 exec-out screencap -p > shot.png`). Both tiles must
 show LIVE, and the nursery counter / porch timecode must have advanced between
 the shots — an unchanged frame means the stream is not actually playing.
-The status pill should read "Listening" (monitoring auto-arms on resume).
+The status pill should read "Watching for sound" (monitoring auto-arms on resume).
 
 ### Verify wake-on-sound
 

@@ -1,13 +1,17 @@
 package app.dozecam.monitoring
 
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
+import android.media.AudioManager
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
 import app.dozecam.R
 import app.dozecam.appContainer
 import app.dozecam.audio.MediaAudioFocus
@@ -59,6 +63,18 @@ class MonitoringService : Service() {
 
     private val monitors = mutableMapOf<String, CameraAudioMonitor>()
 
+    /** What was being heard when [escalateUnheard] last looked; the diff is the escalation. */
+    private var heardBefore: Set<String> = emptySet()
+
+    /**
+     * A room can stop being heard without the aloud set moving at all: the
+     * media volume goes to zero, or the stream is muted. Nothing upstream
+     * re-evaluates on that, so this does.
+     */
+    private val volumeChanged = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) = escalateUnheard()
+    }
+
     private val heartbeat = StatusHeartbeat()
 
     /** What each running monitor was built with, to notice when that stops being true. */
@@ -67,6 +83,15 @@ class MonitoringService : Service() {
     override fun onCreate() {
         super.onCreate()
         MonitoringNotifications.ensureChannels(this)
+        ContextCompat.registerReceiver(
+            this,
+            volumeChanged,
+            IntentFilter().apply {
+                addAction(ACTION_VOLUME_CHANGED)
+                addAction(ACTION_STREAM_MUTE_CHANGED)
+            },
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
         ServiceCompat.startForeground(
             this,
             MonitoringNotifications.STATUS_NOTIFICATION_ID,
@@ -310,6 +335,31 @@ class MonitoringService : Service() {
     private fun setListenTarget(cameraIds: Set<String>) {
         appContainer.monitoringState.listeningCameraIds.value = cameraIds
         applyListenTarget()
+        escalateUnheard()
+    }
+
+    /**
+     * A room that was being heard when its cry began had its alarm withheld.
+     * If it is no longer being heard — the speaker gone to a call, the viewer,
+     * or a stream down; the volume turned to zero — and the cry has not paused
+     * long enough for the detector to re-arm, no second trigger is coming; the
+     * withheld alarm is raised here instead, or an unheard room could stay
+     * silent for as long as the crying lasts.
+     *
+     * Diffed against the service's own record rather than the shared one:
+     * stopListening() clears that synchronously from wherever the speaker was
+     * lost, before this gets its turn, and a diff against an already-empty set
+     * would find nothing to escalate.
+     */
+    private fun escalateUnheard() {
+        val state = appContainer.monitoringState
+        val heard = heardAloud()
+        val lost = heardBefore - heard
+        heardBefore = heard
+        lost.forEach { id ->
+            val camera = state.cameras.value[id] ?: return@forEach
+            if (camera.phase == SoundDetector.Phase.TRIGGERED) raiseAlert(id, camera.name)
+        }
     }
 
     /**
@@ -334,23 +384,47 @@ class MonitoringService : Service() {
         appContainer.monitoringState.remove(cameraId)
     }
 
-    private fun onTrigger(camera: Camera) {
+    private fun onTrigger(camera: Camera) = raiseAlert(camera.id, camera.name)
+
+    /**
+     * The rooms being heard right now, for an alert to weigh itself against:
+     * the aloud set, unless the media stream it plays on is at zero or muted,
+     * in which case nobody is hearing any of it. See [ListenTarget.heard].
+     */
+    private fun heardAloud(): Set<String> {
+        val audio = getSystemService(AudioManager::class.java)
+        val silenced = audio.getStreamVolume(AudioManager.STREAM_MUSIC) == 0 ||
+            audio.isStreamMute(AudioManager.STREAM_MUSIC)
+        return ListenTarget.heard(appContainer.monitoringState.listeningCameraIds.value, silenced)
+    }
+
+    private fun raiseAlert(cameraId: String, fallbackName: String) {
         val state = appContainer.monitoringState
+        val aloud = heardAloud()
+        // A room being heard does not displace the alarm of one that is not:
+        // there is one alert card, and clearing it acknowledges whatever alarm
+        // is sounding. See ListenTarget.alertYields.
+        if (ListenTarget.alertYields(cameraId, aloud, appContainer.alertSignaler.alarmingCameraId.value)) {
+            return
+        }
         state.lastAlertAtMs.value = System.currentTimeMillis()
-        state.lastAlertCameraId.value = camera.id
+        state.lastAlertCameraId.value = cameraId
         // Current name rather than the one captured when this monitor started,
         // so an alert never names a camera by a name the user has since changed.
-        val name = state.cameras.value[camera.id]?.name ?: camera.name
+        val name = state.cameras.value[cameraId]?.name ?: fallbackName
         // Notification first, always: the full-screen intent is the fastest
         // signal there is, and sound is for the person whose eyes are shut.
         //
-        // Whether it also lights the screen depends on what the speaker is
-        // already saying — see ListenTarget.alertWakesScreen. The chime and
-        // the vibration go either way, because the point of an alert is the
+        // Whether it also lights the screen, and whether the alarm sounds at
+        // all, depend on what the speaker is already saying — see
+        // ListenTarget.alertWakesScreen and ListenTarget.alertSounds. A room
+        // playing aloud is being heard by someone awake; the alarm is for the
         // person whose eyes are shut.
-        val wakeScreen = ListenTarget.alertWakesScreen(camera.id, state.listeningCameraIds.value)
-        MonitoringNotifications.postAlert(this, camera.id, name, wakeScreen = wakeScreen)
-        appContainer.alertSignaler.signal(camera.id, appSettings)
+        val wakeScreen = ListenTarget.alertWakesScreen(cameraId, aloud)
+        MonitoringNotifications.postAlert(this, cameraId, name, wakeScreen = wakeScreen)
+        if (ListenTarget.alertSounds(cameraId, aloud)) {
+            appContainer.alertSignaler.signal(cameraId, appSettings)
+        }
     }
 
     private fun updateStatusNotification(display: StatusHeartbeat.Display) {
@@ -371,6 +445,7 @@ class MonitoringService : Service() {
     }
 
     override fun onDestroy() {
+        unregisterReceiver(volumeChanged)
         val state = appContainer.monitoringState
         state.serviceRunning.value = false
         // The speaker goes with the monitor that was feeding it. Released here
@@ -398,6 +473,10 @@ class MonitoringService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
+        /** AudioManager's own, not in the public API. */
+        private const val ACTION_VOLUME_CHANGED = "android.media.VOLUME_CHANGED_ACTION"
+        private const val ACTION_STREAM_MUTE_CHANGED = "android.media.STREAM_MUTE_CHANGED_ACTION"
+
         fun start(context: Context) {
             context.startForegroundService(Intent(context, MonitoringService::class.java))
         }

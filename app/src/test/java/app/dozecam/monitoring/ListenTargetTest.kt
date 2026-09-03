@@ -73,4 +73,42 @@ class ListenTargetTest {
         assertTrue(ListenTarget.alertWakesScreen("c", aloud = setOf("a")))
         assertTrue(ListenTarget.alertWakesScreen("c", aloud = emptySet()))
     }
+
+    @Test
+    fun `a room playing aloud does not sound the alarm`() {
+        // Whoever switched the speaker on is awake and hearing the cry
+        // itself; the alarm is for a person whose eyes are shut.
+        assertFalse(ListenTarget.alertSounds("a", aloud = setOf("a")))
+        assertFalse(ListenTarget.alertSounds("a", aloud = setOf("a", "b")))
+    }
+
+    @Test
+    fun `a mix playing into a silenced media stream is heard by nobody`() {
+        // Decoding is not hearing: at volume zero the speaker is saying
+        // nothing, so nothing may be withheld on its account.
+        assertEquals(emptySet<String>(), ListenTarget.heard(setOf("a", "b"), mediaSilenced = true))
+        assertEquals(setOf("a", "b"), ListenTarget.heard(setOf("a", "b"), mediaSilenced = false))
+    }
+
+    @Test
+    fun `a withheld alert does not displace a sounding alarm for another room`() {
+        // One alert card; clearing it acknowledges the alarm. B, being heard,
+        // must not paper over A, which is not.
+        assertTrue(ListenTarget.alertYields("b", aloud = setOf("b"), alarmingCameraId = "a"))
+    }
+
+    @Test
+    fun `an alert that sounds, or names the alarm's own room, is never withheld`() {
+        assertFalse(ListenTarget.alertYields("c", aloud = setOf("b"), alarmingCameraId = "a"))
+        assertFalse(ListenTarget.alertYields("a", aloud = setOf("a"), alarmingCameraId = "a"))
+        assertFalse(ListenTarget.alertYields("b", aloud = setOf("b"), alarmingCameraId = null))
+    }
+
+    @Test
+    fun `a room nobody can hear sounds the alarm`() {
+        // With nothing aloud — or this room dropped from the mix by a lost
+        // speaker or a downed stream — nobody is hearing it, so it must wake.
+        assertTrue(ListenTarget.alertSounds("c", aloud = emptySet()))
+        assertTrue(ListenTarget.alertSounds("c", aloud = setOf("a")))
+    }
 }

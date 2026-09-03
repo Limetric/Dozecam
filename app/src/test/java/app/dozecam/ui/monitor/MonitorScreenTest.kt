@@ -557,7 +557,7 @@ class MonitorScreenTest {
             Screen(cameras = listOf(nursery), monitoringRunning = true, canMonitor = true)
         }
 
-        composeRule.onNodeWithTag("monitoring-badge").assertTextEquals("Listening")
+        composeRule.onNodeWithTag("monitoring-badge").assertTextEquals("Watching for sound")
     }
 
     /**
@@ -696,7 +696,7 @@ class MonitorScreenTest {
                 stoppedByUser = !running,
             )
         }
-        composeRule.onNodeWithTag("monitoring-badge").assertTextEquals("Listening")
+        composeRule.onNodeWithTag("monitoring-badge").assertTextEquals("Watching for sound")
 
         running = false
 
@@ -2191,12 +2191,11 @@ class MonitorScreenTest {
 
         /** Must match R.string.viewer_listen_on_confirmed, formatted for the nursery. */
         const val LISTEN_ON_CONFIRMED = "Nursery is playing aloud, and keeps playing with " +
-            "the screen off. While it is the only room aloud, alerts chime without lighting " +
-            "the screen."
+            "the screen off. Alerts stay quiet while you are listening."
 
         /** Must match R.string.viewer_listen_on_confirmed_rooms, formatted for two. */
         const val LISTEN_ON_CONFIRMED_ROOMS = "2 rooms are playing aloud, and keep playing " +
-            "with the screen off. An alert lights the screen to say which room."
+            "with the screen off. Alerts stay quiet, but light the screen to say which room."
 
         /** Must match R.string.viewer_listen_off_confirmed. */
         const val LISTEN_OFF_CONFIRMED = "Nothing is playing aloud"

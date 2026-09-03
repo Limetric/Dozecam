@@ -27,16 +27,16 @@
         <item quantity="one">%1$d room</item>
         <item quantity="other">%1$d rooms</item>
     </plurals>
-    <string name="notification_stop_listening">Stop listening</string>
+    <string name="notification_stop_listening">Stop playing aloud</string>
     <!--
         The switch for monitoring itself, not a preference about how it behaves.
         "Wake on sound" is the feature's name and reads as the latter, which is
         why the master switch is named after the thing it turns off.
     -->
     <string name="monitoring_toggle">Monitoring</string>
-    <string name="monitoring_listening">Listening for sound</string>
+    <string name="monitoring_listening">Watching for sound</string>
     <string name="monitoring_idle">Not monitoring</string>
-    <string name="monitoring_unavailable">No camera is switched on that can be listened to</string>
+    <string name="monitoring_unavailable">No camera is switched on that can be monitored</string>
     <!--
         A missing local-network grant is not idleness: the switch would flip
         straight back and the row would say "Not monitoring", which reads as a
@@ -52,13 +52,13 @@
     <string name="viewer_no_cameras">No cameras yet. Connect your UniFi Protect console to add them.</string>
     <string name="viewer_all_disabled">Every camera is switched off. Turn one on in settings to watch and monitor it.</string>
     <string name="viewer_add_manually">Add one manually</string>
-    <string name="viewer_monitoring_on">Listening</string>
+    <string name="viewer_monitoring_on">Watching for sound</string>
     <string name="viewer_monitoring_off">Not monitoring</string>
     <string name="viewer_stop_monitoring">Stop monitoring</string>
     <string name="viewer_start_monitoring">Start monitoring</string>
     <string name="viewer_stop_monitoring_title">Stop monitoring?</string>
-    <string name="viewer_stop_monitoring_body">The cameras stay on screen, but Dozecam will stop listening — nothing will wake you if a room gets loud.</string>
-    <string name="viewer_keep_monitoring">Keep listening</string>
+    <string name="viewer_stop_monitoring_body">The cameras stay on screen, but Dozecam will stop watching for sound — nothing will wake you if a room gets loud.</string>
+    <string name="viewer_keep_monitoring">Keep monitoring</string>
     <string name="viewer_sound_on">Turn sound on</string>
     <string name="viewer_sound_off">Turn sound off</string>
     <string name="viewer_keep_screen_on">Keep the screen awake</string>
@@ -71,15 +71,16 @@
     <string name="viewer_listen_on">Play every camera aloud</string>
     <string name="viewer_listen_off">Stop playing aloud</string>
     <!--
-        "While it is the only room": a camera switched on later joins the mix,
-        and from then on an alert lights the screen to say which room.
+        Listen mode assumes an awake listener, so the alarm stays quiet while a
+        room is aloud. Said here, at the moment of switching it on, because it
+        is the one promise a parent going to sleep must not rely on.
     -->
-    <string name="viewer_listen_on_confirmed">%1$s is playing aloud, and keeps playing with the screen off. While it is the only room aloud, alerts chime without lighting the screen.</string>
+    <string name="viewer_listen_on_confirmed">%1$s is playing aloud, and keeps playing with the screen off. Alerts stay quiet while you are listening.</string>
     <!--
         Several rooms out of one speaker cannot say which one a cry came from,
-        so the alert does: this is where that is promised.
+        so the alert does — with the screen only, never the alarm.
     -->
-    <string name="viewer_listen_on_confirmed_rooms">%1$d rooms are playing aloud, and keep playing with the screen off. An alert lights the screen to say which room.</string>
+    <string name="viewer_listen_on_confirmed_rooms">%1$d rooms are playing aloud, and keep playing with the screen off. Alerts stay quiet, but light the screen to say which room.</string>
     <string name="viewer_listen_off_confirmed">Nothing is playing aloud</string>
     <string name="viewer_listen_refused">Something else is using the speaker — nothing is playing aloud</string>
     <string name="viewer_audible_camera">Sound from %1$s</string>
@@ -190,8 +191,8 @@
     <string name="onboarding_finish">Finish</string>
 
     <plurals name="monitoring_status_listening_cameras">
-        <item quantity="one">Listening to %1$d camera</item>
-        <item quantity="other">Listening to %1$d cameras</item>
+        <item quantity="one">Monitoring %1$d camera</item>
+        <item quantity="other">Monitoring %1$d cameras</item>
     </plurals>
     <plurals name="monitoring_status_reconnecting_cameras">
         <item quantity="one">Reconnecting to %1$d camera…</item>

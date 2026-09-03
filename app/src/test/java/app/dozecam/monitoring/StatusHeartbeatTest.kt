@@ -17,7 +17,7 @@ class StatusHeartbeatTest {
         elapsedMs = ms
     }
 
-    private val listening = "Listening to 2 cameras"
+    private val listening = "Monitoring 2 cameras"
 
     @Test
     fun `the first status always posts`() {
@@ -63,7 +63,7 @@ class StatusHeartbeatTest {
 
     /**
      * The point of the whole thing: a silent, healthy night must still visibly
-     * advance, or "Listening to 2 cameras" is indistinguishable from a wedged
+     * advance, or "Monitoring 2 cameras" is indistinguishable from a wedged
      * process that last posted the same words.
      */
     @Test
