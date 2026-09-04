@@ -26,12 +26,33 @@ internal object MonitoringStatus {
         enabledCount: Int,
         /** The cameras listen mode is playing out of the speaker, if any. */
         aloudCameraIds: Set<String> = emptySet(),
-    ): Status = disclose(
+        /** Whether a loud room reaches anyone at all. */
+        alertsEnabled: Boolean = true,
+    ): Status = discloseAlertsOff(
         context = context,
-        states = states,
-        aloudCameraIds = aloudCameraIds,
-        status = listening(context, anyMonitors, states, enabledCount),
+        alertsEnabled = alertsEnabled,
+        status = disclose(
+            context = context,
+            states = states,
+            aloudCameraIds = aloudCameraIds,
+            status = listening(context, anyMonitors, states, enabledCount),
+        ),
     )
+
+    /**
+     * A monitor that will not wake anyone has to say so where it is seen:
+     * "watching for sound" over a phone that has been asked to keep quiet
+     * about it is the sort of reassurance this app exists to refuse.
+     */
+    private fun discloseAlertsOff(
+        context: Context,
+        alertsEnabled: Boolean,
+        status: Status,
+    ): Status = if (alertsEnabled) {
+        status
+    } else {
+        status.copy(text = context.getString(R.string.monitoring_status_alerts_off, status.text))
+    }
 
     /**
      * A phone broadcasting a bedroom says so, in front of whatever else it has

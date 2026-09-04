@@ -63,40 +63,23 @@ class MonitoringState {
     val lastAlertCameraId = MutableStateFlow<String?>(null)
 
     /**
-     * Set when the user deliberately switches monitoring off, cleared when they
-     * switch it back on or finish onboarding. Deliberately in memory only: it
-     * suppresses the viewer's auto-arm for the rest of this process, so a
-     * rotation cannot silently re-arm what the user just turned off, while a
-     * cold start still comes up armed.
+     * The user asked, from the ongoing notification, for Dozecam to go away
+     * entirely. The receiver that hears it can stop the service but cannot
+     * close a screen it does not hold, so it leaves the request here and every
+     * activity finishes itself on reading it. In memory only, and reset by the
+     * next viewer to open: an exit is a thing that happens once.
      */
-    val userStopped = MutableStateFlow(false)
-
-    /**
-     * Whether the user has asked to hear the nursery out of the speaker —
-     * listen mode's switch. Written by the viewer and the notification, read
-     * by the service.
-     *
-     * Only the switch. Which rooms play is not a choice: every camera the
-     * monitor can hear does (see [ListenTarget]), so there is no second value
-     * that could arrive at the service a beat after this one and leave it
-     * broadcasting the wrong thing in between.
-     *
-     * In memory only, like [userStopped] and for a sharper version of the same
-     * reason: a phone that reboots itself in the night and comes back
-     * broadcasting a bedroom is a thing nobody asked for, and the person who
-     * would have to notice is asleep.
-     */
-    val listenRequest = MutableStateFlow(false)
+    val exitRequested = MutableStateFlow(false)
 
     /**
      * The cameras actually coming out of the speaker right now, or none.
      *
-     * Deliberately separate from [listenRequest], which is only the ask: the
-     * speaker can be lost to a call, handed to the viewer, or a room's stream
-     * can be down. Everything that *tells* the user something is
-     * audible — the notification's status line, the offer to stop, the decision
-     * whether to light the screen for an alert — reads this one, because it is
-     * the only one that is a fact.
+     * Deliberately separate from the ask — [app.dozecam.data.SoundMode.ALL_ALOUD]
+     * in the stored settings — because the speaker can be lost to a call,
+     * handed to the viewer, or a room's stream can be down. Everything that
+     * *tells* the user something is audible — the notification's status line,
+     * the offer to stop, the decision whether to light the screen for an alert
+     * — reads this one, because it is the only one that is a fact.
      */
     val listeningCameraIds = MutableStateFlow<Set<String>>(emptySet())
 
@@ -122,11 +105,18 @@ class MonitoringState {
 
     /**
      * The "always armed" rule, in one place: the viewer arms monitoring when it
-     * comes to the front unless there is nothing to listen to, it is already
-     * running, or the user switched it off during this process's lifetime.
+     * comes to the front unless there is nothing to listen to or it is already
+     * running. There is no switch to have left off — monitoring ends only when
+     * the app is exited, and the next open arms it again.
+     *
+     * Except while an exit is in flight. Settings re-arms the moment it sees
+     * the service go, and an exit from the notification stops the service
+     * before the screens have finished themselves — so without this gate the
+     * monitor would be back before the task was gone. The next viewer to open
+     * clears the request, which is what makes the next open arm again.
      */
     fun shouldAutoArm(enabledCameraCount: Int): Boolean =
-        enabledCameraCount > 0 && !serviceRunning.value && !userStopped.value
+        enabledCameraCount > 0 && !serviceRunning.value && !exitRequested.value
 
     fun put(state: CameraMonitorState) {
         cameras.value = cameras.value + (state.cameraId to state)
@@ -144,17 +134,5 @@ class MonitoringState {
 
     fun clear() {
         cameras.value = emptyMap()
-    }
-
-    /**
-     * Monitoring has ended, so the speaker it was feeding has too. Both flags,
-     * not just the fact: a switch left on with no service behind it would offer
-     * to stop something that already stopped, and would start talking again the
-     * moment the monitor came back — which is the one thing this must never do
-     * unasked.
-     */
-    fun stopListening() {
-        listenRequest.value = false
-        listeningCameraIds.value = emptySet()
     }
 }

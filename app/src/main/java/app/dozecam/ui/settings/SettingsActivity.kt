@@ -24,7 +24,6 @@ import app.dozecam.monitoring.MonitoringService
 import app.dozecam.monitoring.MonitoringStarter
 import app.dozecam.monitoring.shouldArmMonitoring
 import app.dozecam.monitoring.shouldStopMonitoring
-import app.dozecam.permissions.LocalNetworkPermission
 import app.dozecam.permissions.LocalNetworkPermissionRequest
 import app.dozecam.ui.components.LocalNetworkPermissionDialog
 import app.dozecam.ui.onboarding.OnboardingActivity
@@ -106,6 +105,14 @@ class SettingsActivity : ComponentActivity() {
                 }
             }
         }
+        // An exit asked for from the notification while this screen is up:
+        // the whole task goes, not just this screen. finish() alone would hand
+        // the task to the viewer underneath — which the system may already
+        // have destroyed, in which case Android would recreate it, and a
+        // fresh viewer arms the monitor the user just ended.
+        lifecycleScope.launch {
+            appContainer.monitoringState.exitRequested.collect { if (it) finishAffinity() }
+        }
         setContent {
             val container = appContainer
             val settingsViewModel: SettingsViewModel = viewModel(
@@ -134,21 +141,6 @@ class SettingsActivity : ComponentActivity() {
                     monitoringRunning = monitoringRunning,
                     canMonitor = canMonitor,
                     localNetworkGranted = hasLocalNetwork,
-                    onToggleMonitoring = { enabled ->
-                        settingsViewModel.onMonitoringIntent(enabled)
-                        if (enabled) {
-                            // Ask rather than fail silently: without LAN access
-                            // arming does nothing, and a switch that flips back
-                            // with no explanation is the worst of both.
-                            if (LocalNetworkPermission.isGranted(this)) {
-                                armIfNeeded()
-                            } else {
-                                localNetwork.ask()
-                            }
-                        } else {
-                            MonitoringService.stop(this)
-                        }
-                    },
                     audioLevel = audioLevel,
                     cameras = cameras,
                     onCameraEnabled = settingsViewModel::setCameraEnabled,
@@ -187,15 +179,6 @@ class SettingsActivity : ComponentActivity() {
     /** Not every device ships a picker; without one the current sound stays as it was. */
     private fun pickAlertSound(current: String?) {
         runCatching { alertSoundPicker.launch(AlarmSound.pickerIntent(this, current)) }
-    }
-
-    /** Through the same gate as auto-arming, so a manual start cannot misfire. */
-    private fun armIfNeeded() {
-        lifecycleScope.launch {
-            if (appContainer.shouldArmMonitoring(this@SettingsActivity)) {
-                monitoringStarter.startWithAlertPermissions()
-            }
-        }
     }
 
     companion object {

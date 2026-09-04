@@ -46,7 +46,6 @@ class SettingsScreenTest {
         monitoringRunning: Boolean = false,
         canMonitor: Boolean = true,
         localNetworkGranted: Boolean = true,
-        onToggleMonitoring: (Boolean) -> Unit = {},
         audioLevel: Float = 0f,
         cameras: List<Camera> = listOf(nursery, playroom),
         onCameraEnabled: (String, Boolean) -> Unit = { _, _ -> },
@@ -71,7 +70,6 @@ class SettingsScreenTest {
                 monitoringRunning = monitoringRunning,
                 canMonitor = canMonitor,
                 localNetworkGranted = localNetworkGranted,
-                onToggleMonitoring = onToggleMonitoring,
                 audioLevel = audioLevel,
                 cameras = cameras,
                 onCameraEnabled = onCameraEnabled,
@@ -113,30 +111,21 @@ class SettingsScreenTest {
         }
     }
 
+    /**
+     * Monitoring has no switch: it runs for as long as the app does, and the
+     * way to end it — exiting — lives on the viewer. The hub says what the
+     * monitor is doing and offers nothing that could quietly switch the night
+     * off.
+     */
     @Test
-    fun `arming monitoring lives on the hub`() {
-        var toggled: Boolean? = null
-        composeRule.setContent {
-            Screen(monitoringRunning = false, onToggleMonitoring = { toggled = it })
-        }
+    fun `the hub reports monitoring rather than offering a switch`() {
+        composeRule.setContent { Screen(monitoringRunning = true) }
 
-        composeRule.onNodeWithTag("monitoring-switch").performScrollTo().performClick()
-
-        assertEquals(true, toggled)
-    }
-
-    @Test
-    fun `the switch is dead when there is nothing to listen to`() {
-        var toggled: Boolean? = null
-        composeRule.setContent {
-            Screen(canMonitor = false, onToggleMonitoring = { toggled = it })
-        }
-
-        composeRule.onNodeWithTag("monitoring-switch").performScrollTo().performClick()
-
-        // Offering to start a service that would immediately stop itself is
-        // worse than showing the switch as unavailable.
-        assertNull(toggled)
+        composeRule.onNodeWithTag("monitoring-status").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText(text(R.string.monitoring_always_on))
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule.onNodeWithTag("monitoring-switch").assertDoesNotExist()
     }
 
     @Test
@@ -150,18 +139,6 @@ class SettingsScreenTest {
             .performScrollTo()
             .assertIsDisplayed()
         composeRule.onNodeWithText(text(R.string.monitoring_idle)).assertDoesNotExist()
-    }
-
-    @Test
-    fun `the switch still answers without the grant, because it is how to ask`() {
-        var toggled: Boolean? = null
-        composeRule.setContent {
-            Screen(localNetworkGranted = false, onToggleMonitoring = { toggled = it })
-        }
-
-        composeRule.onNodeWithTag("monitoring-switch").performScrollTo().performClick()
-
-        assertEquals(true, toggled)
     }
 
     @Test
@@ -210,6 +187,16 @@ class SettingsScreenTest {
     }
 
     // ---- Search ----
+
+    @Test
+    fun `the wake alerts switch is searchable`() {
+        composeRule.setContent { Screen() }
+
+        composeRule.onNodeWithTag("settings-search").performTextInput("wake alerts")
+        composeRule.onNodeWithTag("search-result-alerts").performScrollTo().performClick()
+
+        composeRule.onNodeWithTag("alerts-switch").performScrollTo().assertIsDisplayed()
+    }
 
     @Test
     fun `searching finds a setting and jumps into its category`() {
@@ -277,7 +264,7 @@ class SettingsScreenTest {
         composeRule.onNodeWithTag("settings-search").performTextInput("Monitoring")
         composeRule.onNodeWithTag("search-result-monitoring").performScrollTo().performClick()
 
-        composeRule.onNodeWithTag("monitoring-switch").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("monitoring-status").performScrollTo().assertIsDisplayed()
     }
 
     // ---- Display ----
@@ -342,6 +329,26 @@ class SettingsScreenTest {
     }
 
     // ---- Alerts ----
+
+    /**
+     * The same stored value as the viewer's alerts button, so the two cannot
+     * disagree about whether the night is being watched.
+     */
+    @Test
+    fun `switching wake alerts off reports the change`() {
+        var changed: AppSettings? = null
+        composeRule.setContent {
+            Screen(
+                settings = AppSettings(alertsEnabled = true),
+                onSettingsChange = { changed = it(AppSettings(alertsEnabled = true)) },
+            )
+        }
+        openCategory(SettingsCategory.ALERTS)
+
+        composeRule.onNodeWithTag("alerts-switch").performScrollTo().performClick()
+
+        assertEquals(false, changed?.alertsEnabled)
+    }
 
     @Test
     fun `disabling the chime reports the change`() {

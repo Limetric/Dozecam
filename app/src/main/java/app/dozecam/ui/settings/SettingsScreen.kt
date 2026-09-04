@@ -22,7 +22,6 @@ import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -48,8 +47,8 @@ import app.dozecam.ui.components.groupShape
 
 /**
  * Settings is a hub and four category screens, all inside this one composable:
- * the hub keeps the nightly monitoring switch one tap away and hands everything
- * else to Cameras, Sound Detection, Alerts, and Display. A search field on the
+ * the hub says what the monitor is doing and hands everything else to Cameras,
+ * Sound Detection, Alerts, and Display. A search field on the
  * hub finds any preference row and jumps into the screen that owns it.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -60,7 +59,6 @@ fun SettingsScreen(
     monitoringRunning: Boolean,
     canMonitor: Boolean,
     localNetworkGranted: Boolean,
-    onToggleMonitoring: (Boolean) -> Unit,
     audioLevel: Float,
     cameras: List<Camera>,
     onCameraEnabled: (String, Boolean) -> Unit,
@@ -153,7 +151,6 @@ fun SettingsScreen(
                     monitoringRunning = monitoringRunning,
                     canMonitor = canMonitor,
                     localNetworkGranted = localNetworkGranted,
-                    onToggleMonitoring = onToggleMonitoring,
                     audioLevel = audioLevel,
                     threshold = detector.threshold,
                     jumpTarget = jumpTarget,
@@ -197,8 +194,8 @@ fun SettingsScreen(
 }
 
 /**
- * The hub: search on top, then the one control touched every night — arming
- * the monitor — then the doors to everything tuned once and left alone.
+ * The hub: search on top, then what the monitor is doing right now, then the
+ * doors to everything tuned once and left alone.
  */
 @Composable
 private fun SettingsHub(
@@ -210,7 +207,6 @@ private fun SettingsHub(
     monitoringRunning: Boolean,
     canMonitor: Boolean,
     localNetworkGranted: Boolean,
-    onToggleMonitoring: (Boolean) -> Unit,
     audioLevel: Float,
     threshold: Float,
     jumpTarget: String?,
@@ -227,7 +223,6 @@ private fun SettingsHub(
             running = monitoringRunning,
             canMonitor = canMonitor,
             localNetworkGranted = localNetworkGranted,
-            onToggle = onToggleMonitoring,
             audioLevel = audioLevel,
             threshold = threshold,
             jumpTarget = jumpTarget,
@@ -334,17 +329,16 @@ private fun SearchResults(
 }
 
 /**
- * Arming the monitor, and the level meter that makes the detection threshold
- * settable. It lives on the hub rather than over the video or in a category:
- * the viewer is for watching, and a control that is touched at bedtime should
- * not be a navigation level away.
+ * What the monitor is doing, and the level meter that makes the detection
+ * threshold settable. Status only: monitoring runs for as long as the app
+ * does, and the way to end it — exiting — lives on the viewer, so nothing here
+ * can quietly switch the night off.
  */
 @Composable
 private fun MonitoringSection(
     running: Boolean,
     canMonitor: Boolean,
     localNetworkGranted: Boolean,
-    onToggle: (Boolean) -> Unit,
     audioLevel: Float,
     threshold: Float,
     jumpTarget: String?,
@@ -361,11 +355,11 @@ private fun MonitoringSection(
                     headline = stringResource(R.string.monitoring_toggle),
                     supporting = stringResource(
                         when {
-                            running -> R.string.monitoring_listening
+                            running -> R.string.monitoring_always_on
                             !canMonitor -> R.string.monitoring_unavailable
-                            // Named before the switch is ever touched, because
-                            // arming refuses without it and the row would
-                            // otherwise report the refusal as idleness.
+                            // Named rather than reported as idleness, because
+                            // arming refuses without it and nothing else on
+                            // this row would say why.
                             !localNetworkGranted -> R.string.monitoring_needs_local_network
                             else -> R.string.monitoring_idle
                         },
@@ -381,18 +375,7 @@ private fun MonitoringSection(
                             contentDescription = null,
                         )
                     },
-                    trailing = {
-                        Switch(
-                            // Left live without the grant on purpose: tapping
-                            // it is how the grant gets asked for, and a switch
-                            // greyed out over a missing permission would have
-                            // no way left to fix it.
-                            checked = running,
-                            onCheckedChange = onToggle,
-                            enabled = canMonitor,
-                            modifier = Modifier.testTag("monitoring-switch"),
-                        )
-                    },
+                    modifier = Modifier.testTag("monitoring-status"),
                 )
                 AnimatedVisibility(visible = running) {
                     Column(

@@ -70,9 +70,9 @@
             android:name=".monitoring.AlertDismissReceiver"
             android:exported="false" />
 
-        <!-- "Stop monitoring" on the ongoing notification. -->
+        <!-- "Exit" on the ongoing notification. -->
         <receiver
-            android:name=".monitoring.StopMonitoringReceiver"
+            android:name=".monitoring.ExitReceiver"
             android:exported="false" />
 
         <receiver

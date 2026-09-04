@@ -50,11 +50,33 @@ fun AlertsSettings(
         modifier = Modifier.padding(top = 8.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
+        // The master switch, first: everything below it is about how an alert
+        // reaches someone, and none of it applies while this is off. The same
+        // stored value as the viewer's alerts button, so the two cannot
+        // disagree about whether the night is being watched.
+        JumpTarget(
+            id = SettingIds.ALERTS,
+            jumpTarget = jumpTarget,
+            onJumpDone = onJumpDone,
+            shape = groupShape(0, 5),
+        ) {
+            SettingSwitchRow(
+                label = stringResource(R.string.setting_alerts),
+                description = stringResource(R.string.setting_alerts_description),
+                iconRes = R.drawable.ic_notifications_active,
+                checked = settings.alertsEnabled,
+                onCheckedChange = { checked ->
+                    onSettingsChange { it.copy(alertsEnabled = checked) }
+                },
+                shape = groupShape(0, 5),
+                tag = "alerts-switch",
+            )
+        }
         JumpTarget(
             id = SettingIds.CHIME,
             jumpTarget = jumpTarget,
             onJumpDone = onJumpDone,
-            shape = groupShape(0, 4),
+            shape = groupShape(1, 5),
         ) {
             SettingSwitchRow(
                 label = stringResource(R.string.setting_alert_chime),
@@ -64,7 +86,7 @@ fun AlertsSettings(
                 onCheckedChange = { checked ->
                     onSettingsChange { it.copy(alertChime = checked) }
                 },
-                shape = groupShape(0, 4),
+                shape = groupShape(1, 5),
                 tag = "chime-switch",
             )
         }
@@ -72,7 +94,7 @@ fun AlertsSettings(
             id = SettingIds.VIBRATE,
             jumpTarget = jumpTarget,
             onJumpDone = onJumpDone,
-            shape = groupShape(1, 4),
+            shape = groupShape(2, 5),
         ) {
             SettingSwitchRow(
                 label = stringResource(R.string.setting_alert_vibrate),
@@ -82,7 +104,7 @@ fun AlertsSettings(
                 onCheckedChange = { checked ->
                     onSettingsChange { it.copy(alertVibrate = checked) }
                 },
-                shape = groupShape(1, 4),
+                shape = groupShape(2, 5),
                 tag = "vibrate-switch",
             )
         }
@@ -92,12 +114,12 @@ fun AlertsSettings(
             id = SettingIds.ALERT_SOUND,
             jumpTarget = jumpTarget,
             onJumpDone = onJumpDone,
-            shape = groupShape(2, 4),
+            shape = groupShape(3, 5),
         ) {
             GroupRow(
                 headline = stringResource(R.string.setting_alert_sound),
                 supporting = alertSoundTitle(settings),
-                shape = groupShape(2, 4),
+                shape = groupShape(3, 5),
                 leading = {
                     Icon(painter = painterResource(R.drawable.ic_alarm), contentDescription = null)
                 },
@@ -121,7 +143,7 @@ fun AlertsSettings(
             id = SettingIds.ALERT_RAMP,
             jumpTarget = jumpTarget,
             onJumpDone = onJumpDone,
-            shape = groupShape(3, 4),
+            shape = groupShape(4, 5),
         ) {
             SettingSwitchRow(
                 label = stringResource(R.string.setting_alert_ramp),
@@ -131,7 +153,7 @@ fun AlertsSettings(
                 onCheckedChange = { checked ->
                     onSettingsChange { it.copy(alertRamp = checked) }
                 },
-                shape = groupShape(3, 4),
+                shape = groupShape(4, 5),
                 tag = "alert-ramp-switch",
             )
         }

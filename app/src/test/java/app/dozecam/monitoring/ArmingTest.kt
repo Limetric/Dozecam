@@ -22,7 +22,6 @@ class ArmingTest {
 
     @Before
     fun reset() {
-        container.monitoringState.userStopped.value = false
         container.monitoringState.serviceRunning.value = false
         container.protectCredentials.clear()
     }
@@ -92,14 +91,6 @@ class ArmingTest {
         container.cameras.upsert(
             Camera("a", "Nursery", "rtsp://cam:7447/a", enabled = false),
         )
-
-        assertFalse(container.shouldArmMonitoring(context, localNetworkGranted = true))
-    }
-
-    @Test
-    fun `a deliberate stop is respected`() = runTest {
-        container.cameras.upsert(Camera("a", "Nursery", "rtsp://cam:7447/a"))
-        container.monitoringState.userStopped.value = true
 
         assertFalse(container.shouldArmMonitoring(context, localNetworkGranted = true))
     }

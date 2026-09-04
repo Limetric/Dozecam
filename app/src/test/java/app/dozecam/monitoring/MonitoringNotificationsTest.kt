@@ -66,13 +66,13 @@ class MonitoringNotificationsTest {
         val silent = MonitoringNotifications.statusNotification(context, "Listening")
         val aloud = MonitoringNotifications.statusNotification(context, "Listening", aloud = true)
 
-        // Stop monitoring, and nothing else, while nothing is playing aloud.
+        // Exit, and nothing else, while nothing is playing aloud.
         assertEquals(1, silent.actions.size)
         // A phone broadcasting a bedroom needs its off switch on the same
         // surface that admits to it — and separately from the one that would
-        // switch the baby monitor off altogether.
+        // end the baby monitor altogether.
         assertEquals(2, aloud.actions.size)
-        assertEquals("Stop monitoring", aloud.actions[0].title)
+        assertEquals("Exit", aloud.actions[0].title)
         assertEquals("Stop playing aloud", aloud.actions[1].title)
     }
 
@@ -237,15 +237,17 @@ class MonitoringNotificationsTest {
     }
 
     @Test
-    fun `the ongoing notification offers a way to stop monitoring`() {
+    fun `the ongoing notification offers the way out`() {
         MonitoringNotifications.ensureChannels(context)
 
         val notification = MonitoringNotifications.statusNotification(context, "Listening")
         val action = notification.actions.single()
 
-        assertEquals("Stop monitoring", action.title)
+        // Monitoring has no switch of its own: it runs for as long as the app
+        // does, so the way to end it from the shade is to end the app.
+        assertEquals("Exit", action.title)
         assertEquals(
-            StopMonitoringReceiver::class.java.name,
+            ExitReceiver::class.java.name,
             shadowOf(action.actionIntent).savedIntent.component?.className,
         )
     }

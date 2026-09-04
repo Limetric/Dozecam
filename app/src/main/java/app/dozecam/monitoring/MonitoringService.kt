@@ -19,6 +19,7 @@ import app.dozecam.audio.SoundDetector
 import app.dozecam.data.AppSettings
 import app.dozecam.data.Camera
 import app.dozecam.data.DetectorSettings
+import app.dozecam.data.SoundMode
 import app.dozecam.network.NetworkMonitor
 import app.dozecam.player.StreamSource
 import kotlinx.coroutines.CoroutineScope
@@ -121,7 +122,14 @@ class MonitoringService : Service() {
         val container = appContainer
 
         scope.launch {
-            container.appSettings.settings.collect { appSettings = it }
+            container.appSettings.settings.collect { settings ->
+                appSettings = settings
+                // Alerts switched off while one was sounding: the alarm and the
+                // card offering to open the room have nothing left to mean, so
+                // they go now rather than ringing on for a setting that says
+                // nobody wants them.
+                if (!settings.alertsEnabled) dropAlert()
+            }
         }
 
         scope.launch {
@@ -159,8 +167,11 @@ class MonitoringService : Service() {
         // Listen mode's switch, and the speaker it needs. Asked for here rather
         // than in the viewer because the whole promise is that it outlives the
         // viewer.
+        val listenRequested = container.appSettings.settings
+            .map { it.soundMode == SoundMode.ALL_ALOUD }
+            .distinctUntilChanged()
         scope.launch {
-            container.monitoringState.listenRequest.collect { wanted ->
+            listenRequested.collect { wanted ->
                 if (!wanted) {
                     container.audioFocus.release(MediaAudioFocus.Client.LISTEN)
                     return@collect
@@ -169,9 +180,9 @@ class MonitoringService : Service() {
                 // now: the switch goes back off rather than standing on next
                 // to a phone that has gone quiet.
                 val granted = container.audioFocus.request(MediaAudioFocus.Client.LISTEN) {
-                    container.monitoringState.stopListening()
+                    stopListening()
                 }
-                if (!granted) container.monitoringState.stopListening()
+                if (!granted) stopListening()
             }
         }
 
@@ -179,7 +190,7 @@ class MonitoringService : Service() {
         // being true.
         scope.launch {
             combine(
-                container.monitoringState.listenRequest,
+                listenRequested,
                 container.audioFocus.granted,
                 container.monitoringState.viewerAudible,
                 // Only rooms with audio actually coming through: a live
@@ -209,6 +220,7 @@ class MonitoringService : Service() {
                 container.monitoringState.cameras,
                 container.cameras.enabledCameras,
                 container.monitoringState.listeningCameraIds,
+                container.appSettings.settings.map { it.alertsEnabled }.distinctUntilChanged(),
                 // The camera map changes on almost every decoded audio buffer —
                 // but not on every one: a run of identical levels (digital
                 // silence, exactly 0f) is conflated away by the StateFlow, and
@@ -217,7 +229,7 @@ class MonitoringService : Service() {
                 // point of a heartbeat; a wedged process runs no ticker, so it
                 // still cannot fake one.
                 heartbeatTicks(),
-            ) { states, enabled, aloudCameraIds, _ ->
+            ) { states, enabled, aloudCameraIds, alertsEnabled, _ ->
                 MonitoringStatus.of(
                     context = this@MonitoringService,
                     anyMonitors = monitors.isNotEmpty(),
@@ -225,8 +237,10 @@ class MonitoringService : Service() {
                     enabledCount = enabled.size,
                     // A phone quietly broadcasting a bedroom is exactly the
                     // thing a persistent notification exists to disclose, so
-                    // the line says so whatever else it has to report.
+                    // the line says so whatever else it has to report — and so
+                    // is a monitor that will not wake anyone.
                     aloudCameraIds = aloudCameraIds,
+                    alertsEnabled = alertsEnabled,
                 )
             }
                 // Unmetered this would rebuild and repost the foreground
@@ -304,19 +318,11 @@ class MonitoringService : Service() {
         // one that emptied the set.
         holdWakeLock(monitors.isNotEmpty())
 
-        // Nothing left to hear — every camera switched off, deleted, or gone
-        // with the console that issued it. The target flow already plays
-        // nothing, but going quiet is not enough: the ask is what the viewer's
-        // switch shows, and left standing it would read "on" beside a phone
-        // that has gone silent. Somebody would put that phone down believing
-        // the nursery was still audible, which is the one mistake this app
-        // cannot make.
-        //
-        // Decided here rather than in the flow because this is the only moment
-        // the set is authoritative. Before the first reconcile the set is merely
-        // empty, and a rule that read "nothing monitored" there would snap the
-        // switch off under a user who had just reached for it.
-        if (monitors.isEmpty() && state.listenRequest.value) state.stopListening()
+        // Nothing left to hear does not switch the sound mode off. It is the
+        // viewer's setting as much as this service's, and the viewer can play
+        // rooms this service cannot listen to; the notification, which reads
+        // [MonitoringState.listeningCameraIds] rather than the ask, already
+        // admits to nothing being aloud.
 
         // The set just changed underneath listen mode. A monitor rebuilt onto
         // another transport comes back with a fresh, silent player, and the
@@ -363,6 +369,19 @@ class MonitoringService : Service() {
     }
 
     /**
+     * The speaker was refused or taken away for good. The switch goes back to
+     * off rather than standing on next to a phone that has gone quiet — and
+     * the record is emptied at once, before the setting has travelled back
+     * down its flow, so nothing reads a room as aloud in between.
+     */
+    private fun stopListening() {
+        appContainer.monitoringState.listeningCameraIds.value = emptySet()
+        scope.launch {
+            appContainer.appSettings.update { it.copy(soundMode = SoundMode.OFF) }
+        }
+    }
+
+    /**
      * Stated over the whole set rather than per change, so no path through
      * here can leave a monitor audible that the record says is silent.
      */
@@ -399,6 +418,10 @@ class MonitoringService : Service() {
     }
 
     private fun raiseAlert(cameraId: String, fallbackName: String) {
+        // Nothing reaches anyone: no card, no screen, no alarm. The detector
+        // still ran — the meters and the status line say the room is loud —
+        // but the user asked not to be told, and this is where that is kept.
+        if (!appSettings.alertsEnabled) return
         val state = appContainer.monitoringState
         val aloud = heardAloud()
         // A room being heard does not displace the alarm of one that is not:
@@ -427,6 +450,13 @@ class MonitoringService : Service() {
         }
     }
 
+    /** Silences whatever alert is up and takes its card down. */
+    private fun dropAlert() {
+        appContainer.alertSignaler.stop()
+        NotificationManagerCompat.from(this)
+            .cancel(MonitoringNotifications.ALERT_NOTIFICATION_ID)
+    }
+
     private fun updateStatusNotification(display: StatusHeartbeat.Display) {
         try {
             NotificationManagerCompat.from(this).notify(
@@ -451,15 +481,15 @@ class MonitoringService : Service() {
         // The speaker goes with the monitor that was feeding it. Released here
         // rather than left to the flow above, which is about to be cancelled
         // with the scope — an abandoned focus request would leave every other
-        // app on the phone ducked for a service that no longer exists.
-        state.stopListening()
+        // app on the phone ducked for a service that no longer exists. The
+        // setting itself is left alone: this is an exit, and the sound mode is
+        // meant to be found again the way it was left.
+        state.listeningCameraIds.value = emptySet()
         appContainer.audioFocus.release(MediaAudioFocus.Client.LISTEN)
         // Monitoring ending takes its alert with it: an alarm still sounding for
         // a camera nobody is listening to any more has nothing left to mean —
         // and neither does the card offering to open a live view of it.
-        appContainer.alertSignaler.stop()
-        NotificationManagerCompat.from(this)
-            .cancel(MonitoringNotifications.ALERT_NOTIFICATION_ID)
+        dropAlert()
         monitors.values.forEach { it.stop() }
         monitors.clear()
         monitorTransports.clear()

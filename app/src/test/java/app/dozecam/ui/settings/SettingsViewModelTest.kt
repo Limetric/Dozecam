@@ -213,7 +213,7 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `the monitoring switch is live when a monitorable camera is on`() = runTest {
+    fun `monitoring has something to do when a monitorable camera is on`() = runTest {
         val model = viewModel(FakeCameraStore(listOf(Camera("a", "Nursery", "rtsp://c:7447/a"))))
         runCurrent()
 
@@ -221,7 +221,7 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `the monitoring switch is dead when every camera is watch-only`() = runTest {
+    fun `monitoring has nothing to do when every camera is watch-only`() = runTest {
         val model = viewModel(FakeCameraStore(listOf(Camera("a", "Stale", "rtsps://c:7441/a"))))
         runCurrent()
 
@@ -231,7 +231,7 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `signing in to a console brings the switch to life`() = runTest {
+    fun `signing in to a console gives monitoring something to do`() = runTest {
         val credentials = MutableCredentials()
         val monitoring = MonitoringState()
         val model = viewModel(
@@ -264,7 +264,7 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `a switched-off camera does not make the switch live`() = runTest {
+    fun `a switched-off camera gives monitoring nothing to do`() = runTest {
         val model = viewModel(
             FakeCameraStore(listOf(Camera("a", "Nursery", "rtsp://c:7447/a", enabled = false))),
         )
@@ -274,7 +274,7 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `a running monitor can always be switched off`() = runTest {
+    fun `a running monitor counts as having something to do`() = runTest {
         val monitoring = MonitoringState().apply { serviceRunning.value = true }
         val model = viewModel(
             FakeCameraStore(listOf(Camera("a", "Stale", "rtsps://c:7441/a"))),
@@ -283,27 +283,6 @@ class SettingsViewModelTest {
         runCurrent()
 
         assertTrue(model.canMonitor.value)
-    }
-
-    @Test
-    fun `switching monitoring off records the deliberate stop`() = runTest {
-        val monitoring = MonitoringState()
-        val model = viewModel(monitoring = monitoring)
-
-        model.onMonitoringIntent(enabled = false)
-
-        assertTrue(monitoring.userStopped.value)
-        assertFalse(monitoring.shouldAutoArm(enabledCameraCount = 1))
-    }
-
-    @Test
-    fun `switching it back on clears the stop`() = runTest {
-        val monitoring = MonitoringState().apply { userStopped.value = true }
-        val model = viewModel(monitoring = monitoring)
-
-        model.onMonitoringIntent(enabled = true)
-
-        assertFalse(monitoring.userStopped.value)
     }
 
     @Test
