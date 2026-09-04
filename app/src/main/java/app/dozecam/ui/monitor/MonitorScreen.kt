@@ -40,7 +40,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -115,13 +114,6 @@ private val THREE_COLUMN_BREAKPOINT = 1000.dp
  * a secret for long.
  */
 private const val ARMING_GRACE_MS = 3_000L
-
-/**
- * How far the fullscreen status pill steps aside for the back button: the
- * button's 12dp margin plus its 40dp container, so the pill's own 12dp margin
- * leaves an even gap between them.
- */
-private val BACK_BUTTON_STATUS_INSET = 52.dp
 
 /** How far in from either side a touch still counts as starting at the edge. */
 private val EDGE_SWIPE_EDGE_WIDTH = 32.dp
@@ -595,10 +587,10 @@ fun MonitorScreen(
                 camera = fullscreen,
                 source = sources[fullscreen.id],
                 streams = streams,
-                showLabel = false,
-                // Makes way for the back button in the top-start corner; the
-                // status pill slides right of it instead of under it.
-                statusInsetStart = BACK_BUTTON_STATUS_INSET,
+                // The picture and nothing on it: this screen draws the
+                // camera's state and meter itself, in a line with its own
+                // buttons, so nothing the tile says can end up under one.
+                chrome = false,
                 // The one camera on screen alone is the one worth hearing; this
                 // is the "listen to the room" case the viewer exists for, so it
                 // needs nothing beyond sound being switched on.
@@ -618,108 +610,138 @@ fun MonitorScreen(
                     .fillMaxSize()
                     .testTag("fullscreen-tile"),
             )
-            InactivityBar(
-                countdown = countdown,
+            // Everything along the top is one column: the draining bar at the
+            // very edge, then one row of chrome at one height — the way back,
+            // the camera's state beside it, and at the far end the controls
+            // a single camera keeps — and under that row whatever the mic
+            // button has to explain. Stacked rather than each picking its own
+            // corner, so nothing here can land on anything else.
+            Column(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
+                    .fillMaxWidth()
                     .safeDrawingPadding(),
-            )
-            // The visible way back, in the corner back buttons live in. Back
-            // and the edge swipe do the same, but nothing on a screen that is
-            // all picture says so; the alerted camera keeps it too, because
-            // the transition below is the same one that hands the lock screen
-            // back. The tile's status pill is inset to sit beside it — a
-            // button over "Reconnecting" would let a frozen frame pass for a
-            // live one.
-            FilledTonalIconButton(
-                onClick = { fullscreenId = null },
-                shapes = IconButtonDefaults.shapes(),
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .safeDrawingPadding()
-                    .padding(12.dp)
-                    .testTag("back-to-grid"),
             ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = stringResource(R.string.viewer_all_cameras),
-                )
-            }
-            // The controls a single camera keeps. Without the first, sound could
-            // be switched on solely from the grid — including for a camera an
-            // alert opened, which is precisely when the user wants to listen.
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .safeDrawingPadding()
-                    .padding(12.dp),
-            ) {
-                if (talkback != null) {
-                    TalkbackButton(
-                        availability = talkbackAvailability,
-                        talking = talking,
-                        // Holding a button is as much a sign of someone being
-                        // there as touching the picture is — and a countdown
-                        // that expired mid-sentence would take the room away
-                        // while somebody was still speaking to it.
-                        onPress = {
+                InactivityBar(countdown = countdown)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(OverlayChrome.Gap),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(OverlayChrome.Margin),
+                ) {
+                    // The start of the row takes whatever the buttons at the
+                    // end leave, so a long status — reconnecting, with the
+                    // time of the last frame — is cut to fit rather than
+                    // pushing the sound button off the screen.
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(OverlayChrome.Gap),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        // The visible way back, in the corner back buttons
+                        // live in. Back and the edge swipe do the same, but
+                        // nothing on a screen that is all picture says so; the
+                        // alerted camera keeps it too, because the transition
+                        // below is the same one that hands the lock screen
+                        // back.
+                        FilledTonalIconButton(
+                            onClick = { fullscreenId = null },
+                            shapes = IconButtonDefaults.shapes(),
+                            modifier = Modifier.testTag("back-to-grid"),
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = stringResource(R.string.viewer_all_cameras),
+                            )
+                        }
+                        // Read from the session, as the tile would: a camera
+                        // opened from the grid is already connected, and a
+                        // pill that reset to "Connecting" would report a
+                        // reconnection that is not happening.
+                        val stream = streams[fullscreen.id]
+                        val connection by (stream?.connection ?: connecting).collectAsState()
+                        val lastFrameAtMs by (stream?.lastFrameAtMs ?: noFrameYet).collectAsState()
+                        StatusOverlay(
+                            state = connection,
+                            lastFrameAtMs = lastFrameAtMs,
+                            height = OverlayChrome.ControlHeight,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                    }
+                    // The controls a single camera keeps. Without the second,
+                    // sound could be switched on solely from the grid —
+                    // including for a camera an alert opened, which is
+                    // precisely when the user wants to listen.
+                    if (talkback != null) {
+                        TalkbackButton(
+                            availability = talkbackAvailability,
+                            talking = talking,
+                            // Holding a button is as much a sign of someone
+                            // being there as touching the picture is — and a
+                            // countdown that expired mid-sentence would take
+                            // the room away while somebody was still speaking
+                            // to it.
+                            onPress = {
+                                countdown.reset()
+                                if (talkbackAvailability == TalkbackAvailability.Ready) {
+                                    talkback.press()
+                                }
+                            },
+                            // No snackbar: nobody let go, so there is nothing
+                            // to tell them about how they were holding it.
+                            onCancel = talkback::release,
+                            onRelease = { heldMillis ->
+                                talkback.release()
+                                // A tap is not a mistake worth blocking — the
+                                // press still runs, and its silence is
+                                // harmless — but it is a mistake worth naming,
+                                // because the camera does make a small noise
+                                // and the room hears no words.
+                                if (heldMillis < talkbackMinPressMs) {
+                                    announce(R.string.talkback_too_short)
+                                }
+                            },
+                            onExplain = {
+                                countdown.reset()
+                                explaining = true
+                                if (talkbackAvailability == TalkbackAvailability.NeedsPermission) {
+                                    onRequestMicrophone()
+                                }
+                            },
+                        )
+                    }
+                    SoundModeButton(
+                        soundMode = soundMode,
+                        // Reaching for the sound is as much a sign of someone
+                        // being there as touching the picture is.
+                        onSoundModeChange = {
                             countdown.reset()
-                            if (talkbackAvailability == TalkbackAvailability.Ready) {
-                                talkback.press()
-                            }
-                        },
-                        // No snackbar: nobody let go, so there is nothing to
-                        // tell them about how they were holding it.
-                        onCancel = talkback::release,
-                        onRelease = { heldMillis ->
-                            talkback.release()
-                            // A tap is not a mistake worth blocking — the press
-                            // still runs, and its silence is harmless — but it
-                            // is a mistake worth naming, because the camera does
-                            // make a small noise and the room hears no words.
-                            if (heldMillis < talkbackMinPressMs) {
-                                announce(R.string.talkback_too_short)
-                            }
-                        },
-                        onExplain = {
-                            countdown.reset()
-                            explaining = true
-                            if (talkbackAvailability == TalkbackAvailability.NeedsPermission) {
-                                onRequestMicrophone()
-                            }
+                            soundModeAnnounced(it)
                         },
                     )
                 }
-                SoundModeButton(
-                    soundMode = soundMode,
-                    // Reaching for the sound is as much a sign of someone being
-                    // there as touching the picture is.
-                    onSoundModeChange = {
-                        countdown.reset()
-                        soundModeAnnounced(it)
-                    },
-                )
+                if (explaining) {
+                    TalkbackNotice(
+                        availability = talkbackAvailability,
+                        modifier = Modifier
+                            .align(Alignment.End)
+                            .padding(horizontal = OverlayChrome.Margin),
+                    )
+                }
             }
-            if (explaining) {
-                TalkbackNotice(
-                    availability = talkbackAvailability,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .safeDrawingPadding()
-                        .padding(top = 68.dp, end = 12.dp),
-                )
-            }
+            // The bottom column: the room's level, the countdown, and whatever
+            // a button press just said — the same gap between each as the top
+            // row keeps between its pieces.
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .safeDrawingPadding()
-                    .padding(16.dp),
+                    .padding(OverlayChrome.Margin),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(OverlayChrome.Gap),
             ) {
-                // In the column with the countdown rather than on the tile: two
+                // Here with the countdown rather than on the tile: two
                 // overlays that each pick their own corner meet in the middle
                 // of a narrow phone, and the notice would cover the meter for
                 // the whole minute it counts.
@@ -729,6 +751,7 @@ fun MonitorScreen(
                         cameraName = fullscreen.name,
                         level = level,
                         threshold = audioThreshold,
+                        height = OverlayChrome.ControlHeight,
                     )
                 }
                 InactivityNotice(countdown = countdown, onStay = countdown::reset)
@@ -746,18 +769,91 @@ fun MonitorScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black),
+            // The grid sits on black so the letterboxing around a picture is
+            // part of the picture; the empty state is a page, and sits on one.
+            .background(if (cameras.isEmpty()) MaterialTheme.colorScheme.surface else Color.Black),
     ) {
-        when {
-            cameras.isEmpty() -> EmptyState(
-                hasDisabledOnly = hasDisabledOnly,
-                onOpenSettings = onOpenSettings,
-                onOpenOnboarding = onOpenOnboarding,
-            )
-
-            else -> Column(modifier = Modifier.safeDrawingPadding()) {
+        Column(modifier = Modifier.safeDrawingPadding()) {
+            // A strip of its own above the cameras rather than floated over
+            // the first of them. It costs a row of buttons' worth of height,
+            // and buys every tile its whole picture: floated, the row sat on
+            // the first camera's top edge, across the status pill of whatever
+            // tile was under it — a button over "Reconnecting" lets a frozen
+            // frame pass for a live one.
+            //
+            // A flow rather than a row: on the narrowest phones the badge plus
+            // five buttons is more than one line holds, and a row would
+            // squeeze whatever came last instead of letting it step down a
+            // line.
+            FlowRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(OverlayChrome.Margin),
+                horizontalArrangement = Arrangement.spacedBy(OverlayChrome.Gap, Alignment.End),
+                verticalArrangement = Arrangement.spacedBy(OverlayChrome.Gap),
+                itemVerticalAlignment = Alignment.CenterVertically,
+            ) {
+                NotMonitoringBadge(
+                    running = monitoringRunning,
+                    canMonitor = canMonitor,
+                    armingGraceMs = armingGraceMs,
+                    onStart = onStartMonitoring,
+                )
+                // The way out, first: it is the one control that ends the
+                // night rather than adjusting it, and it should not sit
+                // between two buttons that get reached for in the dark.
+                ExitButton(onClick = { confirmingExit = true })
+                // Nothing to listen to yet: an empty viewer offers setup, not
+                // a switch for sound that has no camera to come from, nor for
+                // alerts no room can raise — nor one for a display it never
+                // holds awake in the first place.
+                if (cameras.isNotEmpty()) {
+                    SoundModeButton(
+                        soundMode = soundMode,
+                        onSoundModeChange = soundModeAnnounced,
+                    )
+                    AlertsToggle(
+                        alertsEnabled = alertsEnabled,
+                        onAlertsEnabledChange = alertsToggleAnnounced,
+                    )
+                    KeepScreenToggle(
+                        keepScreenOn = keepScreenOn,
+                        onKeepScreenOnChange = { enabled ->
+                            announce(
+                                if (enabled) R.string.viewer_keep_screen_on_confirmed
+                                else R.string.viewer_keep_screen_off_confirmed,
+                            )
+                            onKeepScreenOnChange(enabled)
+                        },
+                    )
+                }
+                FilledTonalIconButton(
+                    onClick = onOpenSettings,
+                    shapes = IconButtonDefaults.shapes(),
+                    modifier = Modifier.testTag("open-settings"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = stringResource(R.string.settings),
+                    )
+                }
+            }
+            if (cameras.isEmpty()) {
+                EmptyState(
+                    hasDisabledOnly = hasDisabledOnly,
+                    onOpenSettings = onOpenSettings,
+                    onOpenOnboarding = onOpenOnboarding,
+                )
+            } else {
                 if (unmonitorable.isNotEmpty()) {
-                    UnmonitorableNotice(unmonitorable)
+                    UnmonitorableNotice(
+                        cameras = unmonitorable,
+                        modifier = Modifier.padding(
+                            start = OverlayChrome.Margin,
+                            end = OverlayChrome.Margin,
+                            bottom = OverlayChrome.Margin,
+                        ),
+                    )
                 }
                 CameraLayout(
                     cameras = cameras,
@@ -773,66 +869,6 @@ fun MonitorScreen(
             }
         }
 
-        // Floated over the video rather than given a bar of its own: on a phone
-        // an app bar costs a camera's worth of height to hold a few buttons.
-        // A flow rather than a row: on the narrowest phones the badge plus
-        // five buttons is more than one line holds, and a row would squeeze
-        // whatever came last instead of letting it step down a line.
-        FlowRow(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .safeDrawingPadding()
-                .padding(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            itemVerticalAlignment = Alignment.CenterVertically,
-        ) {
-            NotMonitoringBadge(
-                running = monitoringRunning,
-                canMonitor = canMonitor,
-                armingGraceMs = armingGraceMs,
-                onStart = onStartMonitoring,
-            )
-            // The way out, first: it is the one control that ends the night
-            // rather than adjusting it, and it should not sit between two
-            // buttons that get reached for in the dark.
-            ExitButton(onClick = { confirmingExit = true })
-            // Nothing to listen to yet: an empty viewer offers setup, not a
-            // switch for sound that has no camera to come from, nor for alerts
-            // no room can raise — nor one for a display it never holds awake in
-            // the first place.
-            if (cameras.isNotEmpty()) {
-                SoundModeButton(
-                    soundMode = soundMode,
-                    onSoundModeChange = soundModeAnnounced,
-                )
-                AlertsToggle(
-                    alertsEnabled = alertsEnabled,
-                    onAlertsEnabledChange = alertsToggleAnnounced,
-                )
-                KeepScreenToggle(
-                    keepScreenOn = keepScreenOn,
-                    onKeepScreenOnChange = { enabled ->
-                        announce(
-                            if (enabled) R.string.viewer_keep_screen_on_confirmed
-                            else R.string.viewer_keep_screen_off_confirmed,
-                        )
-                        onKeepScreenOnChange(enabled)
-                    },
-                )
-            }
-            FilledTonalIconButton(
-                onClick = onOpenSettings,
-                shapes = IconButtonDefaults.shapes(),
-                modifier = Modifier.testTag("open-settings"),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Settings,
-                    contentDescription = stringResource(R.string.settings),
-                )
-            }
-        }
-
         // Bottom-aligned, unlike the notices above the grid: the top of this
         // screen is already spoken for by the controls, and a message about the
         // whole device belongs where nothing is competing with it.
@@ -840,9 +876,9 @@ fun MonitorScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .safeDrawingPadding()
-                .padding(16.dp),
+                .padding(OverlayChrome.Margin),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(OverlayChrome.Gap),
         ) {
             NetworkNotice(reach = networkReach)
             ToggleSnackbarHost(snackbarHostState)
@@ -1200,8 +1236,6 @@ private fun EmptyState(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface)
-            .safeDrawingPadding()
             .padding(32.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1256,43 +1290,36 @@ private fun NetworkNotice(reach: NetworkReach, modifier: Modifier = Modifier) {
         NetworkReach.OFFLINE -> R.string.viewer_no_network
         NetworkReach.MOBILE_DATA -> R.string.viewer_off_wifi
     }
-    Surface(
+    OverlayNotice(
+        text = stringResource(message),
         color = MaterialTheme.colorScheme.errorContainer,
         contentColor = MaterialTheme.colorScheme.onErrorContainer,
-        shape = MaterialTheme.shapes.large,
         modifier = modifier
             // Worth interrupting for, and only ever a sentence — nothing like
             // the countdown next door, which changes every second.
             .semantics { liveRegion = LiveRegionMode.Polite }
             .testTag("network-notice"),
-    ) {
-        Text(
-            text = stringResource(message),
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-        )
-    }
+    )
 }
 
-/** Enabled but not listenable: say so rather than imply full coverage. */
+/**
+ * Enabled but not listenable: say so rather than imply full coverage. The same
+ * notice as the network one, in the same colours — two facts about coverage,
+ * said the same way.
+ */
 @Composable
-private fun UnmonitorableNotice(cameras: List<Camera>) {
-    Surface(
+private fun UnmonitorableNotice(cameras: List<Camera>, modifier: Modifier = Modifier) {
+    OverlayNotice(
+        text = pluralStringResource(
+            R.plurals.viewer_unmonitorable,
+            cameras.size,
+            cameras.size,
+            cameras.joinToString { it.name },
+        ),
         color = MaterialTheme.colorScheme.errorContainer,
         contentColor = MaterialTheme.colorScheme.onErrorContainer,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .testTag("unmonitorable-notice"),
-    ) {
-        Text(
-            text = pluralStringResource(
-                R.plurals.viewer_unmonitorable,
-                cameras.size,
-                cameras.size,
-                cameras.joinToString { it.name },
-            ),
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-        )
-    }
+    )
 }

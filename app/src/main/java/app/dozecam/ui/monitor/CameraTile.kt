@@ -5,12 +5,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -29,6 +30,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toSize
@@ -46,9 +48,9 @@ import kotlinx.coroutines.flow.StateFlow
  * What a tile reports before it has a session to report on — a camera whose
  * source has not resolved yet, or one whose stream is still being built.
  */
-private val connecting: StateFlow<ConnectionState> =
+internal val connecting: StateFlow<ConnectionState> =
     MutableStateFlow(ConnectionState.Connecting)
-private val noFrameYet: StateFlow<Long?> = MutableStateFlow(null)
+internal val noFrameYet: StateFlow<Long?> = MutableStateFlow(null)
 private val noAspectYet: StateFlow<Float?> = MutableStateFlow(null)
 
 /**
@@ -69,7 +71,13 @@ fun CameraTile(
     source: StreamSource?,
     streams: CameraStreams,
     modifier: Modifier = Modifier,
-    showLabel: Boolean = true,
+    /**
+     * Whether the tile captions itself — state, name, meter, audible badge —
+     * or shows the bare picture. Off for the camera that has the screen to
+     * itself: the screen draws that camera's chrome among its own controls,
+     * where it can be kept in a line with them and out of their way.
+     */
+    chrome: Boolean = true,
     /**
      * Whether this tile is the one being listened to. Silent by default:
      * several tiles play at once, and several rooms talking over each other is
@@ -87,12 +95,6 @@ fun CameraTile(
     audioLevel: Float? = null,
     /** The level at which an alert would fire, marked on the meter. */
     audioThreshold: Float = 1f,
-    /**
-     * Room made at the tile's start edge for a control the caller draws over
-     * the corner the status pill owns. The pill moves aside rather than being
-     * covered: honest connection state is only honest while it can be seen.
-     */
-    statusInsetStart: Dp = 0.dp,
     onClick: (() -> Unit)? = null,
     /**
      * Pinch state for a tile that has the screen to itself, where looking
@@ -175,62 +177,84 @@ fun CameraTile(
             update = { view -> view.applyPinchZoom(zoom) },
             modifier = Modifier.fillMaxSize(),
         )
-        StatusOverlay(
-            state = connection,
-            lastFrameAtMs = lastFrameAtMs,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(start = statusInsetStart),
-        )
-        if (audible) {
-            AudibleBadge(
-                cameraName = camera.name,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(12.dp),
+        if (chrome) {
+            TileChrome(
+                camera = camera,
+                connection = connection,
+                lastFrameAtMs = lastFrameAtMs,
+                audible = audible,
+                audioLevel = audioLevel,
+                audioThreshold = audioThreshold,
             )
         }
-        // The name and the meter share a row so they read as one statement:
-        // this room, this loud. (Fullscreen shows neither — the caller draws
-        // its meter among the other fullscreen controls, where the countdown
-        // notice can be kept from covering it.)
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+    }
+}
+
+/**
+ * The captions a grid tile wears: state in the top corner, name and meter
+ * along the bottom, the audible badge in the corner opposite them. All on the
+ * same pill at the same height, the same distance in from the picture's edge,
+ * so a grid of them reads as one thing said several times over.
+ */
+@Composable
+private fun BoxScope.TileChrome(
+    camera: Camera,
+    connection: ConnectionState,
+    lastFrameAtMs: Long?,
+    audible: Boolean,
+    audioLevel: Float?,
+    audioThreshold: Float,
+) {
+    StatusOverlay(
+        state = connection,
+        lastFrameAtMs = lastFrameAtMs,
+        modifier = Modifier
+            .align(Alignment.TopStart)
+            .padding(OverlayChrome.Margin),
+    )
+    if (audible) {
+        AudibleBadge(
+            cameraName = camera.name,
             modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(12.dp)
-                // A weighted label lets a long name stretch the row to the
-                // tile's far edge — where the audible badge lives. Its
-                // footprint is given up front, so the two can never cover
-                // each other.
-                .padding(end = if (audible) 44.dp else 0.dp),
+                .align(Alignment.BottomEnd)
+                .padding(OverlayChrome.Margin),
+        )
+    }
+    // The name and the meter share a row so they read as one statement: this
+    // room, this loud.
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(OverlayChrome.Gap),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .align(Alignment.BottomStart)
+            .padding(OverlayChrome.Margin)
+            // A weighted label lets a long name stretch the row to the tile's
+            // far edge — where the audible badge lives. Its footprint is given
+            // up front, so the two can never cover each other.
+            .padding(end = if (audible) OverlayChrome.TileHeight + OverlayChrome.Gap else 0.dp),
+    ) {
+        OverlayPill(
+            modifier = Modifier
+                // Weighted so the meter is measured first: names are
+                // user-typed and unbounded, and an unweighted label would
+                // swallow the whole row and squeeze the meter to nothing. A
+                // long name is cut short instead.
+                .weight(1f, fill = false)
+                .testTag("camera-label-${camera.name}"),
         ) {
-            if (showLabel) {
-                VideoOverlaySurface(
-                    shape = MaterialTheme.shapes.small,
-                    modifier = Modifier
-                        // Weighted so the meter is measured first: names are
-                        // user-typed and unbounded, and an unweighted label
-                        // would swallow the whole row and squeeze the meter to
-                        // nothing. A long name wraps instead.
-                        .weight(1f, fill = false)
-                        .testTag("camera-label-${camera.name}"),
-                ) {
-                    Text(
-                        text = camera.name,
-                        style = MaterialTheme.typography.labelLargeEmphasized,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                    )
-                }
-            }
-            if (audioLevel != null) {
-                AudioMeterPill(
-                    cameraName = camera.name,
-                    level = audioLevel,
-                    threshold = audioThreshold,
-                )
-            }
+            Text(
+                text = camera.name,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (audioLevel != null) {
+            AudioMeterPill(
+                cameraName = camera.name,
+                level = audioLevel,
+                threshold = audioThreshold,
+            )
         }
     }
 }
@@ -246,17 +270,16 @@ internal fun AudioMeterPill(
     level: Float,
     threshold: Float,
     modifier: Modifier = Modifier,
+    height: Dp = OverlayChrome.TileHeight,
 ) {
-    VideoOverlaySurface(
-        shape = MaterialTheme.shapes.small,
+    OverlayPill(
+        height = height,
         modifier = modifier.testTag("camera-meter-$cameraName"),
     ) {
         AudioLevelMeter(
             level = level,
             threshold = threshold,
-            modifier = Modifier
-                .padding(horizontal = 10.dp, vertical = 4.dp)
-                .width(64.dp),
+            modifier = Modifier.width(64.dp),
         )
     }
 }
@@ -265,20 +288,25 @@ internal fun AudioMeterPill(
  * Marks the camera the sound is coming from. In a grid the sound moves on a
  * timer, so without this the user hears a room and has to guess which one —
  * and guessing wrong is the entire failure mode a baby monitor cannot afford.
+ *
+ * A pill with nothing but its glyph, as wide as it is tall: the same shape as
+ * the pills beside it, closed up to a circle.
  */
 @Composable
 private fun AudibleBadge(cameraName: String, modifier: Modifier = Modifier) {
-    VideoOverlaySurface(
-        shape = CircleShape,
-        modifier = modifier.testTag("audible-badge-$cameraName"),
+    OverlayPill(
+        contentPadding = PaddingValues(0.dp),
+        modifier = modifier
+            .size(OverlayChrome.TileHeight)
+            .testTag("audible-badge-$cameraName"),
     ) {
-        Icon(
-            painter = painterResource(R.drawable.ic_volume_up),
-            contentDescription = stringResource(R.string.viewer_audible_camera, cameraName),
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier
-                .padding(8.dp)
-                .size(20.dp),
-        )
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Icon(
+                painter = painterResource(R.drawable.ic_volume_up),
+                contentDescription = stringResource(R.string.viewer_audible_camera, cameraName),
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(OverlayChrome.IconSize),
+            )
+        }
     }
 }

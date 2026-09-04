@@ -1,24 +1,18 @@
 package app.dozecam.ui.monitor
 
 import androidx.annotation.DrawableRes
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import app.dozecam.R
 import app.dozecam.player.ConnectionState
 import java.time.Instant
@@ -38,12 +32,17 @@ private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")
  * can land close together. The shape does not: signal, sync, struck-through
  * camera are told apart across a dark room, by a reader who cannot separate the
  * hues, and by anyone glancing at the tile rather than reading it.
+ *
+ * Positioned by whoever draws it: a tile puts it in its own corner, the single
+ * camera puts it in the row with the back button, and the pill is the same
+ * pill in both — only [height] changes, to match what it sits beside.
  */
 @Composable
 fun StatusOverlay(
     state: ConnectionState,
     lastFrameAtMs: Long?,
     modifier: Modifier = Modifier,
+    height: Dp = OverlayChrome.TileHeight,
 ) {
     val appearance = state.appearance(MaterialTheme.colorScheme)
     val label = when (state) {
@@ -63,32 +62,21 @@ fun StatusOverlay(
         label
     }
 
-    Box(modifier = modifier.safeDrawingPadding()) {
-        VideoOverlaySurface(
-            shape = CircleShape,
-            modifier = Modifier.padding(12.dp),
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    painter = painterResource(appearance.icon),
-                    // The word beside it already says which state this is, and
-                    // a screen reader that read both would say it twice.
-                    contentDescription = null,
-                    tint = appearance.color,
-                    modifier = Modifier
-                        .size(16.dp)
-                        .testTag(appearance.tag),
-                )
-                Text(
-                    text = text,
-                    style = MaterialTheme.typography.labelLargeEmphasized,
-                    modifier = Modifier.padding(start = 8.dp),
-                )
-            }
-        }
+    OverlayPill(modifier = modifier, height = height) {
+        Icon(
+            painter = painterResource(appearance.icon),
+            // The word beside it already says which state this is, and a
+            // screen reader that read both would say it twice.
+            contentDescription = null,
+            tint = appearance.color,
+            modifier = Modifier
+                .size(OverlayChrome.IconSize)
+                .testTag(appearance.tag),
+        )
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelLarge,
+        )
     }
 }
 
