@@ -1,13 +1,14 @@
 package app.dozecam.ui.monitor
 
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -16,10 +17,10 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -153,21 +154,27 @@ internal fun InactivityNotice(
     onStay: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    VideoOverlaySurface(modifier = modifier.testTag("inactivity-notice")) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(start = 16.dp, end = 4.dp),
-        ) {
-            Text(
-                // Deliberately not a live region: a screen reader announcing a
-                // new number every second would be its own kind of alarm.
-                text = stringResource(R.string.viewer_returning_in, countdown.remainingSeconds),
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.testTag("inactivity-countdown"),
-            )
-            // Left to the theme's own accent rather than tinted to match the
-            // sentence beside it: this is the one thing here that can be
-            // pressed, and it should look like it.
+    OverlayPill(
+        height = OverlayChrome.ControlHeight,
+        contentPadding = PaddingValues(start = 16.dp, end = 4.dp),
+        modifier = modifier.testTag("inactivity-notice"),
+    ) {
+        Text(
+            // Deliberately not a live region: a screen reader announcing a
+            // new number every second would be its own kind of alarm.
+            text = stringResource(R.string.viewer_returning_in, countdown.remainingSeconds),
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.testTag("inactivity-countdown"),
+        )
+        // Left to the theme's own accent rather than tinted to match the
+        // sentence beside it: this is the one thing here that can be pressed,
+        // and it should look like it. Its usual 48dp touch target is waived:
+        // the pill is 40dp by design, and a button that insisted on more would
+        // hang out of it. Nothing is lost by that — the whole screen is the
+        // touch target for staying, since any touch on it resets the
+        // countdown; the button is where that is discoverable, not the only
+        // place it works.
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
             TextButton(
                 onClick = onStay,
                 modifier = Modifier.testTag("inactivity-stay"),

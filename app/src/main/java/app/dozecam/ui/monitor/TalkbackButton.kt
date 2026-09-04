@@ -2,10 +2,8 @@ package app.dozecam.ui.monitor
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -15,7 +13,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
@@ -23,7 +20,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
 import app.dozecam.R
 import app.dozecam.audio.talkback.TalkbackAvailability
 
@@ -123,34 +119,32 @@ internal fun TalkbackButton(
         Modifier.clickable(onClick = onExplain)
     }
 
-    VideoOverlaySurface(
-        shape = CircleShape,
+    // Icon-only it closes up to a circle the size of the buttons beside it;
+    // with the word on it, it is the same pill the status wears.
+    OverlayPill(
+        height = OverlayChrome.ControlHeight,
         color = container,
         contentColor = content,
+        contentPadding = PaddingValues(
+            horizontal = if (talking) OverlayChrome.PillPadding
+            else (OverlayChrome.ControlHeight - OverlayChrome.IconSize) / 2,
+        ),
         modifier = modifier
             .then(gestures)
             .semantics { contentDescription = description }
             .testTag("talkback-button"),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .padding(horizontal = if (talking) 14.dp else 8.dp, vertical = 8.dp),
-        ) {
-            Icon(
-                painter = painterResource(if (ready || talking) R.drawable.ic_mic else R.drawable.ic_mic_off),
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
+        Icon(
+            painter = painterResource(if (ready || talking) R.drawable.ic_mic else R.drawable.ic_mic_off),
+            contentDescription = null,
+            modifier = Modifier.size(OverlayChrome.IconSize),
+        )
+        if (talking) {
+            Text(
+                text = stringResource(R.string.talkback_talking),
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.testTag("talkback-talking"),
             )
-            if (talking) {
-                Text(
-                    text = stringResource(R.string.talkback_talking),
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier
-                        .padding(start = 8.dp)
-                        .testTag("talkback-talking"),
-                )
-            }
         }
     }
 }
@@ -170,13 +164,10 @@ internal fun TalkbackNotice(
 ) {
     val reason = availability.explanation() ?: return
 
-    VideoOverlaySurface(modifier = modifier.testTag("talkback-notice")) {
-        Text(
-            text = stringResource(reason),
-            style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-        )
-    }
+    OverlayNotice(
+        text = stringResource(reason),
+        modifier = modifier.testTag("talkback-notice"),
+    )
 }
 
 private fun TalkbackAvailability.explanation(): Int? = when (this) {
