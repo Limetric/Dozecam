@@ -632,7 +632,7 @@ fun MonitorScreen(
                 ) {
                     // The start of the row takes whatever the buttons at the
                     // end leave, so a long status — reconnecting, with the
-                    // time of the last frame — is cut to fit rather than
+                    // age of the last frame — is cut to fit rather than
                     // pushing the sound button off the screen.
                     Row(
                         verticalAlignment = Alignment.CenterVertically,

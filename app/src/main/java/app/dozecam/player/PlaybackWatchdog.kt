@@ -18,7 +18,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 class PlaybackWatchdog(
     private val scope: CoroutineScope,
     private val onReconnect: suspend () -> Unit,
-    /** Wall clock, only for the user-facing "last frame at" timestamp. */
+    /** Wall clock, only for the user-facing "last frame … ago" age. */
     private val wallClock: () -> Long = System::currentTimeMillis,
     /** Monotonic clock for all deadlines; wall-time jumps must not move them. */
     private val monotonicClock: () -> Long = SystemClock::elapsedRealtime,
