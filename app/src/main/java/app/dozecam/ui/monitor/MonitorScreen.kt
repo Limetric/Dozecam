@@ -475,16 +475,14 @@ fun MonitorScreen(
                 // Naming what will keep playing is the point: with the screen
                 // about to go off, this is the last chance to say what the
                 // phone will be broadcasting — and what it will do to an alert
-                // once it is. So only the rooms the monitor can actually carry
-                // are promised for the dark; a camera it cannot listen to, or
-                // a monitor that never started, plays on this screen and no
-                // further, and the confirmation says exactly that.
+                // once it is. So only the rooms the monitor is actually hearing
+                // right now — a live stream with audio decoded on it, which is
+                // exactly what the service turns up when the screen goes off —
+                // are promised for the dark. A camera it cannot listen to, one
+                // still reconnecting, or a monitor that never started plays on
+                // this screen and no further, and the confirmation says so.
                 SoundMode.ALL_ALOUD -> {
-                    val carried = if (monitoringRunning) {
-                        cameras.filter { camera -> unmonitorable.none { it.id == camera.id } }
-                    } else {
-                        emptyList()
-                    }
+                    val carried = cameras.filter { it.id in audioLevels }
                     when {
                         carried.size == 1 ->
                             announce(R.string.viewer_listen_on_confirmed, carried.single().name)

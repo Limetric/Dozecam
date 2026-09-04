@@ -294,6 +294,8 @@ class MonitorScreenTest {
             Screen(
                 cameras = listOf(nursery),
                 monitoringRunning = true,
+                // The monitor is hearing the room: that is what it will carry.
+                audioLevels = mapOf(nursery.id to 0.02f),
                 soundMode = mode,
                 onSoundModeChange = { mode = it },
             )
@@ -316,6 +318,7 @@ class MonitorScreenTest {
             Screen(
                 cameras = listOf(nursery, playroom),
                 monitoringRunning = true,
+                audioLevels = mapOf(nursery.id to 0.02f, playroom.id to 0.01f),
                 soundMode = mode,
                 onSoundModeChange = { mode = it },
             )
@@ -327,6 +330,33 @@ class MonitorScreenTest {
         // A mix of rooms cannot say which one a cry came from, so the
         // confirmation says how the alert will: by lighting the screen.
         composeRule.onNodeWithText(LISTEN_ON_CONFIRMED_ROOMS).assertExists()
+    }
+
+    /**
+     * Monitorable is not the same as heard. A room the monitor is still
+     * reconnecting to has no audio to turn up when the screen goes off, so
+     * promising it for the dark would send a parent to bed on a room that is
+     * silent — the mistake this app exists to refuse.
+     */
+    @Test
+    fun `a room the monitor is not hearing yet is not promised the dark`() {
+        var mode by mutableStateOf(SoundMode.ROTATING)
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery),
+                monitoringRunning = true,
+                // Monitorable, but nothing decoded: reconnecting, or not yet live.
+                audioLevels = emptyMap(),
+                soundMode = mode,
+                onSoundModeChange = { mode = it },
+            )
+        }
+
+        composeRule.onNodeWithTag("toggle-sound").performClick()
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithText(LISTEN_ON_CONFIRMED).assertDoesNotExist()
+        composeRule.onNodeWithText(ALL_ALOUD_ON_SCREEN).assertExists()
     }
 
     /**
@@ -385,6 +415,7 @@ class MonitorScreenTest {
                 cameras = listOf(nursery, playroom),
                 unmonitorable = listOf(playroom),
                 monitoringRunning = true,
+                audioLevels = mapOf(nursery.id to 0.02f),
                 soundMode = mode,
                 onSoundModeChange = { mode = it },
             )
