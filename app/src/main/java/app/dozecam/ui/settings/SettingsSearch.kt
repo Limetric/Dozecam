@@ -43,6 +43,7 @@ object SettingIds {
     const val THRESHOLD = "threshold"
     const val SUSTAIN = "sustain"
     const val QUIET = "quiet"
+    const val ALERTS = "alerts"
     const val CHIME = "chime"
     const val VIBRATE = "vibrate"
     const val ALERT_SOUND = "alert-sound"
@@ -107,6 +108,12 @@ fun settingsSearchEntries(
         id = SettingIds.QUIET,
         category = SettingsCategory.DETECTION,
         label = stringResource(R.string.detector_quiet_label, (detector.quietMs / 1000).toInt()),
+    ),
+    SettingSearchEntry(
+        id = SettingIds.ALERTS,
+        category = SettingsCategory.ALERTS,
+        label = stringResource(R.string.setting_alerts),
+        description = stringResource(R.string.setting_alerts_description),
     ),
     SettingSearchEntry(
         id = SettingIds.CHIME,

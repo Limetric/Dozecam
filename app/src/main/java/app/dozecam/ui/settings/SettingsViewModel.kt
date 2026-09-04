@@ -59,9 +59,9 @@ class SettingsViewModel(
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0f)
 
     /**
-     * Whether the monitoring switch can do anything. A switch that starts a
-     * service which immediately stops itself is worse than a disabled one; a
-     * running service can always be switched off.
+     * Whether monitoring has anything to do — some camera that can be heard,
+     * or a service already running. The hub's status row reads it to say why
+     * a monitor is idle rather than merely that it is.
      */
     val canMonitor: StateFlow<Boolean> = combine(
         cameraStore.enabledCameras,
@@ -75,15 +75,6 @@ class SettingsViewModel(
         // greyed out over a camera the service would happily listen to.
         running || monitorable(enabled, credentials, ioDispatcher).isNotEmpty()
     }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
-
-    /**
-     * Records the user's intent alongside the service call: a deliberate stop
-     * must survive the activity being recreated, or coming back to the viewer
-     * would re-arm what was just switched off.
-     */
-    fun onMonitoringIntent(enabled: Boolean) {
-        monitoringState.userStopped.value = !enabled
-    }
 
     val settings: StateFlow<AppSettings> = store.settings
         .stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings())

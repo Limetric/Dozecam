@@ -1,6 +1,7 @@
 package app.dozecam.data
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import app.dozecam.monitoring.AlarmSchedule
@@ -34,7 +35,10 @@ class AppSettingsRepositoryTest {
         assertEquals(AppSettings(), repository.settings.first())
         // Stated outright rather than left to the round-trip: a viewer that
         // starts audible would talk over a sleeping room the moment it opens.
-        assertFalse(repository.settings.first().viewerSound)
+        assertEquals(SoundMode.OFF, repository.settings.first().soundMode)
+        // And a monitor that starts out not waking anyone is the failure
+        // nobody discovers until the one night it matters.
+        assertTrue(repository.settings.first().alertsEnabled)
         // Likewise: a monitor that went dark at the system timeout on the
         // first night would look like a dead app, so sleeping is opt-in.
         assertTrue(repository.settings.first().keepScreenOn)
@@ -51,7 +55,8 @@ class AppSettingsRepositoryTest {
             alertRepeatIntervalMs = 12_000,
             alertVolume = 0.6f,
             orientationLock = OrientationLock.LANDSCAPE,
-            viewerSound = true,
+            soundMode = SoundMode.ALL_ALOUD,
+            alertsEnabled = false,
             keepScreenOn = false,
             talkbackVolume = 0.4f,
         )
@@ -83,10 +88,37 @@ class AppSettingsRepositoryTest {
     }
 
     /**
+     * The viewer's sound was once a plain switch. An install that had it on
+     * comes back rotating — which is what that switch meant — rather than
+     * silent, and the old key is cleared on the next write so it can never
+     * disagree with the mode later.
+     */
+    @Test
+    fun `an old install with the viewer's sound on comes back rotating`() = runTest {
+        val file = File(tmp.root, "viewer-sound.preferences_pb")
+        val legacyKey = booleanPreferencesKey("viewer_sound")
+        val before = CoroutineScope(backgroundScope.coroutineContext + Job())
+        PreferenceDataStoreFactory.create(scope = before, produceFile = { file })
+            .edit { it[legacyKey] = true }
+        before.cancel()
+
+        val dataStore = PreferenceDataStoreFactory.create(
+            scope = backgroundScope,
+            produceFile = { file },
+        )
+        val repository = AppSettingsRepository(dataStore)
+
+        assertEquals(SoundMode.ROTATING, repository.settings.first().soundMode)
+
+        repository.update { it.copy(soundMode = SoundMode.OFF) }
+
+        assertNull(dataStore.data.first()[legacyKey])
+        assertEquals(SoundMode.OFF, repository.settings.first().soundMode)
+    }
+
+    /**
      * Listen mode once remembered a chosen room here. It plays every room now,
-     * so the entry has nothing left to mean — and the fact that a speaker was
-     * on has never been stored at all: a phone that rebooted itself at 4am
-     * must not come back broadcasting a bedroom with nobody having asked.
+     * so the entry has nothing left to mean.
      */
     @Test
     fun `a room once chosen for listen mode is forgotten on the next write`() = runTest {

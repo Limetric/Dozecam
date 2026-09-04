@@ -13,31 +13,30 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 
 @RunWith(RobolectricTestRunner::class)
-class StopMonitoringReceiverTest {
+class ExitReceiverTest {
 
     private val context: Context = ApplicationProvider.getApplicationContext()
 
     @Test
     fun `the notification action stops the service`() {
-        StopMonitoringReceiver().onReceive(context, Intent())
+        ExitReceiver().onReceive(context, Intent())
 
         val stopped = shadowOf(context as Application).nextStoppedService
         assertEquals(MonitoringService::class.java.name, stopped.component?.className)
     }
 
     /**
-     * A tap here is as deliberate as the settings switch, and has to be
-     * remembered as such: without it the viewer would arm again the next time
-     * it came to the front, and the notification the user just ended would be
-     * back within seconds.
+     * Exit means the whole app, and a receiver cannot reach a viewer that may
+     * still be sitting in the background. So it leaves the request where the
+     * viewer will read it and finish itself.
      */
     @Test
-    fun `stopping from the notification is remembered as deliberate`() {
+    fun `exiting from the notification asks the viewer to go too`() {
         val state = context.appContainer.monitoringState
-        state.userStopped.value = false
+        state.exitRequested.value = false
 
-        StopMonitoringReceiver().onReceive(context, Intent())
+        ExitReceiver().onReceive(context, Intent())
 
-        assertTrue(state.userStopped.value)
+        assertTrue(state.exitRequested.value)
     }
 }

@@ -75,6 +75,7 @@ import app.dozecam.R
 import app.dozecam.audio.talkback.Talkback
 import app.dozecam.audio.talkback.TalkbackAvailability
 import app.dozecam.data.Camera
+import app.dozecam.data.SoundMode
 import app.dozecam.network.NetworkReach
 import app.dozecam.player.CameraStreams
 import kotlinx.coroutines.launch
@@ -106,17 +107,6 @@ private val TWO_COLUMN_BREAKPOINT = 600.dp
 
 /** Above this, a third column still leaves each tile big enough to read. */
 private val THREE_COLUMN_BREAKPOINT = 1000.dp
-
-/**
- * How long the viewer gives listen mode's speaker to arrive before it says out
- * loud that it did not.
- *
- * The switch lives in the monitoring service's state and reaches this screen
- * through a flow, so "the request has not landed yet" and "the request was
- * refused" look identical for a frame or two. Long enough to cover that hop,
- * short enough that a phone which stayed silent does not stay unexplained.
- */
-private const val LISTEN_REFUSAL_GRACE_MS = 750L
 
 /**
  * How long the viewer gives monitoring to start before it says out loud that it
@@ -209,31 +199,39 @@ fun MonitorScreen(
     onOpenOnboarding: () -> Unit,
     modifier: Modifier = Modifier,
     /**
-     * Whether the monitor is listening. Shown rather than assumed: the grid
-     * looks exactly the same either way, so a viewer that stayed silent about
-     * it would let a stopped monitor pass for a running one all night.
+     * Whether the monitor is listening. Monitoring runs for as long as the app
+     * does, so this is only ever false on the way up — or when the start never
+     * landed, which the viewer has to own up to: the grid looks exactly the
+     * same either way, and a viewer that stayed silent about it would let a
+     * dead monitor pass for a running one all night.
      */
     monitoringRunning: Boolean = false,
     /** Whether starting it would achieve anything — some camera can be heard. */
     canMonitor: Boolean = false,
-    /**
-     * Whether it is off because the user said so, as opposed to not having
-     * started yet. The badge needs the difference: one is a fact to state at
-     * once, the other is a race it should wait out.
-     */
-    stoppedByUser: Boolean = false,
-    onStopMonitoring: () -> Unit = {},
+    /** Tries the start again, asking for whatever grant it refused on. */
     onStartMonitoring: () -> Unit = {},
     /** Injectable so tests need not wait out a real arming attempt. */
     armingGraceMs: Long = ARMING_GRACE_MS,
     /**
-     * Whether the viewer is allowed to make noise at all. Off until asked for:
-     * this screen comes up on its own when a room gets loud, sometimes over a
-     * lock screen at 3am, and a viewer that starts talking the moment it
-     * appears is a worse surprise than a silent one.
+     * What the speaker does with the cameras. Off until asked for: this screen
+     * comes up on its own when a room gets loud, sometimes over a lock screen
+     * at 3am, and a viewer that starts talking the moment it appears is a
+     * worse surprise than a silent one. Remembered, so it comes back the way
+     * it was left — [SoundMode.ALL_ALOUD] included, which is the one the
+     * monitoring service carries on with the screen off.
      */
-    soundEnabled: Boolean = false,
-    onSoundEnabledChange: (Boolean) -> Unit = {},
+    soundMode: SoundMode = SoundMode.OFF,
+    onSoundModeChange: (SoundMode) -> Unit = {},
+    /**
+     * Whether a loud room reaches anyone. Here rather than only in settings
+     * because this is where it is switched at bedtime — and where its being
+     * off has to be visible, since everything else on this screen looks the
+     * same whether or not the night is being watched.
+     */
+    alertsEnabled: Boolean = true,
+    onAlertsEnabledChange: (Boolean) -> Unit = {},
+    /** Ends the app, and the monitor with it. */
+    onExit: () -> Unit = {},
     /**
      * Whether the viewer asks the system to hold the display awake. Shown as a
      * switch here because this is where the cost lands: the screen that would
@@ -245,31 +243,13 @@ fun MonitorScreen(
      * Whether the system is letting the viewer make a sound this instant —
      * audio focus held, and nothing else borrowing the speaker.
      *
-     * Kept apart from [soundEnabled] on purpose. The cameras follow this,
+     * Kept apart from [soundMode] on purpose. The cameras follow this,
      * because playing on without focus is not ours to do; the button keeps
-     * showing the switch, because a tap during a passing interruption would
+     * showing the setting, because a tap during a passing interruption would
      * otherwise set it to what it already was, and someone reaching to silence
      * the cameras mid-call would instead arm them for when the call ends.
      */
     soundGranted: Boolean = true,
-    /**
-     * Listen mode: whether the monitor has been asked to keep every room coming
-     * out of the speaker after this screen is gone.
-     *
-     * A different promise from [soundEnabled], and deliberately a different
-     * switch. The viewer's sound is about the screen being looked at, and is
-     * off after a restart for that reason; this one arms an all-night speaker,
-     * and opening the app to check on a nap must not do that by accident.
-     */
-    listening: Boolean = false,
-    onListeningChange: (Boolean) -> Unit = {},
-    /**
-     * The cameras actually coming out of the speaker, or none. The outcome
-     * rather than the request, for the same reason [soundGranted] is kept apart
-     * from [soundEnabled]: this screen must not confirm a room is audible
-     * before it is.
-     */
-    listeningCameraIds: Set<String> = emptySet(),
     /**
      * What the monitor is hearing from each camera, keyed by camera id. A
      * camera with no entry gets no meter: the level is the monitor's report,
@@ -285,8 +265,6 @@ fun MonitorScreen(
     talkbackMinPressMs: Long = TALKBACK_MIN_PRESS_MS,
     /** Injectable so tests need not wait out a real turn. */
     soundRotationIntervalMs: Long = SOUND_ROTATION_INTERVAL_MS,
-    /** Injectable so tests need not wait out a real refusal. */
-    listenRefusalGraceMs: Long = LISTEN_REFUSAL_GRACE_MS,
     /** Injectable so tests need not wait out a real minute. */
     inactivityTimeoutMs: Long = FULLSCREEN_INACTIVITY_TIMEOUT_MS,
     alertCameraId: String? = null,
@@ -445,111 +423,93 @@ fun MonitorScreen(
     // else is left to go back to from here, so the gesture is free.
     BackHandler(enabled = fullscreen != null) { fullscreenId = null }
 
-    val audible = soundEnabled && soundGranted
+    val audible = soundMode != SoundMode.OFF && soundGranted
 
     // Rotation is a grid problem: one camera on screen alone already has the
     // user's whole attention, so it simply keeps the sound for as long as it
-    // is up.
-    val audibleCameraId = rememberAudibleCameraId(
+    // is up. And it is only one of the two ways the grid can be audible: with
+    // every camera aloud there is no turn to take.
+    val rotatingCameraId = rememberAudibleCameraId(
         cameraIds = visibleCameraIds,
-        enabled = audible && fullscreen == null,
+        enabled = audible && soundMode == SoundMode.ROTATING && fullscreen == null,
         intervalMs = soundRotationIntervalMs,
     )
+    val audibleCameraIds: Set<String> = when {
+        !audible || fullscreen != null -> emptySet()
+        // Every tile on screen, and only those: a camera scrolled out of the
+        // grid has no player, and a mix that claimed it would be claiming a
+        // room nobody can hear.
+        soundMode == SoundMode.ALL_ALOUD -> visibleCameraIds.toSet()
+        else -> setOfNotNull(rotatingCameraId)
+    }
 
-    // The two toggles are icons that flip between two states, and neither
-    // icon says which state a tap just put them in — least of all the screen
-    // one, whose "awake" and "asleep" glyphs read alike at a glance. So every
-    // press says in words what it did.
+    // The toggles are icons that step between states, and no icon says which
+    // state a tap just put them in — least of all the screen one, whose
+    // "awake" and "asleep" glyphs read alike at a glance. So every press says
+    // in words what it did.
     val snackbarHostState = remember { SnackbarHostState() }
     val announce = rememberAnnouncer(snackbarHostState)
 
     // Turning sound on is a request, not an outcome: the caller still has to
-    // win the speaker, and a refusal quietly flips the switch back off. So
-    // "Sound on" waits for the state it promises — cameras actually audible —
-    // and a request that came back reverted instead says why nothing changed.
-    // Off needs no such caution; letting go of the speaker cannot fail.
-    var soundOnRequested by remember { mutableStateOf(false) }
-    val soundToggleAnnounced = { enabled: Boolean ->
-        if (enabled) {
-            soundOnRequested = true
-        } else {
-            soundOnRequested = false
+    // win the speaker, and a refusal quietly puts the setting back to off. So
+    // a confirmation waits for the state it promises — cameras actually
+    // audible in the mode asked for — and a request that came back reverted
+    // instead says why nothing changed. Off needs no such caution; letting go
+    // of the speaker cannot fail.
+    var soundModeRequested by remember { mutableStateOf<SoundMode?>(null) }
+    val soundModeAnnounced = { mode: SoundMode ->
+        if (mode == SoundMode.OFF) {
+            soundModeRequested = null
             announce(R.string.viewer_sound_off_confirmed)
+        } else {
+            soundModeRequested = mode
         }
-        onSoundEnabledChange(enabled)
+        onSoundModeChange(mode)
     }
-    LaunchedEffect(audible) {
-        if (audible && soundOnRequested) {
-            soundOnRequested = false
-            announce(R.string.viewer_sound_on_confirmed)
-        }
-    }
-    LaunchedEffect(soundEnabled) {
-        // The switch went back off while an "on" was still unconfirmed: the
-        // request was refused, not fulfilled.
-        if (!soundEnabled && soundOnRequested) {
-            soundOnRequested = false
+    LaunchedEffect(audible, soundMode) {
+        val requested = soundModeRequested ?: return@LaunchedEffect
+        if (audible && soundMode == requested) {
+            soundModeRequested = null
+            when (requested) {
+                SoundMode.ROTATING -> announce(R.string.viewer_sound_on_confirmed)
+                // Naming what will keep playing is the point: with the screen
+                // about to go off, this is the last chance to say what the
+                // phone will be broadcasting — and what it will do to an alert
+                // once it is. So only the rooms the monitor can actually carry
+                // are promised for the dark; a camera it cannot listen to, or
+                // a monitor that never started, plays on this screen and no
+                // further, and the confirmation says exactly that.
+                SoundMode.ALL_ALOUD -> {
+                    val carried = if (monitoringRunning) {
+                        cameras.filter { camera -> unmonitorable.none { it.id == camera.id } }
+                    } else {
+                        emptyList()
+                    }
+                    when {
+                        carried.size == 1 ->
+                            announce(R.string.viewer_listen_on_confirmed, carried.single().name)
+                        carried.size > 1 ->
+                            announce(R.string.viewer_listen_on_confirmed_rooms, carried.size)
+                        cameras.size == 1 ->
+                            announce(R.string.viewer_all_aloud_on_screen, cameras.single().name)
+                        else -> announce(R.string.viewer_all_aloud_on_screen_rooms, cameras.size)
+                    }
+                }
+                SoundMode.OFF -> Unit
+            }
+        } else if (soundMode == SoundMode.OFF) {
+            // The setting went back off while an "on" was still unconfirmed:
+            // the request was refused, not fulfilled.
+            soundModeRequested = null
             announce(R.string.viewer_sound_refused)
         }
     }
-
-    // Only rooms the monitor can actually hear. A camera it cannot listen to
-    // has no audio to play aloud, and a switch for it alone would be one that
-    // silently does nothing all night.
-    val listenCandidates = remember(cameras, unmonitorable) {
-        val cannot = unmonitorable.mapTo(mutableSetOf()) { it.id }
-        cameras.filter { it.id !in cannot }
-    }
-
-    // The same request-versus-outcome caution the sound toggle takes: the
-    // speaker still has to be won from whatever else might hold it.
-    var listenOnRequested by remember { mutableStateOf(false) }
-    val listenToggled = { enabled: Boolean ->
-        if (enabled) {
-            // The viewer's own sound is the same speaker asked for one room,
-            // and listen mode stands down while it is on — so a switch left up
-            // here would arm a nursery that never arrives. Switched off rather
-            // than fought over: this request is the newer of the two, and the
-            // confirmation below says what the phone will actually be doing.
-            if (soundEnabled) {
-                soundOnRequested = false
-                onSoundEnabledChange(false)
-            }
-            listenOnRequested = true
-        } else {
-            listenOnRequested = false
-            announce(R.string.viewer_listen_off_confirmed)
-        }
-        onListeningChange(enabled)
-    }
-    // Keyed on the request as well as the outcome, unlike the sound toggle
-    // above: this switch is held in memory rather than in a stored setting, so
-    // a refusal can arrive in the same frame as the request and never move
-    // [listening] at all. Watching only the outcome would let exactly that case
-    // — the one where the phone stays silent — pass without a word.
-    LaunchedEffect(listeningCameraIds, listenOnRequested) {
-        val playing = listenCandidates.filter { it.id in listeningCameraIds }
-        if (playing.isNotEmpty() && listenOnRequested) {
-            listenOnRequested = false
-            // With the screen about to go off, this is the last chance to say
-            // what the phone will be broadcasting — and what that does to an
-            // alert, which differs: one room needs no naming, several do.
-            if (playing.size == 1) {
-                announce(R.string.viewer_listen_on_confirmed, playing.single().name)
-            } else {
-                announce(R.string.viewer_listen_on_confirmed_rooms, playing.size)
-            }
-        }
-    }
-    LaunchedEffect(listening, listenOnRequested, listenRefusalGraceMs) {
-        if (listening || !listenOnRequested) return@LaunchedEffect
-        // Still off with an "on" outstanding. Waited out rather than announced
-        // at once, because the answer has a flow to travel down first — and
-        // this effect is re-keyed the moment the switch moves, so a speaker
-        // that does arrive cancels the wait instead of being talked over.
-        delay(listenRefusalGraceMs)
-        listenOnRequested = false
-        announce(R.string.viewer_listen_refused)
+    val alertsToggleAnnounced = { enabled: Boolean ->
+        announce(
+            if (enabled) R.string.viewer_alerts_on_confirmed
+            else R.string.viewer_alerts_off_confirmed,
+        )
+        onAlertsEnabledChange(enabled)
     }
 
     if (fullscreen != null) {
@@ -734,13 +694,13 @@ fun MonitorScreen(
                         },
                     )
                 }
-                SoundToggle(
-                    soundEnabled = soundEnabled,
+                SoundModeButton(
+                    soundMode = soundMode,
                     // Reaching for the sound is as much a sign of someone being
                     // there as touching the picture is.
-                    onSoundEnabledChange = {
+                    onSoundModeChange = {
                         countdown.reset()
-                        soundToggleAnnounced(it)
+                        soundModeAnnounced(it)
                     },
                 )
             }
@@ -780,10 +740,10 @@ fun MonitorScreen(
         return
     }
 
-    // Stopping is the one control here that can quietly undo the whole point of
+    // Exiting is the one control here that can quietly undo the whole point of
     // the app, and the viewer is a screen people prop up and brush past at
-    // night. So the badge opens the question and this answers it.
-    var confirmingStop by rememberSaveable { mutableStateOf(false) }
+    // night. So the button opens the question and this answers it.
+    var confirmingExit by rememberSaveable { mutableStateOf(false) }
 
     Box(
         modifier = modifier
@@ -805,7 +765,7 @@ fun MonitorScreen(
                     cameras = cameras,
                     sources = sources,
                     streams = streams,
-                    audibleCameraId = audibleCameraId,
+                    audibleCameraIds = audibleCameraIds,
                     audioLevels = audioLevels,
                     audioThreshold = audioThreshold,
                     gridState = gridState,
@@ -817,9 +777,9 @@ fun MonitorScreen(
 
         // Floated over the video rather than given a bar of its own: on a phone
         // an app bar costs a camera's worth of height to hold a few buttons.
-        // A flow rather than a row: on the narrowest phones the widest badge
-        // plus three buttons is more than one line holds, and a row would
-        // squeeze whatever came last instead of letting it step down a line.
+        // A flow rather than a row: on the narrowest phones the badge plus
+        // five buttons is more than one line holds, and a row would squeeze
+        // whatever came last instead of letting it step down a line.
         FlowRow(
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -829,21 +789,28 @@ fun MonitorScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             itemVerticalAlignment = Alignment.CenterVertically,
         ) {
-            MonitoringBadge(
+            NotMonitoringBadge(
                 running = monitoringRunning,
                 canMonitor = canMonitor,
-                stoppedByUser = stoppedByUser,
                 armingGraceMs = armingGraceMs,
-                onStop = { confirmingStop = true },
                 onStart = onStartMonitoring,
             )
+            // The way out, first: it is the one control that ends the night
+            // rather than adjusting it, and it should not sit between two
+            // buttons that get reached for in the dark.
+            ExitButton(onClick = { confirmingExit = true })
             // Nothing to listen to yet: an empty viewer offers setup, not a
-            // switch for sound that has no camera to come from — nor one for a
-            // display it never holds awake in the first place.
+            // switch for sound that has no camera to come from, nor for alerts
+            // no room can raise — nor one for a display it never holds awake in
+            // the first place.
             if (cameras.isNotEmpty()) {
-                SoundToggle(
-                    soundEnabled = soundEnabled,
-                    onSoundEnabledChange = soundToggleAnnounced,
+                SoundModeButton(
+                    soundMode = soundMode,
+                    onSoundModeChange = soundModeAnnounced,
+                )
+                AlertsToggle(
+                    alertsEnabled = alertsEnabled,
+                    onAlertsEnabledChange = alertsToggleAnnounced,
                 )
                 KeepScreenToggle(
                     keepScreenOn = keepScreenOn,
@@ -855,17 +822,6 @@ fun MonitorScreen(
                         onKeepScreenOnChange(enabled)
                     },
                 )
-                // Only while something is actually listening. Listen mode is
-                // the monitor's decoding turned up, so with the monitor
-                // stopped this would be a switch for a speaker with nothing
-                // behind it — and the badge beside it is already the honest
-                // account of why.
-                if (monitoringRunning && listenCandidates.isNotEmpty()) {
-                    ListenToggle(
-                        listening = listening,
-                        onListeningChange = listenToggled,
-                    )
-                }
             }
             FilledTonalIconButton(
                 onClick = onOpenSettings,
@@ -894,191 +850,208 @@ fun MonitorScreen(
             ToggleSnackbarHost(snackbarHostState)
         }
 
-        if (confirmingStop) {
-            StopMonitoringDialog(
+        if (confirmingExit) {
+            ExitDialog(
                 onConfirm = {
-                    confirmingStop = false
-                    onStopMonitoring()
+                    confirmingExit = false
+                    onExit()
                 },
-                onDismiss = { confirmingStop = false },
+                onDismiss = { confirmingExit = false },
             )
         }
     }
 }
 
 /**
- * What the monitor is doing, and the way to change it — the control the viewer
- * had no home for until now.
+ * The one thing about monitoring the viewer still has to say: that it is not
+ * happening. Monitoring runs for as long as the app does, so there is no
+ * switch and nothing to announce while it is running — but a start that never
+ * landed must not stay a secret, because the grid looks exactly the same
+ * either way, and that is the picture someone would take as proof.
  *
- * It says the state rather than offering a switch, because the state is the
- * part that is hard to know: monitoring runs in a service with no window, and
- * the only other place it ever appears is a notification behind the lock
- * screen. Reading "Listening" over the cameras is the whole point; being able
- * to end it from there is what follows from being told.
+ * A tap tries again, asking for whatever grant the start refused on.
  */
 @Composable
-private fun MonitoringBadge(
+private fun NotMonitoringBadge(
     running: Boolean,
     canMonitor: Boolean,
-    stoppedByUser: Boolean,
     armingGraceMs: Long,
-    onStop: () -> Unit,
     onStart: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Nothing listenable and nothing running: the empty state and the
     // unmonitorable notice already explain why, and an offer to start what
     // cannot start would only be a third thing to read.
-    if (!running && !canMonitor) return
+    if (running || !canMonitor) return
 
-    // Off, and not because anyone asked. A viewer that has just opened is
-    // almost always a monitor part-way through starting — arming is a
-    // permission check, a settings read and a service launch behind the first
-    // frame. Saying "not monitoring" into that gap would make the badge cry
-    // wolf on every single launch, and a warning that is usually wrong is not
-    // read at all by the night it is right. So it waits, and speaks up only if
-    // the start never lands.
+    // A viewer that has just opened is almost always a monitor part-way
+    // through starting — arming is a permission check, a settings read and a
+    // service launch behind the first frame. Saying "not monitoring" into that
+    // gap would make the badge cry wolf on every single launch, and a warning
+    // that is usually wrong is not read at all by the night it is right. So it
+    // waits, and speaks up only if the start never lands.
     var armingFailed by remember { mutableStateOf(false) }
-    LaunchedEffect(running, stoppedByUser, armingGraceMs) {
+    LaunchedEffect(armingGraceMs) {
         armingFailed = false
-        if (!running && !stoppedByUser) {
-            delay(armingGraceMs)
-            armingFailed = true
-        }
+        delay(armingGraceMs)
+        armingFailed = true
     }
-    // A stop the user asked for needs none of that patience: it is already true
-    // the instant they confirm it, and the badge has to show for the tap that
-    // starts monitoring again.
-    if (!running && !stoppedByUser && !armingFailed) return
+    if (!armingFailed) return
 
     Button(
-        onClick = if (running) onStop else onStart,
+        onClick = onStart,
         shapes = ButtonDefaults.shapes(),
-        colors = if (running) {
-            ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-            )
-        } else {
-            // Not an idle state to be styled quietly: a baby monitor that is
-            // not monitoring is the one thing on this screen worth alarm.
-            ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.errorContainer,
-                contentColor = MaterialTheme.colorScheme.onErrorContainer,
-            )
-        },
+        // Not an idle state to be styled quietly: a baby monitor that is not
+        // monitoring is the one thing on this screen worth alarm.
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        ),
         contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
         modifier = modifier.testTag("monitoring-badge"),
     ) {
         Icon(
-            painter = painterResource(
-                if (running) R.drawable.ic_graphic_eq else R.drawable.ic_do_not_disturb,
-            ),
+            painter = painterResource(R.drawable.ic_do_not_disturb),
             // The label says what is happening; the action a tap performs is
             // the part a screen reader would otherwise have to guess.
-            contentDescription = stringResource(
-                if (running) R.string.viewer_stop_monitoring else R.string.viewer_start_monitoring,
-            ),
+            contentDescription = stringResource(R.string.viewer_start_monitoring),
             modifier = Modifier.size(ButtonDefaults.IconSize),
         )
         Spacer(Modifier.width(ButtonDefaults.IconSpacing))
-        Text(
-            stringResource(
-                if (running) R.string.viewer_monitoring_on else R.string.viewer_monitoring_off,
-            ),
+        Text(stringResource(R.string.viewer_monitoring_off))
+    }
+}
+
+/**
+ * The way to end Dozecam, and the monitor with it. Monitoring has no switch of
+ * its own — it runs for as long as the app does — so this is the only control
+ * that can quietly undo the whole point of the app, and it asks first.
+ */
+@Composable
+private fun ExitButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    FilledTonalIconButton(
+        onClick = onClick,
+        shapes = IconButtonDefaults.shapes(),
+        modifier = modifier.testTag("exit"),
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_power),
+            contentDescription = stringResource(R.string.viewer_exit),
         )
     }
 }
 
 /**
- * Stopping is deliberate or it is a mistake — there is no third case. The badge
+ * Exiting is deliberate or it is a mistake — there is no third case. The button
  * sits over live video on a screen that stays on all night, and a stray tap
- * that disarmed the monitor would not announce itself: the cameras would go on
- * playing exactly as they had a second earlier.
+ * that ended the monitor would at least take the cameras with it, but the
+ * question is still worth asking of someone reaching past it in the dark.
  */
 @Composable
-private fun StopMonitoringDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+private fun ExitDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.viewer_stop_monitoring_title)) },
-        text = { Text(stringResource(R.string.viewer_stop_monitoring_body)) },
+        title = { Text(stringResource(R.string.viewer_exit_title)) },
+        text = { Text(stringResource(R.string.viewer_exit_body)) },
         confirmButton = {
             TextButton(
                 onClick = onConfirm,
-                modifier = Modifier.testTag("confirm-stop-monitoring"),
+                modifier = Modifier.testTag("confirm-exit"),
             ) {
-                Text(stringResource(R.string.viewer_stop_monitoring))
+                Text(stringResource(R.string.viewer_exit_confirm))
             }
         },
         dismissButton = {
             TextButton(
                 onClick = onDismiss,
-                modifier = Modifier.testTag("keep-monitoring"),
+                modifier = Modifier.testTag("keep-running"),
             ) {
-                Text(stringResource(R.string.viewer_keep_monitoring))
+                Text(stringResource(R.string.viewer_keep_running))
             }
         },
     )
 }
 
 /**
- * One switch for the whole viewer rather than one per camera. Which room is
- * audible is already answered — by opening a camera, or by whose turn it is —
- * so the only question left is whether the phone should be making noise.
+ * One button for the whole speaker rather than one per camera, stepping
+ * through off, one room at a time, and every room at once. Which room is
+ * audible is already answered — by opening a camera, by whose turn it is, or
+ * by every tile wearing the badge — so the only question left is what the
+ * phone should be doing with its speaker.
+ *
+ * The third step is listen mode: every camera aloud on screen, and the same
+ * mix carried on by the monitoring service once the screen is off. One button
+ * rather than two because it is one speaker, and the old pair — the viewer's
+ * sound and the house's — fought over it.
  */
 @Composable
-private fun SoundToggle(
-    soundEnabled: Boolean,
-    onSoundEnabledChange: (Boolean) -> Unit,
+private fun SoundModeButton(
+    soundMode: SoundMode,
+    onSoundModeChange: (SoundMode) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val next = when (soundMode) {
+        SoundMode.OFF -> SoundMode.ROTATING
+        SoundMode.ROTATING -> SoundMode.ALL_ALOUD
+        SoundMode.ALL_ALOUD -> SoundMode.OFF
+    }
     FilledTonalIconButton(
-        onClick = { onSoundEnabledChange(!soundEnabled) },
+        onClick = { onSoundModeChange(next) },
         shapes = IconButtonDefaults.shapes(),
         modifier = modifier.testTag("toggle-sound"),
     ) {
         Icon(
             painter = painterResource(
-                if (soundEnabled) R.drawable.ic_volume_up else R.drawable.ic_volume_off,
+                when (soundMode) {
+                    SoundMode.OFF -> R.drawable.ic_volume_off
+                    SoundMode.ROTATING -> R.drawable.ic_volume_up
+                    SoundMode.ALL_ALOUD -> R.drawable.ic_broadcast
+                },
             ),
+            // The action a tap performs, as the other toggles say theirs.
             contentDescription = stringResource(
-                if (soundEnabled) R.string.viewer_sound_off else R.string.viewer_sound_on,
+                when (next) {
+                    SoundMode.ROTATING -> R.string.viewer_sound_rotate
+                    SoundMode.ALL_ALOUD -> R.string.viewer_listen_on
+                    SoundMode.OFF -> R.string.viewer_sound_off
+                },
             ),
         )
     }
 }
 
 /**
- * Listen mode's switch: whether every room keeps coming out of the speaker
- * once this screen is gone.
- *
- * Next to the viewer's sound button rather than folded into it, because the two
- * mean different things. That one is "the camera I am looking at, while I am
- * looking at it"; this one is "the house I want to hear while the phone is face
- * down on the nightstand", and it is the monitoring service, not this screen,
- * that keeps its promise.
- *
- * On the grid only, not on a camera opened alone. Watching one room is the
- * opposite end of the day from setting the phone down for the night, and the
- * fullscreen chrome is already the busiest corner on the screen.
+ * Whether a loud room reaches anyone. Off, the button wears the error colours
+ * for as long as it stays off: with monitoring always on, this is the one
+ * state in which the night is not being watched, and the badge that used to
+ * say so is gone.
  */
 @Composable
-private fun ListenToggle(
-    listening: Boolean,
-    onListeningChange: (Boolean) -> Unit,
+private fun AlertsToggle(
+    alertsEnabled: Boolean,
+    onAlertsEnabledChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     FilledTonalIconButton(
-        onClick = { onListeningChange(!listening) },
+        onClick = { onAlertsEnabledChange(!alertsEnabled) },
         shapes = IconButtonDefaults.shapes(),
-        modifier = modifier.testTag("toggle-listen"),
+        colors = if (alertsEnabled) {
+            IconButtonDefaults.filledTonalIconButtonColors()
+        } else {
+            IconButtonDefaults.filledTonalIconButtonColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+            )
+        },
+        modifier = modifier.testTag("toggle-alerts"),
     ) {
         Icon(
             painter = painterResource(
-                if (listening) R.drawable.ic_broadcast else R.drawable.ic_broadcast_off,
+                if (alertsEnabled) R.drawable.ic_notifications_active
+                else R.drawable.ic_notifications_off,
             ),
             contentDescription = stringResource(
-                if (listening) R.string.viewer_listen_off else R.string.viewer_listen_on,
+                if (alertsEnabled) R.string.viewer_alerts_off else R.string.viewer_alerts_on,
             ),
         )
     }
@@ -1162,7 +1135,7 @@ private fun CameraLayout(
     cameras: List<Camera>,
     sources: Map<String, StreamSource>,
     streams: CameraStreams,
-    audibleCameraId: String?,
+    audibleCameraIds: Set<String>,
     audioLevels: Map<String, Float>,
     audioThreshold: Float,
     gridState: LazyGridState,
@@ -1185,7 +1158,7 @@ private fun CameraLayout(
                 .testTag("camera-list-$columns"),
         ) {
             items(cameras, key = { it.id }) { camera ->
-                val audible = camera.id == audibleCameraId
+                val audible = camera.id in audibleCameraIds
                 // Tiles keep a 16:9 box; the picture letterboxes inside it, so
                 // a 4:3 camera still shows its whole frame.
                 Box(

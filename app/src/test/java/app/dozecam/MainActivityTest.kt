@@ -1,18 +1,23 @@
 package app.dozecam
 
+import android.app.Application
 import android.media.AudioManager
+import android.os.Looper
 import android.view.WindowInsets
 import android.view.WindowManager
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import app.dozecam.monitoring.MonitoringService
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 
 @RunWith(RobolectricTestRunner::class)
 class MainActivityTest {
@@ -65,5 +70,37 @@ class MainActivityTest {
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE,
             WindowCompat.getInsetsController(window, window.decorView).systemBarsBehavior,
         )
+    }
+
+    /**
+     * "Exit" on the ongoing notification reaches a receiver, and a receiver
+     * cannot close a viewer it does not hold. So the request is left where the
+     * viewer reads it, and the viewer takes itself — and its task — down.
+     */
+    @Test
+    fun `an exit asked for from the notification closes the viewer`() {
+        val activity = composeRule.activity
+        activity.appContainer.monitoringState.exitRequested.value = true
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertTrue(activity.isFinishing)
+        val stopped = shadowOf(activity.application as Application).nextStoppedService
+        assertEquals(MonitoringService::class.java.name, stopped.component?.className)
+    }
+
+    /**
+     * An exit carried out while no viewer was up has already happened. The
+     * next viewer to open must not read the stale request and close on the
+     * spot.
+     */
+    @Test
+    fun `opening the viewer clears a stale exit request`() {
+        val activity = composeRule.activity
+        // The activity rule created this viewer with whatever the container
+        // held; what matters is that it came up and stayed up.
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertFalse(activity.isFinishing)
+        assertFalse(activity.appContainer.monitoringState.exitRequested.value)
     }
 }

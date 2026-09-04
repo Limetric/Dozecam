@@ -29,6 +29,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.dozecam.audio.talkback.Talkback
 import app.dozecam.audio.talkback.TalkbackAvailability
 import app.dozecam.data.Camera
+import app.dozecam.data.SoundMode
 import app.dozecam.network.NetworkReach
 import app.dozecam.player.PlayerEvent
 import app.dozecam.player.StreamSource
@@ -140,22 +141,19 @@ class MonitorScreenTest {
         onOpenOnboarding: () -> Unit = {},
         monitoringRunning: Boolean = false,
         canMonitor: Boolean = false,
-        stoppedByUser: Boolean = false,
-        onStopMonitoring: () -> Unit = {},
         onStartMonitoring: () -> Unit = {},
         armingGraceMs: Long = ARMING_GRACE_MS,
-        soundEnabled: Boolean = false,
-        onSoundEnabledChange: (Boolean) -> Unit = {},
+        soundMode: SoundMode = SoundMode.OFF,
+        onSoundModeChange: (SoundMode) -> Unit = {},
+        alertsEnabled: Boolean = true,
+        onAlertsEnabledChange: (Boolean) -> Unit = {},
+        onExit: () -> Unit = {},
         keepScreenOn: Boolean = true,
         onKeepScreenOnChange: (Boolean) -> Unit = {},
         soundGranted: Boolean = true,
-        listening: Boolean = false,
-        onListeningChange: (Boolean) -> Unit = {},
-        listeningCameraIds: Set<String> = emptySet(),
         audioLevels: Map<String, Float> = emptyMap(),
         audioThreshold: Float = 0.10f,
         soundRotationIntervalMs: Long = ROTATION_MS,
-        listenRefusalGraceMs: Long = LISTEN_GRACE_MS,
         inactivityTimeoutMs: Long = INACTIVITY_MS,
         alertCameraId: String? = null,
         onAlertConsumed: () -> Unit = {},
@@ -177,22 +175,19 @@ class MonitorScreenTest {
                 onOpenOnboarding = onOpenOnboarding,
                 monitoringRunning = monitoringRunning,
                 canMonitor = canMonitor,
-                stoppedByUser = stoppedByUser,
-                onStopMonitoring = onStopMonitoring,
                 onStartMonitoring = onStartMonitoring,
                 armingGraceMs = armingGraceMs,
-                soundEnabled = soundEnabled,
-                onSoundEnabledChange = onSoundEnabledChange,
+                soundMode = soundMode,
+                onSoundModeChange = onSoundModeChange,
+                alertsEnabled = alertsEnabled,
+                onAlertsEnabledChange = onAlertsEnabledChange,
+                onExit = onExit,
                 keepScreenOn = keepScreenOn,
                 onKeepScreenOnChange = onKeepScreenOnChange,
                 soundGranted = soundGranted,
-                listening = listening,
-                onListeningChange = onListeningChange,
-                listeningCameraIds = listeningCameraIds,
                 audioLevels = audioLevels,
                 audioThreshold = audioThreshold,
                 soundRotationIntervalMs = soundRotationIntervalMs,
-                listenRefusalGraceMs = listenRefusalGraceMs,
                 inactivityTimeoutMs = inactivityTimeoutMs,
                 alertCameraId = alertCameraId,
                 onAlertConsumed = onAlertConsumed,
@@ -205,115 +200,106 @@ class MonitorScreenTest {
     }
 
 
-    // --- listen mode -------------------------------------------------------
+    // --- all aloud ---------------------------------------------------------
 
+    /**
+     * One button for the one speaker, stepping through off, one room at a
+     * time, and every room at once. Each tap hands the next mode back rather
+     * than deciding anything itself.
+     */
     @Test
-    fun `there is no speaker switch while nothing is listening`() {
+    fun `the sound button steps through its three modes`() {
+        var mode by mutableStateOf(SoundMode.OFF)
         composeRule.setContent {
-            Screen(cameras = listOf(nursery), monitoringRunning = false)
+            Screen(cameras = listOf(nursery), soundMode = mode, onSoundModeChange = { mode = it })
         }
 
-        // Listen mode is the monitor's decoding turned up; with the monitor
-        // stopped this would be a switch for a speaker with nothing behind it.
-        composeRule.onNodeWithTag("toggle-listen").assertDoesNotExist()
+        composeRule.onNodeWithTag("toggle-sound")
+            .assertContentDescriptionEquals("Rotate sound between cameras")
+            .performClick()
+        assertEquals(SoundMode.ROTATING, mode)
+
+        composeRule.onNodeWithTag("toggle-sound")
+            .assertContentDescriptionEquals("Play every camera aloud")
+            .performClick()
+        assertEquals(SoundMode.ALL_ALOUD, mode)
+
+        composeRule.onNodeWithTag("toggle-sound")
+            .assertContentDescriptionEquals("Turn sound off")
+            .performClick()
+        assertEquals(SoundMode.OFF, mode)
     }
 
     @Test
-    fun `the switch asks for the house, not a room`() {
-        val asks = mutableListOf<Boolean>()
+    @Config(qualifiers = TABLET_SCREEN)
+    fun `every camera aloud unmutes every tile at once`() {
+        controllers.clear()
         composeRule.setContent {
-            Screen(
-                cameras = listOf(nursery, playroom),
-                monitoringRunning = true,
-                onListeningChange = { asks += it },
-            )
+            Screen(cameras = listOf(nursery, playroom, hall), soundMode = SoundMode.ALL_ALOUD)
+        }
+        composeRule.waitUntil { controllers.size == 3 }
+
+        composeRule.waitUntil { controllers.all { it.muted == false } }
+        // Every tile still starts silent; the mix is granted afterwards.
+        assertTrue(controllers.all { it.mutedWhenPlayed == true })
+        // And no turn is ever taken: nothing goes quiet when a round would be up.
+        composeRule.mainClock.advanceTimeBy(ROTATION_MS * 3)
+        assertTrue(controllers.all { it.muted == false })
+    }
+
+    /**
+     * Sound with no visible source is indistinguishable from the wrong camera
+     * being open, and that goes for a mix as much as a turn: every room that
+     * is playing says so on its own tile.
+     */
+    @Test
+    @Config(qualifiers = TABLET_SCREEN)
+    fun `every camera aloud marks every tile`() {
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery, playroom), soundMode = SoundMode.ALL_ALOUD)
         }
 
-        composeRule.onNodeWithTag("toggle-listen").performClick()
-        composeRule.waitForIdle()
-
-        // One tap, no question: every room the monitor can hear plays, so
-        // there is nothing to choose and nothing to name in advance.
-        assertEquals(listOf(true), asks)
+        composeRule.onNodeWithTag("audible-badge-Nursery", useUnmergedTree = true)
+            .assertIsDisplayed()
+        composeRule.onNodeWithTag("audible-badge-Play room", useUnmergedTree = true)
+            .assertIsDisplayed()
     }
 
     @Test
-    fun `a switch for rooms nobody can hear is not offered`() {
-        composeRule.setContent {
-            Screen(
-                cameras = listOf(playroom),
-                unmonitorable = listOf(playroom),
-                monitoringRunning = true,
-            )
-        }
-
-        // The only camera has no audio to play aloud; a switch for it would be
-        // one that silently does nothing all night.
-        composeRule.onNodeWithTag("toggle-listen").assertDoesNotExist()
-    }
-
-    @Test
-    fun `starting the speaker takes the viewer's own sound with it`() {
-        var viewerSound: Boolean? = null
-        composeRule.setContent {
-            Screen(
-                cameras = listOf(nursery),
-                monitoringRunning = true,
-                soundEnabled = true,
-                onSoundEnabledChange = { viewerSound = it },
-            )
-        }
-
-        composeRule.onNodeWithTag("toggle-listen").performClick()
-        composeRule.waitForIdle()
-
-        // Two switches for one speaker, asking for different rooms. Listen mode
-        // stands down while the viewer is audible, so a switch left up here
-        // would arm a nursery that never arrives.
-        assertEquals(false, viewerSound)
-    }
-
-    @Test
-    fun `nothing is confirmed aloud until a room actually is`() {
-        var listening by mutableStateOf(false)
+    fun `nothing is confirmed aloud until the cameras actually are`() {
+        var mode by mutableStateOf(SoundMode.ROTATING)
         composeRule.setContent {
             Screen(
                 cameras = listOf(nursery),
-                monitoringRunning = true,
-                listening = listening,
-                onListeningChange = { listening = it },
+                soundMode = mode,
+                onSoundModeChange = { mode = it },
                 // The speaker has not been won yet.
-                listeningCameraIds = emptySet(),
+                soundGranted = false,
             )
         }
 
-        composeRule.onNodeWithTag("toggle-listen").performClick()
+        composeRule.onNodeWithTag("toggle-sound").performClick()
         composeRule.waitForIdle()
 
-        // The switch took; the speaker has not been won yet. Nothing may claim
-        // a room is audible before it is.
+        // The setting took; the speaker has not been won yet. Nothing may
+        // claim a room is audible before it is.
+        assertEquals(SoundMode.ALL_ALOUD, mode)
         composeRule.onNodeWithText(LISTEN_ON_CONFIRMED).assertDoesNotExist()
     }
 
     @Test
-    fun `a room that starts playing says which one it is`() {
-        var listening by mutableStateOf(false)
-        var playing by mutableStateOf(emptySet<String>())
+    fun `a room that starts playing aloud says which one it is`() {
+        var mode by mutableStateOf(SoundMode.ROTATING)
         composeRule.setContent {
             Screen(
                 cameras = listOf(nursery),
                 monitoringRunning = true,
-                listening = listening,
-                // The service, in miniature: every room plays when asked.
-                onListeningChange = {
-                    listening = it
-                    playing = if (it) setOf(nursery.id) else emptySet()
-                },
-                listeningCameraIds = playing,
+                soundMode = mode,
+                onSoundModeChange = { mode = it },
             )
         }
 
-        composeRule.onNodeWithTag("toggle-listen").performClick()
+        composeRule.onNodeWithTag("toggle-sound").performClick()
         composeRule.waitForIdle()
 
         // Naming the room is the point: with the screen about to go off, this
@@ -323,23 +309,19 @@ class MonitorScreenTest {
     }
 
     @Test
-    fun `several rooms that start playing are counted, and the alert promised`() {
-        var listening by mutableStateOf(false)
-        var playing by mutableStateOf(emptySet<String>())
+    @Config(qualifiers = TABLET_SCREEN)
+    fun `several rooms that start playing aloud are counted, and the alert promised`() {
+        var mode by mutableStateOf(SoundMode.ROTATING)
         composeRule.setContent {
             Screen(
                 cameras = listOf(nursery, playroom),
                 monitoringRunning = true,
-                listening = listening,
-                onListeningChange = {
-                    listening = it
-                    playing = if (it) setOf(nursery.id, playroom.id) else emptySet()
-                },
-                listeningCameraIds = playing,
+                soundMode = mode,
+                onSoundModeChange = { mode = it },
             )
         }
 
-        composeRule.onNodeWithTag("toggle-listen").performClick()
+        composeRule.onNodeWithTag("toggle-sound").performClick()
         composeRule.waitForIdle()
 
         // A mix of rooms cannot say which one a cry came from, so the
@@ -347,50 +329,189 @@ class MonitorScreenTest {
         composeRule.onNodeWithText(LISTEN_ON_CONFIRMED_ROOMS).assertExists()
     }
 
+    /**
+     * "Keeps playing with the screen off" is the claim a parent acts on when
+     * putting the phone down, and the monitor cannot keep it for a camera it
+     * has no way to listen to. Such a room is promised only what it gets.
+     */
     @Test
-    fun `a switch that came back off says the speaker was refused`() {
-        var listening by mutableStateOf(false)
+    fun `a room the monitor cannot carry is not promised the dark`() {
+        var mode by mutableStateOf(SoundMode.ROTATING)
         composeRule.setContent {
             Screen(
                 cameras = listOf(nursery),
+                unmonitorable = listOf(nursery),
                 monitoringRunning = true,
-                listening = listening,
-                // The service's honesty rule, from this side: a refused request
-                // switches itself back off rather than leaving a control that
-                // says "on" next to a silent phone.
-                onListeningChange = { listening = false },
+                soundMode = mode,
+                onSoundModeChange = { mode = it },
             )
         }
 
-        composeRule.onNodeWithTag("toggle-listen").performClick()
+        composeRule.onNodeWithTag("toggle-sound").performClick()
         composeRule.waitForIdle()
 
-        // Not said at once: the answer has a flow to travel down, and "not yet"
-        // must not be reported as "no".
-        composeRule.onNodeWithText(LISTEN_REFUSED).assertDoesNotExist()
-        composeRule.mainClock.advanceTimeBy(LISTEN_GRACE_MS + 1)
-        composeRule.onNodeWithText(LISTEN_REFUSED).assertExists()
+        composeRule.onNodeWithText(LISTEN_ON_CONFIRMED).assertDoesNotExist()
+        composeRule.onNodeWithText(ALL_ALOUD_ON_SCREEN).assertExists()
+    }
+
+    /** Nor is any room while the monitor that would carry them is not running. */
+    @Test
+    @Config(qualifiers = TABLET_SCREEN)
+    fun `with no monitor running every room is promised only the screen`() {
+        var mode by mutableStateOf(SoundMode.ROTATING)
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery, playroom),
+                monitoringRunning = false,
+                soundMode = mode,
+                onSoundModeChange = { mode = it },
+            )
+        }
+
+        composeRule.onNodeWithTag("toggle-sound").performClick()
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithText(LISTEN_ON_CONFIRMED_ROOMS).assertDoesNotExist()
+        composeRule.onNodeWithText(ALL_ALOUD_ON_SCREEN_ROOMS).assertExists()
+    }
+
+    /** And a monitorable room beside one that is not is promised alone. */
+    @Test
+    @Config(qualifiers = TABLET_SCREEN)
+    fun `only the rooms the monitor can carry are promised the dark`() {
+        var mode by mutableStateOf(SoundMode.ROTATING)
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery, playroom),
+                unmonitorable = listOf(playroom),
+                monitoringRunning = true,
+                soundMode = mode,
+                onSoundModeChange = { mode = it },
+            )
+        }
+
+        composeRule.onNodeWithTag("toggle-sound").performClick()
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithText(LISTEN_ON_CONFIRMED).assertExists()
     }
 
     @Test
-    fun `switching the speaker off says so at once`() {
-        val asks = mutableListOf<Boolean>()
+    fun `a mode that came back off says the speaker was refused`() {
+        var mode by mutableStateOf(SoundMode.ROTATING)
         composeRule.setContent {
             Screen(
                 cameras = listOf(nursery),
-                monitoringRunning = true,
-                listening = true,
-                listeningCameraIds = setOf(nursery.id),
-                onListeningChange = { asks += it },
+                soundMode = mode,
+                soundGranted = false,
+                // The honesty rule, from this side: a refused request puts the
+                // setting back rather than leaving a control that says "on"
+                // next to a silent phone.
+                onSoundModeChange = { mode = SoundMode.OFF },
             )
         }
 
-        composeRule.onNodeWithTag("toggle-listen").performClick()
+        composeRule.onNodeWithTag("toggle-sound").performClick()
         composeRule.waitForIdle()
 
-        assertEquals(listOf(false), asks)
-        // Letting go of the speaker cannot fail, so this needs no waiting on.
-        composeRule.onNodeWithText(LISTEN_OFF_CONFIRMED).assertExists()
+        composeRule.onNodeWithText(LISTEN_ON_CONFIRMED).assertDoesNotExist()
+        composeRule.onNodeWithText(SOUND_REFUSED).assertExists()
+    }
+
+    // --- alerts ------------------------------------------------------------
+
+    @Test
+    fun `the alerts button hands the choice back rather than deciding`() {
+        var asked: Boolean? = null
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery), alertsEnabled = true, onAlertsEnabledChange = { asked = it })
+        }
+
+        composeRule.onNodeWithTag("toggle-alerts").performClick()
+
+        assertEquals(false, asked)
+    }
+
+    /**
+     * With monitoring always on, alerts being off is the one state in which
+     * the night is not being watched — and nothing else on this screen looks
+     * any different. So the press says what it did, and the button says what
+     * it will do next.
+     */
+    @Test
+    fun `the alerts button says what it just did`() {
+        var alerts by mutableStateOf(true)
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery),
+                alertsEnabled = alerts,
+                onAlertsEnabledChange = { alerts = it },
+            )
+        }
+
+        composeRule.onNodeWithTag("toggle-alerts").performClick()
+        composeRule.onNodeWithText(ALERTS_OFF_CONFIRMED).assertIsDisplayed()
+        composeRule.onNodeWithTag("toggle-alerts").assertContentDescriptionEquals("Turn alerts on")
+
+        composeRule.onNodeWithTag("toggle-alerts").performClick()
+        composeRule.onNodeWithText(ALERTS_OFF_CONFIRMED).assertDoesNotExist()
+        composeRule.onNodeWithText(ALERTS_ON_CONFIRMED).assertIsDisplayed()
+        composeRule.onNodeWithTag("toggle-alerts").assertContentDescriptionEquals("Turn alerts off")
+    }
+
+    // --- exit --------------------------------------------------------------
+
+    /**
+     * A stray tap over live video must not end the monitor: the exit button
+     * sits on a screen people prop up and brush past at night.
+     */
+    @Test
+    fun `exiting asks before it exits`() {
+        var exited = false
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery), onExit = { exited = true })
+        }
+
+        composeRule.onNodeWithTag("exit").performClick()
+
+        composeRule.onNodeWithTag("confirm-exit").assertIsDisplayed()
+        assertFalse("the button alone must not exit", exited)
+    }
+
+    @Test
+    fun `confirming exits`() {
+        var exited = false
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery), onExit = { exited = true })
+        }
+
+        composeRule.onNodeWithTag("exit").performClick()
+        composeRule.onNodeWithTag("confirm-exit").performClick()
+
+        assertTrue(exited)
+        composeRule.onNodeWithTag("confirm-exit").assertDoesNotExist()
+    }
+
+    @Test
+    fun `backing out of the question keeps the app running`() {
+        var exited = false
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery), onExit = { exited = true })
+        }
+
+        composeRule.onNodeWithTag("exit").performClick()
+        composeRule.onNodeWithTag("keep-running").performClick()
+
+        assertFalse(exited)
+        composeRule.onNodeWithTag("confirm-exit").assertDoesNotExist()
+    }
+
+    /** The way out is there whatever else is: an empty viewer still has to be closable. */
+    @Test
+    fun `an empty viewer still offers the way out`() {
+        composeRule.setContent { Screen(cameras = emptyList()) }
+
+        composeRule.onNodeWithTag("exit").assertExists()
     }
 
     /** A camera that can always be talked to, so the gesture is what is tested. */
@@ -534,36 +655,25 @@ class MonitorScreenTest {
     }
 
     @Test
-    fun `the viewer offers settings, sound, the screen switch and nothing else`() {
-        composeRule.setContent { Screen(cameras = listOf(nursery)) }
+    fun `the viewer offers exit, sound, alerts, the screen switch, settings and nothing else`() {
+        composeRule.setContent { Screen(cameras = listOf(nursery), monitoringRunning = true) }
 
-        composeRule.onNodeWithTag("open-settings").assertExists()
+        composeRule.onNodeWithTag("exit").assertExists()
         composeRule.onNodeWithTag("toggle-sound").assertExists()
+        composeRule.onNodeWithTag("toggle-alerts").assertExists()
         composeRule.onNodeWithTag("toggle-keep-screen").assertExists()
-        // Tuning the monitor still lives in settings; the viewer says what it
-        // is doing and offers to stop it, and nothing more than that.
+        composeRule.onNodeWithTag("open-settings").assertExists()
+        // Monitoring has no switch — it runs for as long as the app does — and
+        // a running monitor has nothing to say for itself. Tuning it still
+        // lives in settings.
+        composeRule.onNodeWithTag("monitoring-badge").assertDoesNotExist()
         composeRule.onNodeWithTag("monitoring-switch").assertDoesNotExist()
         composeRule.onNodeWithTag("audio-level-meter").assertDoesNotExist()
     }
 
     /**
-     * Live cameras are not evidence of anything: the grid looks the same
-     * whether or not a service is listening behind it, so the one screen that
-     * is always up has to say which it is.
-     */
-    @Test
-    fun `the viewer says when it is listening`() {
-        composeRule.setContent {
-            Screen(cameras = listOf(nursery), monitoringRunning = true, canMonitor = true)
-        }
-
-        composeRule.onNodeWithTag("monitoring-badge").assertTextEquals("Watching for sound")
-    }
-
-    /**
-     * The badge earns its place by being read, so it has to fit next to the
-     * other two controls on the narrowest phone this app supports rather than
-     * pushing itself off the edge of the row.
+     * Five buttons have to fit next to each other on the narrowest phone this
+     * app supports rather than pushing themselves off the edge of the row.
      */
     @Test
     @Config(qualifiers = NARROW_PHONE)
@@ -572,31 +682,33 @@ class MonitorScreenTest {
             Screen(cameras = listOf(nursery), monitoringRunning = true, canMonitor = true)
         }
 
-        composeRule.onNodeWithTag("monitoring-badge").assertIsDisplayed()
+        composeRule.onNodeWithTag("exit").assertIsDisplayed()
         composeRule.onNodeWithTag("toggle-sound").assertIsDisplayed()
+        composeRule.onNodeWithTag("toggle-alerts").assertIsDisplayed()
         composeRule.onNodeWithTag("toggle-keep-screen").assertIsDisplayed()
         composeRule.onNodeWithTag("open-settings").assertIsDisplayed()
     }
 
     /**
-     * The same fit, with the badge at its widest: "Not monitoring". Checked by
-     * bounds rather than assertIsDisplayed, which is content to see a sliver
-     * of a control the row has pushed halfway off the edge.
+     * The same fit, with the badge up: "Not monitoring". Checked by bounds
+     * rather than assertIsDisplayed, which is content to see a sliver of a
+     * control the row has pushed halfway off the edge.
      */
     @Test
     @Config(qualifiers = NARROW_PHONE)
-    fun `the chrome still fits on a narrow phone when stopped`() {
+    fun `the chrome still fits on a narrow phone when not monitoring`() {
         composeRule.setContent {
             Screen(
                 cameras = listOf(nursery),
                 monitoringRunning = false,
                 canMonitor = true,
-                stoppedByUser = true,
+                armingGraceMs = 0L,
             )
         }
+        composeRule.mainClock.advanceTimeBy(1)
 
         val root = composeRule.onRoot().getBoundsInRoot()
-        for (tag in listOf("monitoring-badge", "toggle-sound", "toggle-keep-screen")) {
+        for (tag in listOf("monitoring-badge", "exit", "toggle-sound", "toggle-alerts", "toggle-keep-screen")) {
             val bounds = composeRule.onNodeWithTag(tag).getBoundsInRoot()
             assertTrue("$tag runs past the edge", bounds.right <= root.right)
             assertTrue("$tag starts before the screen", bounds.left >= root.left)
@@ -621,30 +733,17 @@ class MonitorScreenTest {
                 cameras = listOf(nursery),
                 monitoringRunning = false,
                 canMonitor = true,
-                stoppedByUser = true,
+                armingGraceMs = 0L,
             )
         }
+        composeRule.mainClock.advanceTimeBy(1)
 
         val root = composeRule.onRoot().getBoundsInRoot()
-        val keepScreen = composeRule.onNodeWithTag("toggle-keep-screen").getBoundsInRoot()
+        val badge = composeRule.onNodeWithTag("monitoring-badge").getBoundsInRoot()
         val settings = composeRule.onNodeWithTag("open-settings").getBoundsInRoot()
         assertTrue("settings runs past the edge", settings.right <= root.right)
         assertTrue("settings starts before the screen", settings.left >= root.left)
-        assertTrue("settings should have wrapped below", settings.top >= keepScreen.bottom)
-    }
-
-    @Test
-    fun `a monitor that has been stopped says that too`() {
-        composeRule.setContent {
-            Screen(
-                cameras = listOf(nursery),
-                monitoringRunning = false,
-                canMonitor = true,
-                stoppedByUser = true,
-            )
-        }
-
-        composeRule.onNodeWithTag("monitoring-badge").assertTextEquals("Not monitoring")
+        assertTrue("settings should have wrapped below", settings.top >= badge.bottom)
     }
 
     /**
@@ -660,7 +759,6 @@ class MonitorScreenTest {
                 cameras = listOf(nursery),
                 monitoringRunning = false,
                 canMonitor = true,
-                stoppedByUser = false,
             )
         }
 
@@ -675,7 +773,6 @@ class MonitorScreenTest {
                 cameras = listOf(nursery),
                 monitoringRunning = false,
                 canMonitor = true,
-                stoppedByUser = false,
             )
         }
 
@@ -684,23 +781,19 @@ class MonitorScreenTest {
         composeRule.onNodeWithTag("monitoring-badge").assertTextEquals("Not monitoring")
     }
 
-    /** No such patience for a stop the user asked for: it is true on the spot. */
+    /** And says nothing more once the start does land. */
     @Test
-    fun `a deliberate stop shows without waiting`() {
-        var running by mutableStateOf(true)
+    fun `a monitor that arrives takes the badge with it`() {
+        var running by mutableStateOf(false)
         composeRule.setContent {
-            Screen(
-                cameras = listOf(nursery),
-                monitoringRunning = running,
-                canMonitor = true,
-                stoppedByUser = !running,
-            )
+            Screen(cameras = listOf(nursery), monitoringRunning = running, canMonitor = true)
         }
-        composeRule.onNodeWithTag("monitoring-badge").assertTextEquals("Watching for sound")
-
-        running = false
-
+        composeRule.mainClock.advanceTimeBy(ARMING_GRACE_MS + 1)
         composeRule.onNodeWithTag("monitoring-badge").assertTextEquals("Not monitoring")
+
+        running = true
+
+        composeRule.onNodeWithTag("monitoring-badge").assertDoesNotExist()
     }
 
     /**
@@ -721,85 +814,23 @@ class MonitorScreenTest {
         composeRule.onNodeWithTag("monitoring-badge").assertDoesNotExist()
     }
 
-    /**
-     * A stray tap over live video must not disarm the monitor: the cameras
-     * would go on playing exactly as before, and nothing on screen would say
-     * that the night had stopped being watched.
-     */
+    /** Trying again needs no ceremony: the risk is all in the other direction. */
     @Test
-    fun `stopping asks before it stops`() {
-        var stopped = false
-        composeRule.setContent {
-            Screen(
-                cameras = listOf(nursery),
-                monitoringRunning = true,
-                canMonitor = true,
-                onStopMonitoring = { stopped = true },
-            )
-        }
-
-        composeRule.onNodeWithTag("monitoring-badge").performClick()
-
-        composeRule.onNodeWithTag("confirm-stop-monitoring").assertIsDisplayed()
-        assertFalse("the badge alone must not stop anything", stopped)
-    }
-
-    @Test
-    fun `confirming stops the monitor`() {
-        var stopped = false
-        composeRule.setContent {
-            Screen(
-                cameras = listOf(nursery),
-                monitoringRunning = true,
-                canMonitor = true,
-                onStopMonitoring = { stopped = true },
-            )
-        }
-
-        composeRule.onNodeWithTag("monitoring-badge").performClick()
-        composeRule.onNodeWithTag("confirm-stop-monitoring").performClick()
-
-        assertTrue(stopped)
-        composeRule.onNodeWithTag("confirm-stop-monitoring").assertDoesNotExist()
-    }
-
-    @Test
-    fun `backing out of the question leaves the monitor listening`() {
-        var stopped = false
-        composeRule.setContent {
-            Screen(
-                cameras = listOf(nursery),
-                monitoringRunning = true,
-                canMonitor = true,
-                onStopMonitoring = { stopped = true },
-            )
-        }
-
-        composeRule.onNodeWithTag("monitoring-badge").performClick()
-        composeRule.onNodeWithTag("keep-monitoring").performClick()
-
-        assertFalse(stopped)
-        composeRule.onNodeWithTag("confirm-stop-monitoring").assertDoesNotExist()
-    }
-
-    /** Starting again needs no ceremony: the risk is all in the other direction. */
-    @Test
-    fun `the same badge starts a stopped monitor again`() {
+    fun `the badge tries the start again`() {
         var started = false
         composeRule.setContent {
             Screen(
                 cameras = listOf(nursery),
                 monitoringRunning = false,
                 canMonitor = true,
-                stoppedByUser = true,
                 onStartMonitoring = { started = true },
             )
         }
+        composeRule.mainClock.advanceTimeBy(ARMING_GRACE_MS + 1)
 
         composeRule.onNodeWithTag("monitoring-badge").performClick()
 
         assertTrue(started)
-        composeRule.onNodeWithTag("confirm-stop-monitoring").assertDoesNotExist()
     }
 
     @Test
@@ -1115,7 +1146,7 @@ class MonitorScreenTest {
         composeRule.setContent {
             Screen(
                 cameras = listOf(verbose),
-                soundEnabled = true,
+                soundMode = SoundMode.ROTATING,
                 audioLevels = mapOf("a" to 0.3f),
             )
         }
@@ -1387,12 +1418,12 @@ class MonitorScreenTest {
 
     @Test
     fun `reaching for the sound keeps the camera up`() {
-        var sound by mutableStateOf(false)
+        var mode by mutableStateOf(SoundMode.OFF)
         composeRule.setContent {
             Screen(
                 cameras = listOf(nursery, playroom),
-                soundEnabled = sound,
-                onSoundEnabledChange = { sound = it },
+                soundMode = mode,
+                onSoundModeChange = { mode = it },
             )
         }
         composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
@@ -1409,7 +1440,7 @@ class MonitorScreenTest {
     @Test
     fun `listening to a room does not hold the timer off`() {
         composeRule.setContent {
-            Screen(cameras = listOf(nursery, playroom), soundEnabled = true)
+            Screen(cameras = listOf(nursery, playroom), soundMode = SoundMode.ROTATING)
         }
         composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
         composeRule.onNodeWithTag("fullscreen-tile").assertExists()
@@ -1559,7 +1590,7 @@ class MonitorScreenTest {
         composeRule.setContent {
             Screen(
                 cameras = listOf(nursery, playroom),
-                soundEnabled = true,
+                soundMode = SoundMode.ROTATING,
                 alertCameraId = "b",
             )
         }
@@ -1589,14 +1620,14 @@ class MonitorScreenTest {
 
     @Test
     fun `the sound button hands the choice back rather than deciding`() {
-        var asked: Boolean? = null
+        var asked: SoundMode? = null
         composeRule.setContent {
-            Screen(cameras = listOf(nursery), onSoundEnabledChange = { asked = it })
+            Screen(cameras = listOf(nursery), onSoundModeChange = { asked = it })
         }
 
         composeRule.onNodeWithTag("toggle-sound").performClick()
 
-        assertEquals(true, asked)
+        assertEquals(SoundMode.ROTATING, asked)
     }
 
     @Test
@@ -1653,21 +1684,17 @@ class MonitorScreenTest {
 
     @Test
     fun `the sound button says what it just did`() {
-        var soundEnabled by mutableStateOf(false)
+        var mode by mutableStateOf(SoundMode.ALL_ALOUD)
         composeRule.setContent {
-            Screen(
-                cameras = listOf(nursery),
-                soundEnabled = soundEnabled,
-                onSoundEnabledChange = { soundEnabled = it },
-            )
+            Screen(cameras = listOf(nursery), soundMode = mode, onSoundModeChange = { mode = it })
         }
 
         composeRule.onNodeWithTag("toggle-sound").performClick()
-        composeRule.onNodeWithText("Sound on").assertIsDisplayed()
+        composeRule.onNodeWithText(SOUND_OFF_CONFIRMED).assertIsDisplayed()
 
         composeRule.onNodeWithTag("toggle-sound").performClick()
-        composeRule.onNodeWithText("Sound on").assertDoesNotExist()
-        composeRule.onNodeWithText("Sound off").assertIsDisplayed()
+        composeRule.onNodeWithText(SOUND_OFF_CONFIRMED).assertDoesNotExist()
+        composeRule.onNodeWithText(SOUND_ON_CONFIRMED).assertIsDisplayed()
     }
 
     /**
@@ -1679,43 +1706,38 @@ class MonitorScreenTest {
      */
     @Test
     fun `a refused sound request is not announced as sound on`() {
-        var soundEnabled by mutableStateOf(false)
+        var mode by mutableStateOf(SoundMode.OFF)
         composeRule.setContent {
             Screen(
                 cameras = listOf(nursery),
-                soundEnabled = soundEnabled,
+                soundMode = mode,
                 soundGranted = false,
-                onSoundEnabledChange = { soundEnabled = it },
+                onSoundModeChange = { mode = it },
             )
         }
 
         composeRule.onNodeWithTag("toggle-sound").performClick()
-        composeRule.onNodeWithText("Sound on").assertDoesNotExist()
+        composeRule.onNodeWithText(SOUND_ON_CONFIRMED).assertDoesNotExist()
 
         // Something else owned the speaker, so the owner of the setting put
-        // the switch back — the same move MainActivity makes.
-        composeRule.runOnIdle { soundEnabled = false }
+        // the mode back — the same move MainActivity makes.
+        composeRule.runOnIdle { mode = SoundMode.OFF }
 
-        composeRule.onNodeWithText("Sound on").assertDoesNotExist()
-        composeRule.onNodeWithText("Something else is using the speaker — sound stays off")
-            .assertIsDisplayed()
+        composeRule.onNodeWithText(SOUND_ON_CONFIRMED).assertDoesNotExist()
+        composeRule.onNodeWithText(SOUND_REFUSED).assertIsDisplayed()
     }
 
     @Test
     fun `the sound button confirms itself on a single camera too`() {
-        var soundEnabled by mutableStateOf(false)
+        var mode by mutableStateOf(SoundMode.OFF)
         composeRule.setContent {
-            Screen(
-                cameras = listOf(nursery),
-                soundEnabled = soundEnabled,
-                onSoundEnabledChange = { soundEnabled = it },
-            )
+            Screen(cameras = listOf(nursery), soundMode = mode, onSoundModeChange = { mode = it })
         }
         composeRule.onNodeWithTag("camera-tile-${nursery.name}").performClick()
 
         composeRule.onNodeWithTag("toggle-sound").performClick()
 
-        composeRule.onNodeWithText("Sound on").assertIsDisplayed()
+        composeRule.onNodeWithText(SOUND_ON_CONFIRMED).assertIsDisplayed()
     }
 
     @Test
@@ -1729,12 +1751,12 @@ class MonitorScreenTest {
 
     @Test
     fun `the sound button is reachable on a single camera too`() {
-        var asked: Boolean? = null
+        var asked: SoundMode? = null
         composeRule.setContent {
             Screen(
                 cameras = listOf(nursery, playroom),
-                soundEnabled = true,
-                onSoundEnabledChange = { asked = it },
+                soundMode = SoundMode.ALL_ALOUD,
+                onSoundModeChange = { asked = it },
                 alertCameraId = "b",
             )
         }
@@ -1744,7 +1766,7 @@ class MonitorScreenTest {
 
         // Otherwise the camera an alert opened could only be silenced by
         // leaving it, which is the one thing the user does not want to do.
-        assertEquals(false, asked)
+        assertEquals(SoundMode.OFF, asked)
     }
 
     @Test
@@ -1752,7 +1774,7 @@ class MonitorScreenTest {
     fun `the grid gives the sound to one camera at a time`() {
         controllers.clear()
         composeRule.setContent {
-            Screen(cameras = listOf(nursery, playroom, hall), soundEnabled = true)
+            Screen(cameras = listOf(nursery, playroom, hall), soundMode = SoundMode.ROTATING)
         }
         composeRule.waitUntil { controllers.size == 3 }
 
@@ -1768,7 +1790,7 @@ class MonitorScreenTest {
     fun `the sound moves on to the next camera when the turn is up`() {
         controllers.clear()
         composeRule.setContent {
-            Screen(cameras = listOf(nursery, playroom, hall), soundEnabled = true)
+            Screen(cameras = listOf(nursery, playroom, hall), soundMode = SoundMode.ROTATING)
         }
         composeRule.waitUntil { controllers.size == 3 }
         composeRule.waitUntil { controllerFor(nursery).muted == false }
@@ -1784,7 +1806,7 @@ class MonitorScreenTest {
     @Config(qualifiers = TABLET_SCREEN)
     fun `the audible camera says so on screen`() {
         composeRule.setContent {
-            Screen(cameras = listOf(nursery, playroom), soundEnabled = true)
+            Screen(cameras = listOf(nursery, playroom), soundMode = SoundMode.ROTATING)
         }
 
         // Sound with no visible source is indistinguishable from the wrong
@@ -1802,7 +1824,7 @@ class MonitorScreenTest {
     fun `sound switched off leaves every tile silent and unmarked`() {
         controllers.clear()
         composeRule.setContent {
-            Screen(cameras = listOf(nursery, playroom), soundEnabled = false)
+            Screen(cameras = listOf(nursery, playroom), soundMode = SoundMode.OFF)
         }
         composeRule.waitUntil { controllers.size == 2 }
 
@@ -1818,7 +1840,7 @@ class MonitorScreenTest {
         composeRule.setContent {
             Screen(
                 cameras = listOf(nursery, playroom),
-                soundEnabled = true,
+                soundMode = SoundMode.ROTATING,
                 soundGranted = false,
             )
         }
@@ -1826,9 +1848,9 @@ class MonitorScreenTest {
 
         assertTrue(controllers.all { it.muted == true })
         // The button still shows the user's own choice, so a tap during a call
-        // silences the viewer rather than setting it to what it already was.
+        // steps on from it rather than setting it to what it already was.
         composeRule.onNodeWithTag("toggle-sound")
-            .assertContentDescriptionEquals("Turn sound off")
+            .assertContentDescriptionEquals("Play every camera aloud")
     }
 
     @Test
@@ -1838,7 +1860,7 @@ class MonitorScreenTest {
         composeRule.setContent {
             Screen(
                 cameras = listOf(nursery, playroom),
-                soundEnabled = true,
+                soundMode = SoundMode.ROTATING,
                 alertCameraId = "a",
             )
         }
@@ -1857,14 +1879,14 @@ class MonitorScreenTest {
     @Config(qualifiers = TABLET_SCREEN)
     fun `switching sound off mid-round silences the camera holding it`() {
         controllers.clear()
-        var sound by mutableStateOf(true)
+        var mode by mutableStateOf(SoundMode.ROTATING)
         composeRule.setContent {
-            Screen(cameras = listOf(nursery, playroom), soundEnabled = sound)
+            Screen(cameras = listOf(nursery, playroom), soundMode = mode)
         }
         composeRule.waitUntil { controllers.size == 2 }
         composeRule.waitUntil { controllerFor(nursery).muted == false }
 
-        composeRule.runOnIdle { sound = false }
+        composeRule.runOnIdle { mode = SoundMode.OFF }
 
         composeRule.waitUntil { controllerFor(nursery).muted == true }
         composeRule.onNodeWithTag("audible-badge-Nursery", useUnmergedTree = true)
@@ -1876,7 +1898,7 @@ class MonitorScreenTest {
     fun `a camera that goes away hands its turn on instead of taking it with it`() {
         controllers.clear()
         var shown by mutableStateOf(listOf(nursery, playroom))
-        composeRule.setContent { Screen(cameras = shown, soundEnabled = true) }
+        composeRule.setContent { Screen(cameras = shown, soundMode = SoundMode.ROTATING) }
         composeRule.waitUntil { controllers.size == 2 }
         composeRule.waitUntil { controllerFor(nursery).muted == false }
 
@@ -1893,7 +1915,7 @@ class MonitorScreenTest {
     fun `a camera scrolled off the grid is skipped rather than given a silent turn`() {
         controllers.clear()
         composeRule.setContent {
-            Screen(cameras = listOf(nursery, playroom, hall), soundEnabled = true)
+            Screen(cameras = listOf(nursery, playroom, hall), soundMode = SoundMode.ROTATING)
         }
         composeRule.waitUntil { controllerFor(nursery).muted == false }
         // Only two tiles fit; the third has no player at all.
@@ -2197,12 +2219,26 @@ class MonitorScreenTest {
         const val LISTEN_ON_CONFIRMED_ROOMS = "2 rooms are playing aloud, and keep playing " +
             "with the screen off. Alerts stay quiet, but light the screen to say which room."
 
-        /** Must match R.string.viewer_listen_off_confirmed. */
-        const val LISTEN_OFF_CONFIRMED = "Nothing is playing aloud"
+        /** Must match R.string.viewer_all_aloud_on_screen, formatted for the nursery. */
+        const val ALL_ALOUD_ON_SCREEN = "Nursery is playing aloud while this screen is on"
 
-        /** Must match R.string.viewer_listen_refused. */
-        const val LISTEN_REFUSED =
-            "Something else is using the speaker — nothing is playing aloud"
+        /** Must match R.string.viewer_all_aloud_on_screen_rooms, formatted for two. */
+        const val ALL_ALOUD_ON_SCREEN_ROOMS = "2 cameras are playing aloud while this screen is on"
+
+        /** Must match R.string.viewer_sound_on_confirmed. */
+        const val SOUND_ON_CONFIRMED = "Sound on, one camera at a time"
+
+        /** Must match R.string.viewer_sound_off_confirmed. */
+        const val SOUND_OFF_CONFIRMED = "Sound off"
+
+        /** Must match R.string.viewer_sound_refused. */
+        const val SOUND_REFUSED = "Something else is using the speaker — sound stays off"
+
+        /** Must match R.string.viewer_alerts_on_confirmed. */
+        const val ALERTS_ON_CONFIRMED = "Alerts on — a loud room will wake you"
+
+        /** Must match R.string.viewer_alerts_off_confirmed. */
+        const val ALERTS_OFF_CONFIRMED = "Alerts off — nothing will wake you if a room gets loud"
 
         /** Whole seconds, so the readout can be checked, but only a few of them. */
         const val INACTIVITY_MS = 4_000L
@@ -2222,9 +2258,6 @@ class MonitorScreenTest {
 
         /** Long enough to be waited past on purpose, short enough not to be slow. */
         const val ARMING_GRACE_MS = 500L
-
-        /** The same, for the speaker listen mode has asked for. */
-        const val LISTEN_GRACE_MS = 500L
 
         /** Wide enough for three columns. */
         const val TABLET_SCREEN = "w1200dp-h900dp"

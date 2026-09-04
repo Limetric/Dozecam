@@ -30,6 +30,27 @@ class MonitoringStatusTest {
             enabledCount = enabledCount,
         )
 
+    /**
+     * "Watching for sound" over a phone that has been asked to keep quiet
+     * about it is the reassurance this app exists to refuse, so the line says
+     * so — in front of whatever else it has to report.
+     */
+    @Test
+    fun `alerts off is said first`() {
+        val status = MonitoringStatus.of(
+            context,
+            anyMonitors = true,
+            states = listOf(live("a", level = 0.2f)),
+            enabledCount = 1,
+            alertsEnabled = false,
+        )
+
+        assertEquals("Alerts off · Monitoring 1 camera", status.text)
+        // Still a healthy line: the monitor is running, it just will not wake
+        // anyone, and the meter is proof of the former.
+        assertEquals(0.2f, status.level)
+    }
+
     @Test
     fun `the listening line carries the loudest camera's level`() {
         val status = of(listOf(live("a", level = 0.1f), live("b", level = 0.4f)))

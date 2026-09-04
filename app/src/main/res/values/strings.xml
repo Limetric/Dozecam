@@ -13,7 +13,7 @@
     <string name="channel_alerts_name">Sound alerts</string>
     <string name="channel_alerts_description">Wakes the screen when sustained sound is detected</string>
     <string name="notification_monitoring_title">Dozecam monitoring</string>
-    <string name="notification_monitoring_stop">Stop monitoring</string>
+    <string name="notification_exit">Exit</string>
     <string name="notification_alert_title">Sound detected — %1$s</string>
     <string name="notification_alert_text">Opening the live view…</string>
     <string name="monitoring_status_starting">Connecting to the cameras…</string>
@@ -23,19 +23,20 @@
     <string name="monitoring_status_partial">%1$s · %2$d not monitorable</string>
     <string name="monitoring_status_checked">Checked %1$s</string>
     <string name="monitoring_status_aloud">%1$s aloud · %2$s</string>
+    <string name="monitoring_status_alerts_off">Alerts off · %1$s</string>
     <plurals name="monitoring_status_aloud_rooms">
         <item quantity="one">%1$d room</item>
         <item quantity="other">%1$d rooms</item>
     </plurals>
     <string name="notification_stop_listening">Stop playing aloud</string>
     <!--
-        The switch for monitoring itself, not a preference about how it behaves.
-        "Wake on sound" is the feature's name and reads as the latter, which is
-        why the master switch is named after the thing it turns off.
+        The state of monitoring itself, not a preference about how it behaves.
+        There is no switch: monitoring runs for as long as the app does.
     -->
     <string name="monitoring_toggle">Monitoring</string>
     <string name="monitoring_listening">Watching for sound</string>
     <string name="monitoring_idle">Not monitoring</string>
+    <string name="monitoring_always_on">Runs while Dozecam is open. Exit the app to stop it.</string>
     <string name="monitoring_unavailable">No camera is switched on that can be monitored</string>
     <!--
         A missing local-network grant is not idleness: the switch would flip
@@ -52,36 +53,49 @@
     <string name="viewer_no_cameras">No cameras yet. Connect your UniFi Protect console to add them.</string>
     <string name="viewer_all_disabled">Every camera is switched off. Turn one on in settings to watch and monitor it.</string>
     <string name="viewer_add_manually">Add one manually</string>
-    <string name="viewer_monitoring_on">Watching for sound</string>
     <string name="viewer_monitoring_off">Not monitoring</string>
-    <string name="viewer_stop_monitoring">Stop monitoring</string>
     <string name="viewer_start_monitoring">Start monitoring</string>
-    <string name="viewer_stop_monitoring_title">Stop monitoring?</string>
-    <string name="viewer_stop_monitoring_body">The cameras stay on screen, but Dozecam will stop watching for sound — nothing will wake you if a room gets loud.</string>
-    <string name="viewer_keep_monitoring">Keep monitoring</string>
-    <string name="viewer_sound_on">Turn sound on</string>
+    <string name="viewer_exit">Exit Dozecam</string>
+    <string name="viewer_exit_title">Exit Dozecam?</string>
+    <string name="viewer_exit_body">Monitoring stops with the app — nothing will wake you if a room gets loud until you open Dozecam again.</string>
+    <string name="viewer_exit_confirm">Exit</string>
+    <string name="viewer_keep_running">Keep running</string>
+    <!--
+        One button cycles the speaker through its three modes, so each label
+        names what the next tap does rather than what is on now.
+    -->
+    <string name="viewer_sound_rotate">Rotate sound between cameras</string>
     <string name="viewer_sound_off">Turn sound off</string>
+    <string name="viewer_alerts_on">Turn alerts on</string>
+    <string name="viewer_alerts_off">Turn alerts off</string>
+    <string name="viewer_alerts_on_confirmed">Alerts on — a loud room will wake you</string>
+    <string name="viewer_alerts_off_confirmed">Alerts off — nothing will wake you if a room gets loud</string>
     <string name="viewer_keep_screen_on">Keep the screen awake</string>
     <string name="viewer_keep_screen_off">Let the screen sleep</string>
-    <string name="viewer_sound_on_confirmed">Sound on</string>
+    <string name="viewer_sound_on_confirmed">Sound on, one camera at a time</string>
     <string name="viewer_sound_off_confirmed">Sound off</string>
     <string name="viewer_sound_refused">Something else is using the speaker — sound stays off</string>
     <string name="viewer_keep_screen_on_confirmed">The screen will stay awake while cameras are showing</string>
     <string name="viewer_keep_screen_off_confirmed">The screen will sleep as usual</string>
     <string name="viewer_listen_on">Play every camera aloud</string>
-    <string name="viewer_listen_off">Stop playing aloud</string>
     <!--
         Listen mode assumes an awake listener, so the alarm stays quiet while a
         room is aloud. Said here, at the moment of switching it on, because it
         is the one promise a parent going to sleep must not rely on.
     -->
+    <!--
+        The same switch, for rooms the monitor cannot carry into the dark — a
+        camera it has no way to listen to, or a monitor that never started.
+        Says only what is true: aloud on this screen, and no further.
+    -->
+    <string name="viewer_all_aloud_on_screen">%1$s is playing aloud while this screen is on</string>
+    <string name="viewer_all_aloud_on_screen_rooms">%1$d cameras are playing aloud while this screen is on</string>
     <string name="viewer_listen_on_confirmed">%1$s is playing aloud, and keeps playing with the screen off. Alerts stay quiet while you are listening.</string>
     <!--
         Several rooms out of one speaker cannot say which one a cry came from,
         so the alert does — with the screen only, never the alarm.
     -->
     <string name="viewer_listen_on_confirmed_rooms">%1$d rooms are playing aloud, and keep playing with the screen off. Alerts stay quiet, but light the screen to say which room.</string>
-    <string name="viewer_listen_off_confirmed">Nothing is playing aloud</string>
     <string name="viewer_listen_refused">Something else is using the speaker — nothing is playing aloud</string>
     <string name="viewer_audible_camera">Sound from %1$s</string>
     <string name="viewer_returning_in">All cameras in %1$ds</string>
@@ -141,6 +155,8 @@
     <string name="no_cameras_hint">Add a camera to get started. Enable the RTSP stream in UniFi Protect (camera → Settings → Advanced) and paste its rtsp:// URL below.</string>
     <string name="setting_night_theme">Night theme</string>
     <string name="setting_night_theme_description">Dim red palette that preserves night vision</string>
+    <string name="setting_alerts">Wake alerts</string>
+    <string name="setting_alerts_description">Wake the screen, chime and vibrate when a room gets loud</string>
     <string name="setting_alert_chime">Alert chime</string>
     <string name="setting_alert_chime_description">Play a sound when a wake alert fires</string>
     <string name="setting_alert_vibrate">Alert vibration</string>

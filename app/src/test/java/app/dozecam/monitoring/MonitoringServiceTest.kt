@@ -9,6 +9,8 @@ import androidx.test.core.app.ApplicationProvider
 import app.dozecam.DozecamApp
 import app.dozecam.audio.SoundDetector
 import app.dozecam.data.Camera
+import app.dozecam.data.SoundMode
+import kotlinx.coroutines.flow.first
 import app.dozecam.player.ConnectionState
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -16,12 +18,14 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.android.controller.ServiceController
 import org.robolectric.shadows.ShadowPowerManager
 
 /**
@@ -54,6 +58,63 @@ class MonitoringServiceTest {
      * what most of these tests are about. A phone with its volume up is the
      * baseline; the one test about volume turns it down itself.
      */
+    private val services = mutableListOf<ServiceController<MonitoringService>>()
+
+    private fun createService(): ServiceController<MonitoringService> =
+        Robolectric.buildService(MonitoringService::class.java).create().also { services += it }
+
+    private fun destroy(controller: ServiceController<MonitoringService>) {
+        services -= controller
+        controller.destroy()
+    }
+
+    /**
+     * The preferences store is one per process, not per test, and a service
+     * left running keeps collecting it: the next test's settings write would
+     * reach a service whose Application — and audio focus receiver — is
+     * already gone. So no service outlives its test.
+     */
+    @After
+    fun destroyServices() {
+        services.toList().forEach(::destroy)
+    }
+
+    /**
+     * Every test starts from a phone that is not playing anything aloud and
+     * wakes on sound, whatever the last one left in the shared store.
+     */
+    @Before
+    fun resetSettings() = runTest {
+        container.appSettings.update {
+            it.copy(soundMode = SoundMode.OFF, alertsEnabled = true)
+        }
+        container.monitoringState.listeningCameraIds.value = emptySet()
+    }
+
+    /** Listen mode's switch: the stored sound mode, which the service watches. */
+    private suspend fun listenAloud() {
+        container.appSettings.update { it.copy(soundMode = SoundMode.ALL_ALOUD) }
+    }
+
+    private suspend fun soundMode(): SoundMode = container.appSettings.settings.first().soundMode
+
+    /**
+     * A write the service makes lands on the store from its main-thread scope
+     * a hop or two after the event that caused it, and the paused looper only
+     * moves when told to. Idled and read until it shows, or until it clearly
+     * never will.
+     */
+    private suspend fun awaitSoundMode(expected: SoundMode): SoundMode {
+        val deadline = System.currentTimeMillis() + 5_000
+        while (System.currentTimeMillis() < deadline) {
+            shadowOf(Looper.getMainLooper()).idle()
+            val mode = soundMode()
+            if (mode == expected) return mode
+            Thread.sleep(10)
+        }
+        return soundMode()
+    }
+
     @Before
     fun turnTheVolumeUp() {
         context.getSystemService(AudioManager::class.java)
@@ -62,7 +123,7 @@ class MonitoringServiceTest {
 
     @Test
     fun `with nothing to listen to the service idles without a wake lock`() = runTest {
-        val service = Robolectric.buildService(MonitoringService::class.java).create().get()
+        val service = createService().get()
 
         // Nothing to decode, so nothing to keep the CPU awake for.
         assertFalse(ShadowPowerManager.getLatestWakeLock().isHeld)
@@ -80,17 +141,17 @@ class MonitoringServiceTest {
             Camera("a", "Nursery", "rtsps://cam:7441/a", enabled = true),
         )
 
-        Robolectric.buildService(MonitoringService::class.java).create().get()
+        createService().get()
 
         assertFalse(ShadowPowerManager.getLatestWakeLock().isHeld)
     }
 
     @Test
     fun `stopping clears the state the viewer reads`() = runTest {
-        val controller = Robolectric.buildService(MonitoringService::class.java).create()
+        val controller = createService()
         container.monitoringState.put(CameraMonitorState("a", "Nursery", level = 0.4f))
 
-        controller.destroy()
+        destroy(controller)
 
         assertFalse(container.monitoringState.serviceRunning.value)
         assertTrue(container.monitoringState.cameras.value.isEmpty())
@@ -104,10 +165,10 @@ class MonitoringServiceTest {
      */
     @Test
     fun `stopping takes any alert notification with it`() = runTest {
-        val controller = Robolectric.buildService(MonitoringService::class.java).create()
+        val controller = createService()
         MonitoringNotifications.postAlert(context, "a", "Nursery")
 
-        controller.destroy()
+        destroy(controller)
 
         assertNull(
             shadowOf(context.getSystemService(NotificationManager::class.java))
@@ -128,10 +189,10 @@ class MonitoringServiceTest {
     fun `losing the speaker mid-cry raises the alarm that was withheld`() = runTest {
         // The alarm's own noise is beside the point; only whether it is raised.
         container.appSettings.update { it.copy(alertChime = false, alertVibrate = false) }
-        Robolectric.buildService(MonitoringService::class.java).create().get()
+        createService().get()
         val state = container.monitoringState
         state.put(live("a", "Nursery"))
-        state.listenRequest.value = true
+        listenAloud()
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(setOf("a"), state.listeningCameraIds.value)
         state.update("a") { it.copy(phase = SoundDetector.Phase.TRIGGERED) }
@@ -149,23 +210,23 @@ class MonitoringServiceTest {
     }
 
     /**
-     * The speaker can also go by way of [MonitoringState.stopListening] — the
-     * notification's action, a lost audio focus, headphones unplugged — which
-     * empties the shared record before the service hears about it. The withheld
-     * alarm must still be raised.
+     * The speaker can also go by way of the notification's action, which
+     * empties the shared record before the service hears about the setting.
+     * The withheld alarm must still be raised.
      */
     @Test
     fun `listen mode switched off mid-cry raises the alarm that was withheld`() = runTest {
         container.appSettings.update { it.copy(alertChime = false, alertVibrate = false) }
-        Robolectric.buildService(MonitoringService::class.java).create().get()
+        createService().get()
         val state = container.monitoringState
         state.put(live("a", "Nursery"))
-        state.listenRequest.value = true
+        listenAloud()
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(setOf("a"), state.listeningCameraIds.value)
         state.update("a") { it.copy(phase = SoundDetector.Phase.TRIGGERED) }
 
-        state.stopListening()
+        state.listeningCameraIds.value = emptySet()
+        container.appSettings.update { it.copy(soundMode = SoundMode.OFF) }
         shadowOf(Looper.getMainLooper()).idle()
 
         assertEquals("a", container.alertSignaler.alarmingCameraId.value)
@@ -181,10 +242,10 @@ class MonitoringServiceTest {
     fun `media volume turned to zero mid-cry raises the alarm that was withheld`() = runTest {
         container.appSettings.update { it.copy(alertChime = false, alertVibrate = false) }
         val audio = context.getSystemService(AudioManager::class.java)
-        Robolectric.buildService(MonitoringService::class.java).create().get()
+        createService().get()
         val state = container.monitoringState
         state.put(live("a", "Nursery"))
-        state.listenRequest.value = true
+        listenAloud()
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(setOf("a"), state.listeningCameraIds.value)
         state.update("a") { it.copy(phase = SoundDetector.Phase.TRIGGERED) }
@@ -203,10 +264,10 @@ class MonitoringServiceTest {
     @Test
     fun `a room that has settled is not alarmed for when the speaker goes`() = runTest {
         container.appSettings.update { it.copy(alertChime = false, alertVibrate = false) }
-        Robolectric.buildService(MonitoringService::class.java).create().get()
+        createService().get()
         val state = container.monitoringState
         state.put(live("a", "Nursery"))
-        state.listenRequest.value = true
+        listenAloud()
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(setOf("a"), state.listeningCameraIds.value)
 
@@ -219,13 +280,13 @@ class MonitoringServiceTest {
 
     @Test
     fun `every room the monitor can hear plays aloud together`() = runTest {
-        Robolectric.buildService(MonitoringService::class.java).create().get()
+        createService().get()
         val state = container.monitoringState
         state.put(live("a", "Nursery"))
         state.put(live("b", "Play room"))
         shadowOf(Looper.getMainLooper()).idle()
 
-        state.listenRequest.value = true
+        listenAloud()
         shadowOf(Looper.getMainLooper()).idle()
 
         assertEquals(setOf("a", "b"), state.listeningCameraIds.value)
@@ -233,10 +294,10 @@ class MonitoringServiceTest {
 
     @Test
     fun `a room the monitor starts hearing later joins the mix`() = runTest {
-        Robolectric.buildService(MonitoringService::class.java).create().get()
+        createService().get()
         val state = container.monitoringState
         state.put(live("a", "Nursery"))
-        state.listenRequest.value = true
+        listenAloud()
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(setOf("a"), state.listeningCameraIds.value)
 
@@ -256,11 +317,11 @@ class MonitoringServiceTest {
      */
     @Test
     fun `a room whose stream is down is not claimed aloud`() = runTest {
-        Robolectric.buildService(MonitoringService::class.java).create().get()
+        createService().get()
         val state = container.monitoringState
         state.put(live("a", "Nursery"))
         state.put(live("b", "Play room"))
-        state.listenRequest.value = true
+        listenAloud()
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(setOf("a", "b"), state.listeningCameraIds.value)
 
@@ -269,7 +330,7 @@ class MonitoringServiceTest {
 
         assertEquals(setOf("a"), state.listeningCameraIds.value)
         // The switch stays on: the outage is the network's, not the user's.
-        assertTrue(state.listenRequest.value)
+        assertEquals(SoundMode.ALL_ALOUD, soundMode())
 
         state.update("b") { it.withConnection(ConnectionState.Live) }
         shadowOf(Looper.getMainLooper()).idle()
@@ -292,10 +353,10 @@ class MonitoringServiceTest {
     fun `switching off one room leaves the rest playing`() = runTest {
         container.cameras.upsert(Camera("a", "Nursery", "rtsp://127.0.0.1:1/a"))
         container.cameras.upsert(Camera("b", "Hall", "rtsp://127.0.0.1:1/b"))
-        Robolectric.buildService(MonitoringService::class.java).create().get()
+        createService().get()
         shadowOf(Looper.getMainLooper()).idle()
         val state = container.monitoringState
-        state.listenRequest.value = true
+        listenAloud()
         shadowOf(Looper.getMainLooper()).idle()
 
         container.cameras.setEnabled("a", false)
@@ -303,62 +364,118 @@ class MonitoringServiceTest {
 
         // Which rooms play follows the monitors on its own (see the tests
         // above); what matters here is that the switch is left alone.
-        assertTrue(state.listenRequest.value)
+        assertEquals(SoundMode.ALL_ALOUD, soundMode())
         assertFalse("a" in state.listeningCameraIds.value)
     }
 
     /**
-     * The target flow plays nothing once nothing is monitored, but going quiet
-     * is not enough: the viewer's switch would read "on" beside a silent phone
-     * — and somebody putting that phone down believing the nursery was still
-     * audible is the one mistake this app cannot make.
+     * The sound mode is the viewer's setting as much as this service's, and
+     * the viewer can play rooms the service cannot listen to. So nothing left
+     * to hear silences the speaker without touching the setting; the
+     * notification, which reads the record rather than the ask, already admits
+     * to nothing being aloud.
      */
     @Test
-    fun `switching off the last room switches listen mode off too`() = runTest {
+    fun `switching off the last room silences the speaker but keeps the mode`() = runTest {
         container.cameras.upsert(Camera("a", "Nursery", "rtsp://127.0.0.1:1/a"))
-        Robolectric.buildService(MonitoringService::class.java).create().get()
+        createService().get()
         shadowOf(Looper.getMainLooper()).idle()
         val state = container.monitoringState
-        state.listenRequest.value = true
+        listenAloud()
         shadowOf(Looper.getMainLooper()).idle()
-        assertTrue(state.listenRequest.value)
+        assertEquals(SoundMode.ALL_ALOUD, soundMode())
 
         container.cameras.setEnabled("a", false)
         shadowOf(Looper.getMainLooper()).idle()
 
-        assertFalse(state.listenRequest.value)
+        assertEquals(SoundMode.ALL_ALOUD, soundMode())
         assertEquals(emptySet<String>(), state.listeningCameraIds.value)
     }
 
     @Test
     fun `a speaker asked for before the monitors exist is not snatched away`() = runTest {
         container.cameras.upsert(Camera("a", "Nursery", "rtsp://127.0.0.1:1/a"))
-        val state = container.monitoringState
 
         // The viewer offers the switch as soon as the service is running, which
         // is before the first reconcile has resolved anything. "Nothing
         // monitored" means "not yet" here, and must not be read as "gone".
-        Robolectric.buildService(MonitoringService::class.java).create().get()
-        state.listenRequest.value = true
+        createService().get()
+        listenAloud()
         shadowOf(Looper.getMainLooper()).idle()
 
-        assertTrue(state.listenRequest.value)
+        assertEquals(SoundMode.ALL_ALOUD, soundMode())
     }
 
+    /**
+     * Stopping is an exit, and the sound mode is meant to be found again the
+     * way it was left. What must not survive is the record: a target left
+     * standing would be picked straight back up by the next service, before it
+     * had won the speaker or decoded anything.
+     */
     @Test
-    fun `stopping takes the speaker with it`() = runTest {
-        val controller = Robolectric.buildService(MonitoringService::class.java).create()
-        container.monitoringState.listenRequest.value = true
+    fun `stopping takes the speaker with it and leaves the mode alone`() = runTest {
+        val controller = createService()
+        listenAloud()
         container.monitoringState.listeningCameraIds.value = setOf("a")
 
-        controller.destroy()
+        destroy(controller)
+        shadowOf(Looper.getMainLooper()).idle()
 
-        // A switch left on with no service behind it would offer to stop
-        // something already stopped — and would start talking again the moment
-        // the monitor came back, which is the one thing it must never do
-        // unasked.
-        assertFalse(container.monitoringState.listenRequest.value)
+        assertEquals(SoundMode.ALL_ALOUD, soundMode())
         assertEquals(emptySet<String>(), container.monitoringState.listeningCameraIds.value)
+    }
+
+    /**
+     * The whole alert: no card, no screen, no alarm. The detector still runs,
+     * so the meters and the status line say the room is loud, but the user
+     * asked not to be told and nothing tells them.
+     */
+    @Test
+    fun `with alerts off a loud room reaches nobody`() = runTest {
+        container.appSettings.update { it.copy(alertsEnabled = false) }
+        createService().get()
+        val state = container.monitoringState
+        state.put(live("a", "Nursery"))
+        // The one path into raiseAlert that needs no decoder: a room that was
+        // being heard aloud stops being heard while its detector is triggered.
+        listenAloud()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(setOf("a"), state.listeningCameraIds.value)
+        state.update("a") { it.copy(phase = SoundDetector.Phase.TRIGGERED) }
+
+        state.viewerAudible.value = true
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertNull(container.alertSignaler.alarmingCameraId.value)
+        assertNull(state.lastAlertCameraId.value)
+        assertNull(
+            shadowOf(context.getSystemService(NotificationManager::class.java))
+                .getNotification(MonitoringNotifications.ALERT_NOTIFICATION_ID),
+        )
+    }
+
+    /** An alarm already sounding has nothing left to mean once alerts are off. */
+    @Test
+    fun `switching alerts off silences an alarm already sounding`() = runTest {
+        container.appSettings.update { it.copy(alertChime = false, alertVibrate = false) }
+        createService().get()
+        val state = container.monitoringState
+        state.put(live("a", "Nursery"))
+        listenAloud()
+        shadowOf(Looper.getMainLooper()).idle()
+        state.update("a") { it.copy(phase = SoundDetector.Phase.TRIGGERED) }
+        state.viewerAudible.value = true
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("a", container.alertSignaler.alarmingCameraId.value)
+
+        container.appSettings.update { it.copy(alertsEnabled = false) }
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertNull(container.alertSignaler.alarmingCameraId.value)
+        assertNull(
+            shadowOf(context.getSystemService(NotificationManager::class.java))
+                .getNotification(MonitoringNotifications.ALERT_NOTIFICATION_ID),
+        )
     }
 
     @Test
@@ -368,14 +485,14 @@ class MonitoringServiceTest {
         shadowOf(audioManager).setNextFocusRequestResponse(
             AudioManager.AUDIOFOCUS_REQUEST_FAILED,
         )
-        Robolectric.buildService(MonitoringService::class.java).create().get()
+        createService().get()
 
-        container.monitoringState.listenRequest.value = true
+        listenAloud()
         shadowOf(Looper.getMainLooper()).idle()
 
         // A control that says "on" next to a phone that is silent is worse
         // than one that visibly did not take.
-        assertFalse(container.monitoringState.listenRequest.value)
+        assertEquals(SoundMode.OFF, awaitSoundMode(SoundMode.OFF))
         assertEquals(emptySet<String>(), container.monitoringState.listeningCameraIds.value)
     }
 

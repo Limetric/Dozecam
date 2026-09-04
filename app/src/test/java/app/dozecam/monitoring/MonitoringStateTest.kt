@@ -29,19 +29,27 @@ class MonitoringStateTest {
         assertFalse(state.shouldAutoArm(enabledCameraCount = 2))
     }
 
+    /**
+     * Settings re-arms the instant it sees the service go, and an exit from
+     * the notification stops the service before the screens have finished
+     * themselves. The request has to hold the door until they have.
+     */
     @Test
-    fun `a deliberate stop survives coming back to the viewer`() {
-        state.userStopped.value = true
+    fun `an exit in flight is not re-armed over`() {
+        state.exitRequested.value = true
 
-        // This is what stops a rotation from re-arming what was just switched
-        // off; only a fresh process, or switching it back on, clears it.
-        assertFalse(state.shouldAutoArm(enabledCameraCount = 2))
+        assertFalse(state.shouldAutoArm(enabledCameraCount = 1))
     }
 
+    /**
+     * There is no switch to have left off. A monitor that was exited arms
+     * again the next time the viewer opens, because the exit is what ended it
+     * and opening the app is what asks for it back.
+     */
     @Test
-    fun `switching monitoring back on re-arms it`() {
-        state.userStopped.value = true
-        state.userStopped.value = false
+    fun `a stopped monitor arms again on the next open`() {
+        state.serviceRunning.value = true
+        state.serviceRunning.value = false
 
         assertTrue(state.shouldAutoArm(enabledCameraCount = 1))
     }

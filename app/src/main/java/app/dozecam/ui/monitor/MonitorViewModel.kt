@@ -49,13 +49,6 @@ class MonitorViewModel(
     val monitoringRunning: StateFlow<Boolean> = monitoringState.serviceRunning
 
     /**
-     * Whether it is off by request rather than merely not started yet. The two
-     * look identical from [monitoringRunning] alone, and the viewer treats them
-     * very differently — see the badge in MonitorScreen.
-     */
-    val stoppedByUser: StateFlow<Boolean> = monitoringState.userStopped
-
-    /**
      * What the monitor is hearing from each camera, keyed by camera id — the
      * settings meter answers "is the detector hearing anything at all?", but
      * only per room does a level say *which* camera the noise is in. A camera

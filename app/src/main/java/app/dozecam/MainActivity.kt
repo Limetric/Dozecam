@@ -25,6 +25,7 @@ import app.dozecam.audio.MediaAudioFocus
 import app.dozecam.audio.talkback.ProtectTalkback
 import app.dozecam.data.AppSettings
 import app.dozecam.data.OrientationLock
+import app.dozecam.data.SoundMode
 import app.dozecam.monitoring.MonitoringService
 import app.dozecam.monitoring.MonitoringStarter
 import app.dozecam.monitoring.shouldArmMonitoring
@@ -84,8 +85,8 @@ class MainActivity : ComponentActivity() {
     // No arming on the answer: the prompt is an activity, so answering it
     // resumes this one and the RESUMED autoArm below picks a grant up on its
     // own. A refusal of the ask made on launch is left to the connection that
-    // fails; one the user brought on by reaching for the monitoring badge is
-    // explained, because that path has no connection left to fail.
+    // fails; one the user brought on by reaching for the "not monitoring"
+    // badge is explained, because that path has no connection left to fail.
     private val localNetwork = LocalNetworkPermissionRequest(this)
 
     /**
@@ -126,6 +127,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // An exit asked for from the notification while no viewer was up has
+        // been carried out already — the service is gone — and must not close
+        // the viewer that is opening now. Cleared before it is watched.
+        appContainer.monitoringState.exitRequested.value = false
+        lifecycleScope.launch {
+            appContainer.monitoringState.exitRequested.collect { if (it) exit() }
+        }
         if (savedInstanceState == null && !LocalNetworkPermission.isGranted(this)) {
             localNetwork.ask(explainRefusal = false)
         }
@@ -172,15 +180,16 @@ class MainActivity : ComponentActivity() {
         // players anyway, so holding on past that would leave every other app
         // ducked for a viewer nobody can hear — and so would keeping it while
         // there is no camera on to produce a sound in the first place. The
-        // switch itself survives either: turning a camera back on picks the
+        // setting itself survives either: turning a camera back on picks the
         // focus up again rather than making the user ask twice.
+        val soundOn = appContainer.appSettings.settings.map { it.soundMode != SoundMode.OFF }
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 try {
                     combine(
-                        appContainer.appSettings.settings.map { it.viewerSound },
+                        soundOn,
                         appContainer.cameras.enabledCameras.map { it.isNotEmpty() },
-                    ) { soundOn, anyCameras -> soundOn && anyCameras }
+                    ) { on, anyCameras -> on && anyCameras }
                         .distinctUntilChanged()
                         .collect { wanted ->
                             when {
@@ -196,8 +205,8 @@ class MainActivity : ComponentActivity() {
                                 // jumping back in when whatever took the
                                 // speaker is finished with it.
                                 !audioFocus.request(MediaAudioFocus.Client.VIEWER) {
-                                    setViewerSound(false)
-                                } -> setViewerSound(false)
+                                    setSoundMode(SoundMode.OFF)
+                                } -> setSoundMode(SoundMode.OFF)
                             }
                         }
                 } finally {
@@ -208,19 +217,16 @@ class MainActivity : ComponentActivity() {
 
         // Listen mode stands down while the viewer is making noise of its own.
         // Reported from here rather than inferred by the service, because only
-        // this side knows all three parts of it: the switch, the speaker, and
+        // this side knows all three parts of it: the setting, the speaker, and
         // whether the viewer is on screen at all.
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 try {
-                    combine(
-                        appContainer.appSettings.settings.map { it.viewerSound },
-                        audioFocus.granted,
-                    ) { soundOn, granted -> soundOn && granted }
+                    combine(soundOn, audioFocus.granted) { on, granted -> on && granted }
                         .distinctUntilChanged()
                         .collect { appContainer.monitoringState.viewerAudible.value = it }
                 } finally {
-                    // Backgrounded silences the players whatever the switch
+                    // Backgrounded silences the players whatever the setting
                     // says, so the nursery must be free to come back at once —
                     // this is the moment listen mode exists for.
                     appContainer.monitoringState.viewerAudible.value = false
@@ -229,8 +235,8 @@ class MainActivity : ComponentActivity() {
         }
 
         // Always armed: coming to the front with cameras switched on means
-        // monitoring should be running, unless the user deliberately stopped it
-        // during this process's lifetime.
+        // monitoring should be running. There is no switch to have left off;
+        // monitoring ends with the app, and only then.
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.RESUMED) { autoArm() }
         }
@@ -254,16 +260,11 @@ class MainActivity : ComponentActivity() {
                 val disabledOnly by viewModel.hasDisabledOnly.collectAsStateWithLifecycle()
                 val monitoring by viewModel.monitoringRunning.collectAsStateWithLifecycle()
                 val canMonitor by viewModel.canMonitor.collectAsStateWithLifecycle()
-                val stoppedByUser by viewModel.stoppedByUser.collectAsStateWithLifecycle()
                 val audioLevels by viewModel.audioLevels.collectAsStateWithLifecycle()
                 val audioThreshold by viewModel.audioThreshold.collectAsStateWithLifecycle()
                 val reach by networkReach.collectAsStateWithLifecycle()
                 val alertCamera by alertCameraId.collectAsStateWithLifecycle()
                 val soundGranted by audioFocus.granted.collectAsStateWithLifecycle()
-                val listenRequest by container.monitoringState.listenRequest
-                    .collectAsStateWithLifecycle()
-                val listeningCameras by container.monitoringState.listeningCameraIds
-                    .collectAsStateWithLifecycle()
                 val localNetworkDenial by localNetwork.denial.collectAsStateWithLifecycle()
 
                 // Coming back to the front may mean a different console was
@@ -297,11 +298,12 @@ class MainActivity : ComponentActivity() {
                     onOpenOnboarding = { startActivity(OnboardingActivity.intent(this)) },
                     monitoringRunning = monitoring,
                     canMonitor = canMonitor,
-                    stoppedByUser = stoppedByUser,
-                    onStopMonitoring = ::stopMonitoring,
                     onStartMonitoring = ::startMonitoring,
-                    soundEnabled = appSettings.viewerSound,
-                    onSoundEnabledChange = ::setViewerSound,
+                    soundMode = appSettings.soundMode,
+                    onSoundModeChange = ::setSoundMode,
+                    alertsEnabled = appSettings.alertsEnabled,
+                    onAlertsEnabledChange = ::setAlertsEnabled,
+                    onExit = ::exit,
                     keepScreenOn = appSettings.keepScreenOn,
                     onKeepScreenOnChange = ::setKeepScreenOn,
                     // The cameras follow the focus we actually hold, not the
@@ -311,13 +313,6 @@ class MainActivity : ComponentActivity() {
                     // asked for likewise waits for the request to be granted
                     // rather than starting on the strength of the setting.
                     soundGranted = soundGranted,
-                    listening = listenRequest,
-                    onListeningChange = ::setListening,
-                    // What is actually coming out of the speaker, not what was
-                    // asked for — the same distinction [soundGranted] draws,
-                    // and for the same reason: the viewer must never confirm a
-                    // room is audible before it is.
-                    listeningCameraIds = listeningCameras,
                     audioLevels = audioLevels,
                     audioThreshold = audioThreshold,
                     alertCameraId = alertCamera,
@@ -477,29 +472,32 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Stopping by hand, from the badge over the cameras.
-     *
-     * The intent is recorded before the service is asked to go, and for the
-     * same reason the settings switch records it: [autoArm] runs on every
-     * resume, so without it the next glance at the viewer would start again
-     * what the user just ended.
+     * The whole of Dozecam, ended: the monitor, its notification, the speaker,
+     * and this viewer with its task. Monitoring has no switch of its own — it
+     * runs for as long as the app does — so this is the one way to stop it,
+     * and the next open arms it again. The stored settings are left exactly as
+     * they were; that is what "remembered" means.
      */
-    private fun stopMonitoring() {
-        appContainer.monitoringState.userStopped.value = true
+    private fun exit() {
+        // Marked as well as done, so any other screen of ours still alive
+        // finishes too and nothing re-arms the monitor on its way out; the
+        // next viewer to open clears it.
+        appContainer.monitoringState.exitRequested.value = true
         MonitoringService.stop(this)
+        finishAndRemoveTask()
     }
 
     /**
-     * Back on, through the gate auto-arming uses so a manual start cannot
-     * misfire — except that the gate refuses outright without local-network
-     * access, which would make this the one control on screen that visibly
-     * does nothing when tapped and never says why. Asked for here instead, the
-     * way the settings switch asks, with [autoArm] left to a grant and a
-     * dialog to a refusal — including the refusal Android answers instantly,
-     * with no prompt of its own, once the permission is permanently denied.
+     * Trying again, from the "not monitoring" badge, through the gate
+     * auto-arming uses so a manual start cannot misfire — except that the gate
+     * refuses outright without local-network access, which would make this
+     * the one control on screen that visibly does nothing when tapped and
+     * never says why. Asked for here instead, with [autoArm] left to a grant
+     * and a dialog to a refusal — including the refusal Android answers
+     * instantly, with no prompt of its own, once the permission is permanently
+     * denied.
      */
     private fun startMonitoring() {
-        appContainer.monitoringState.userStopped.value = false
         if (LocalNetworkPermission.isGranted(this)) {
             lifecycleScope.launch { autoArm() }
         } else {
@@ -507,26 +505,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Remembered, so the viewer opens the way it was last left. */
-    private fun setViewerSound(enabled: Boolean) {
+    /**
+     * Remembered, so the viewer opens the way it was last left. One setting
+     * for the viewer and the monitoring service both: the third mode is the
+     * service's listen mode, and it reads the same value.
+     */
+    private fun setSoundMode(mode: SoundMode) {
         lifecycleScope.launch {
-            appContainer.appSettings.update { it.copy(viewerSound = enabled) }
+            appContainer.appSettings.update { it.copy(soundMode = mode) }
         }
     }
 
-    /**
-     * Listen mode's whole control: play every room aloud, or stop.
-     *
-     * The switch is held in the app container rather than here so it survives
-     * this activity going away, which is the entire point of it — and
-     * pointedly not persisted, so a phone that reboots itself in the night does
-     * not come back broadcasting a bedroom.
-     */
-    private fun setListening(enabled: Boolean) {
-        if (enabled) {
-            appContainer.monitoringState.listenRequest.value = true
-        } else {
-            appContainer.monitoringState.stopListening()
+    /** Remembered for the same reason. */
+    private fun setAlertsEnabled(enabled: Boolean) {
+        lifecycleScope.launch {
+            appContainer.appSettings.update { it.copy(alertsEnabled = enabled) }
         }
     }
 

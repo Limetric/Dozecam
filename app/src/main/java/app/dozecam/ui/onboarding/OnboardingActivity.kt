@@ -43,6 +43,12 @@ class OnboardingActivity : ComponentActivity() {
             localNetworkPermission.launch(LocalNetworkPermission.name)
         }
         enableEdgeToEdge()
+        // An exit from the notification takes the whole task with it, so a
+        // destroyed viewer underneath cannot be recreated into arming the
+        // monitor again; see MonitoringState.exitRequested.
+        lifecycleScope.launch {
+            appContainer.monitoringState.exitRequested.collect { if (it) finishAffinity() }
+        }
         setContent {
             val container = appContainer
             val appSettings by container.appSettings.settings
@@ -102,7 +108,6 @@ class OnboardingActivity : ComponentActivity() {
 
     private fun finishOnboarding() {
         finishing = true
-        appContainer.monitoringState.userStopped.value = false
         lifecycleScope.launch {
             // Asks for the alert grants on the way, which is why this happens
             // here: cameras are in, so the request finally has obvious context.

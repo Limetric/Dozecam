@@ -26,7 +26,7 @@ object MonitoringNotifications {
     private const val REQUEST_ALERT_FULL_SCREEN = 0
     private const val REQUEST_ALERT_TAP = 1
     private const val REQUEST_STATUS_TAP = 2
-    private const val REQUEST_STATUS_STOP = 3
+    private const val REQUEST_STATUS_EXIT = 3
     private const val REQUEST_STATUS_STOP_LISTENING = 4
 
     fun ensureChannels(context: Context) {
@@ -56,7 +56,8 @@ object MonitoringNotifications {
      * The ongoing notification, and — while the phone listens with its screen
      * off — the whole of Dozecam's presence. So it carries the two things a
      * person reaching for it wants: the way back into the viewer, and the way
-     * to stop.
+     * out. Monitoring has no switch of its own — it runs for as long as the
+     * app does — so the way out is to exit the app.
      *
      * While the healthy listening line is showing it also carries proof of
      * life — [levelBucket], the loudest camera's level as a small bar, and
@@ -109,16 +110,16 @@ object MonitoringNotifications {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 ),
             )
-            // A broadcast rather than an activity: stopping is the whole of what
+            // A broadcast rather than an activity: leaving is the whole of what
             // the button means, and routing it through the viewer would put the
             // cameras on screen at the moment the user asked for the opposite.
             .addAction(
-                R.drawable.ic_stop,
-                context.getString(R.string.notification_monitoring_stop),
+                R.drawable.ic_power,
+                context.getString(R.string.notification_exit),
                 PendingIntent.getBroadcast(
                     context,
-                    REQUEST_STATUS_STOP,
-                    Intent(context, StopMonitoringReceiver::class.java),
+                    REQUEST_STATUS_EXIT,
+                    Intent(context, ExitReceiver::class.java),
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 ),
             )

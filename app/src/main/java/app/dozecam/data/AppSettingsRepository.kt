@@ -12,6 +12,17 @@ import kotlinx.coroutines.flow.map
 
 enum class OrientationLock { AUTO, PORTRAIT, LANDSCAPE }
 
+/**
+ * What the phone's speaker does with the cameras.
+ *
+ * One setting for the viewer and the monitor both, because it is one speaker.
+ * [ROTATING] is the viewer's: one tile at a time takes a turn, and it ends
+ * when the screen does. [ALL_ALOUD] is the house: every camera plays at once
+ * on screen, and the monitoring service carries the same mix on with the
+ * display off — listen mode, under the same switch as the rest.
+ */
+enum class SoundMode { OFF, ROTATING, ALL_ALOUD }
+
 data class AppSettings(
     /** Dim red palette that preserves night vision next to a crib. */
     val nightTheme: Boolean = false,
@@ -33,11 +44,21 @@ data class AppSettings(
     val alertVolume: Float = 1f,
     val orientationLock: OrientationLock = OrientationLock.AUTO,
     /**
-     * Whether the viewer may play camera audio. Off until asked for, and
-     * remembered: a viewer that comes back talking after a restart — or after
-     * the alert that woke the screen — is a surprise nobody asked for twice.
+     * What the speaker plays. Off until asked for, and remembered — including
+     * [SoundMode.ALL_ALOUD], which the service picks up again the next time
+     * the app is opened. Opening the app is the ask: there is no boot start,
+     * so a phone that reboots itself in the night stays silent until somebody
+     * comes back to it.
      */
-    val viewerSound: Boolean = false,
+    val soundMode: SoundMode = SoundMode.OFF,
+    /**
+     * Whether a room getting loud does anything at all — wakes the screen,
+     * chimes, vibrates. Off, the monitor keeps listening (the meters move and
+     * the speaker still plays) but nothing reaches anyone. On by default: a
+     * baby monitor that starts out not waking anyone is the failure nobody
+     * discovers until the one night it matters.
+     */
+    val alertsEnabled: Boolean = true,
     /**
      * Whether the viewer holds the display awake while cameras are showing.
      * On by default: a monitor propped up for the night that went dark at the
@@ -80,12 +101,13 @@ class AppSettingsRepository(private val dataStore: DataStore<Preferences>) : App
             prefs[KEY_ALERT_REPEAT_MS] = next.alertRepeatIntervalMs
             prefs[KEY_ALERT_VOLUME] = next.alertVolume
             prefs[KEY_ORIENTATION] = next.orientationLock.name
-            prefs[KEY_VIEWER_SOUND] = next.viewerSound
-            // Listen mode once chose a single room and remembered it here.
-            // Whether the speaker is on has never been stored, and deliberately
-            // (see [app.dozecam.monitoring.MonitoringState.listenRequest]), so
-            // this is the only trace of it to clear.
+            prefs[KEY_SOUND_MODE] = next.soundMode.name
+            prefs[KEY_ALERTS_ENABLED] = next.alertsEnabled
+            // Listen mode once chose a single room and remembered it here, and
+            // the viewer's sound was once a plain switch. Both have been read
+            // into [soundMode] by now, so neither is left to disagree with it.
             prefs.remove(KEY_LEGACY_LISTEN_CAMERA)
+            prefs.remove(KEY_LEGACY_VIEWER_SOUND)
             prefs[KEY_KEEP_SCREEN_ON] = next.keepScreenOn
             prefs[KEY_TALKBACK_VOLUME] = next.talkbackVolume
         }
@@ -104,7 +126,12 @@ class AppSettingsRepository(private val dataStore: DataStore<Preferences>) : App
             orientationLock = prefs[KEY_ORIENTATION]
                 ?.let { stored -> OrientationLock.entries.firstOrNull { it.name == stored } }
                 ?: defaults.orientationLock,
-            viewerSound = prefs[KEY_VIEWER_SOUND] ?: defaults.viewerSound,
+            soundMode = prefs[KEY_SOUND_MODE]
+                ?.let { stored -> SoundMode.entries.firstOrNull { it.name == stored } }
+                // An install that had the viewer's sound on comes back rotating,
+                // which is what that switch meant.
+                ?: if (prefs[KEY_LEGACY_VIEWER_SOUND] == true) SoundMode.ROTATING else defaults.soundMode,
+            alertsEnabled = prefs[KEY_ALERTS_ENABLED] ?: defaults.alertsEnabled,
             keepScreenOn = prefs[KEY_KEEP_SCREEN_ON] ?: defaults.keepScreenOn,
             talkbackVolume = prefs[KEY_TALKBACK_VOLUME] ?: defaults.talkbackVolume,
         )
@@ -119,7 +146,9 @@ class AppSettingsRepository(private val dataStore: DataStore<Preferences>) : App
         val KEY_ALERT_REPEAT_MS = longPreferencesKey("alert_repeat_interval_ms")
         val KEY_ALERT_VOLUME = floatPreferencesKey("alert_volume")
         val KEY_ORIENTATION = stringPreferencesKey("orientation_lock")
-        val KEY_VIEWER_SOUND = booleanPreferencesKey("viewer_sound")
+        val KEY_SOUND_MODE = stringPreferencesKey("sound_mode")
+        val KEY_ALERTS_ENABLED = booleanPreferencesKey("alerts_enabled")
+        val KEY_LEGACY_VIEWER_SOUND = booleanPreferencesKey("viewer_sound")
         val KEY_LEGACY_LISTEN_CAMERA = stringPreferencesKey("listen_camera_id")
         val KEY_KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
         val KEY_TALKBACK_VOLUME = floatPreferencesKey("talkback_volume")
