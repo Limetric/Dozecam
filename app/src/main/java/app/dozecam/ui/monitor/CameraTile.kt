@@ -290,7 +290,9 @@ internal fun AudioMeterPill(
  * and guessing wrong is the entire failure mode a baby monitor cannot afford.
  *
  * A pill with nothing but its glyph, as wide as it is tall: the same shape as
- * the pills beside it, closed up to a circle.
+ * the pills beside it, closed up to a circle. Sized outright rather than given
+ * a floor, because an icon does not scale with the font — this is the one pill
+ * with nothing in it that could need the room.
  */
 @Composable
 private fun AudibleBadge(cameraName: String, modifier: Modifier = Modifier) {

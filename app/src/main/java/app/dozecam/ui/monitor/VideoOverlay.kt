@@ -5,7 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
@@ -38,6 +38,11 @@ internal const val VIDEO_OVERLAY_ALPHA = 0.85f
  * what a thumb expects. Chrome inside a grid tile is a size down: a thumbnail
  * is a picture first, and the status, name and meter it wears are captions on
  * it rather than things to press.
+ *
+ * Both are floors, not ceilings. Text scales with the system font size and a
+ * pill that could not grow with it would cut "Reconnecting" in half for
+ * exactly the reader who most needs it whole; at the default scale every
+ * pill sits at its floor, which is what keeps a row in a line.
  */
 internal object OverlayChrome {
     /** From the edge of the picture, or the screen, to the nearest chrome. */
@@ -93,8 +98,8 @@ internal fun VideoOverlaySurface(
 }
 
 /**
- * One line of chrome over the picture: a fixed-height, fully rounded
- * [VideoOverlaySurface] whose content sits centred in a row. Everything that
+ * One line of chrome over the picture: a fully rounded [VideoOverlaySurface]
+ * of at least [height] whose content sits centred in a row. Everything that
  * says one thing about a camera — its state, its name, how loud it is, whether
  * it can be heard — is one of these, so they line up with each other and with
  * the buttons beside them without each caller measuring its own.
@@ -112,7 +117,7 @@ internal fun OverlayPill(
         shape = CircleShape,
         color = color,
         contentColor = contentColor,
-        modifier = modifier.height(height),
+        modifier = modifier.heightIn(min = height),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,

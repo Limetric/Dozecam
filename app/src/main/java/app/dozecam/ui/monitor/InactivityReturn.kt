@@ -169,8 +169,11 @@ internal fun InactivityNotice(
         // Left to the theme's own accent rather than tinted to match the
         // sentence beside it: this is the one thing here that can be pressed,
         // and it should look like it. Its usual 48dp touch target is waived:
-        // the pill is 40dp by design, and a button that insisted on more
-        // would hang out of it.
+        // the pill is 40dp by design, and a button that insisted on more would
+        // hang out of it. Nothing is lost by that — the whole screen is the
+        // touch target for staying, since any touch on it resets the
+        // countdown; the button is where that is discoverable, not the only
+        // place it works.
         CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
             TextButton(
                 onClick = onStay,

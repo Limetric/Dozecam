@@ -1,13 +1,21 @@
 package app.dozecam.ui.monitor
 
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.height
+import androidx.compose.ui.Modifier
 import app.dozecam.player.ConnectionState
 import app.dozecam.ui.theme.DozecamTheme
 import app.dozecam.ui.theme.NightRedColorScheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -57,6 +65,39 @@ class StatusOverlayTest {
 
         composeRule.onNodeWithText("OFFLINE").assertExists()
         composeRule.onNodeWithTag("status-icon-offline").assertExists()
+    }
+
+    /**
+     * The pill has a floor, not a fixed height: at a large system font size
+     * the word grows, and a pill that could not grow with it would cut the
+     * connection state in half for exactly the reader who most needs it.
+     */
+    @Test
+    fun `the pill grows with the system font size rather than clipping the word`() {
+        composeRule.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(
+                LocalDensity provides Density(density.density, fontScale = 2f),
+            ) {
+                DozecamTheme {
+                    StatusOverlay(
+                        state = ConnectionState.Reconnecting(3),
+                        lastFrameAtMs = 0L,
+                        modifier = Modifier.testTag("pill"),
+                    )
+                }
+            }
+        }
+
+        // A clipped word still reports the bounds it was squeezed into, so
+        // the pill is measured instead: at twice the font size a line of
+        // label text is taller than the pill's floor, and the pill must have
+        // made room for it.
+        val pill = composeRule.onNodeWithTag("pill").getBoundsInRoot()
+        assertTrue(
+            "pill (${pill.height}) did not grow past its floor (${OverlayChrome.TileHeight})",
+            pill.height > OverlayChrome.TileHeight,
+        )
     }
 
     /**
