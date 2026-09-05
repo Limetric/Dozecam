@@ -26,6 +26,7 @@ import androidx.core.net.toUri
 import app.dozecam.R
 import app.dozecam.data.AppSettings
 import app.dozecam.monitoring.AlarmSchedule
+import app.dozecam.monitoring.FailureLedger
 import app.dozecam.ui.components.GroupRow
 import app.dozecam.ui.components.groupShape
 import kotlin.math.roundToInt
@@ -250,6 +251,46 @@ private fun AlertTuning(
             }
             Text(
                 text = stringResource(R.string.alert_repeat_footnote),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            // The monitor's own alarm — for when it cannot do its job. One
+            // number: how long a camera may be gone before that is a failure
+            // rather than a reconnect. Long by default, because an alarm for
+            // every brief drop is one people learn to sleep through.
+            JumpTarget(
+                id = SettingIds.FAILURE_GRACE,
+                jumpTarget = jumpTarget,
+                onJumpDone = onJumpDone,
+                shape = MaterialTheme.shapes.medium,
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.padding(top = 12.dp),
+                ) {
+                    Text(
+                        text = stringResource(
+                            R.string.setting_failure_grace_label,
+                            (settings.failureGraceMs / 1000).toInt(),
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Slider(
+                        value = settings.failureGraceMs / 1000f,
+                        onValueChange = { value ->
+                            onSettingsChange {
+                                it.copy(failureGraceMs = (value * 1000).roundToLong())
+                            }
+                        },
+                        valueRange = FailureLedger.MIN_GRACE_MS / 1000f..
+                            FailureLedger.MAX_GRACE_MS / 1000f,
+                        modifier = Modifier.testTag("failure-grace-slider"),
+                    )
+                }
+            }
+            Text(
+                text = stringResource(R.string.setting_failure_grace_footnote),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp),

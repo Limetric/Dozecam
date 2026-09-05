@@ -85,6 +85,23 @@ class MonitoringState {
     val lastAlertCameraId = MutableStateFlow<String?>(null)
 
     /**
+     * Every way the monitor is currently failing to do its job, oldest first
+     * — a camera unreachable past the grace period, a battery running down,
+     * an alert that could not be shown. Empty is the healthy state. Written
+     * by the service's [FailureLedger]; the viewer and the status line both
+     * read it, so a failure is said the same way everywhere it is said.
+     */
+    val failures = MutableStateFlow<List<MonitoringFailure>>(emptyList())
+
+    /**
+     * The most recent failure to have cleared, kept so the ongoing
+     * notification can say it happened: a camera that was gone for twenty
+     * minutes at 3am is something to know about in the morning, even though
+     * it is back.
+     */
+    val lastRecoveredFailure = MutableStateFlow<RecoveredFailure?>(null)
+
+    /**
      * The user asked, from the ongoing notification, for Dozecam to go away
      * entirely. The receiver that hears it can stop the service but cannot
      * close a screen it does not hold, so it leaves the request here and every
@@ -171,5 +188,7 @@ class MonitoringState {
 
     fun clear() {
         cameras.value = emptyMap()
+        failures.value = emptyList()
+        lastRecoveredFailure.value = null
     }
 }

@@ -377,6 +377,7 @@ class MainActivity : ComponentActivity() {
                 val unmonitorable by viewModel.unmonitorable.collectAsStateWithLifecycle()
                 val disabledOnly by viewModel.hasDisabledOnly.collectAsStateWithLifecycle()
                 val monitoring by viewModel.monitoringRunning.collectAsStateWithLifecycle()
+                val failures by viewModel.failures.collectAsStateWithLifecycle()
                 val canMonitor by viewModel.canMonitor.collectAsStateWithLifecycle()
                 val audioLevels by viewModel.audioLevels.collectAsStateWithLifecycle()
                 val audioThreshold by viewModel.audioThreshold.collectAsStateWithLifecycle()
@@ -420,6 +421,7 @@ class MainActivity : ComponentActivity() {
                     onOpenSettings = { startActivity(SettingsActivity.intent(this)) },
                     onOpenOnboarding = { startActivity(OnboardingActivity.intent(this)) },
                     monitoringRunning = monitoring,
+                    monitoringFailures = failures,
                     canMonitor = canMonitor,
                     onStartMonitoring = ::startMonitoring,
                     soundMode = appSettings.soundMode,
@@ -539,7 +541,10 @@ class MainActivity : ComponentActivity() {
      * process except inside our own PendingIntent.
      */
     private fun applyAlertIntent(intent: Intent) {
-        val cameraId = intent.getStringExtra(EXTRA_ALERT_CAMERA_ID) ?: return
+        val cameraId = intent.getStringExtra(EXTRA_ALERT_CAMERA_ID)
+        // A monitoring failure wakes the viewer with no room to open: what it
+        // has to show is the failure notice, and every tile as it stands.
+        if (cameraId == null && !intent.getBooleanExtra(EXTRA_ALERT_FAILURE, false)) return
         // Reassigned every time rather than merely granted: singleTask means one
         // long-lived instance, so a privilege left switched on by an earlier
         // alert would let the next forged launch ride in on it. Burning the
@@ -567,6 +572,14 @@ class MainActivity : ComponentActivity() {
         val fromUs = fromOurAlert || fromOurTap
         setShowWhenLocked(fromUs)
         setTurnScreenOn(fromUs)
+
+        // A monitoring failure names no room either: it wakes the viewer onto
+        // the grid, every tile as it stands, with the failure notice saying
+        // what is wrong. Nothing to open, so nothing to hand to the grid.
+        if (cameraId == null) {
+            if (fromOurTap) appContainer.alertSignaler.acknowledge()
+            return
+        }
 
         // The bedtime test names no room, and must not be handed to the viewer
         // as though it did. Its camera id belongs to no camera, so the grid
@@ -912,6 +925,7 @@ class MainActivity : ComponentActivity() {
         private const val EXTRA_ALERT_TOKEN = "alert_token"
         private const val EXTRA_ALERT_TAP_KEY = "alert_tap_key"
         private const val EXTRA_ALERT_TEST = "alert_test"
+        private const val EXTRA_ALERT_FAILURE = "alert_failure"
         private const val STATE_TEST_ALERT_SHOWING = "test_alert_showing"
 
         /**
@@ -970,5 +984,21 @@ class MainActivity : ComponentActivity() {
          */
         fun alertTapIntent(context: Context, cameraId: String, test: Boolean = false): Intent =
             alertIntent(context, cameraId, test).putExtra(EXTRA_ALERT_TAP_KEY, alertTapKey)
+
+        /**
+         * The wake target for a monitoring failure: the viewer over the lock
+         * screen, opened on nothing in particular, carrying the same secret
+         * the sound alert does — the keyguard is no more anyone else's to lift
+         * for a failure than for a cry.
+         */
+        fun failureIntent(context: Context): Intent =
+            Intent(context, MainActivity::class.java)
+                .putExtra(EXTRA_ALERT_FAILURE, true)
+                .putExtra(EXTRA_ALERT_TOKEN, alertToken)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        /** The tap on a failure card, told apart from the unattended launch as [alertTapIntent] is. */
+        fun failureTapIntent(context: Context): Intent =
+            failureIntent(context).putExtra(EXTRA_ALERT_TAP_KEY, alertTapKey)
     }
 }

@@ -43,6 +43,12 @@ data class AppSettings(
      * an alert but never make it louder than their own alarm clock.
      */
     val alertVolume: Float = 1f,
+    /**
+     * How long a monitored camera may be unreachable before that is a failure
+     * worth an alarm. Long enough that an ordinary reconnect never crosses it:
+     * an alarm for every brief drop is one people learn to sleep through.
+     */
+    val failureGraceMs: Long = 60_000,
     val orientationLock: OrientationLock = OrientationLock.AUTO,
     /**
      * What the speaker plays. Off until asked for, and remembered — including
@@ -113,6 +119,7 @@ class AppSettingsRepository(private val dataStore: DataStore<Preferences>) : App
             prefs[KEY_ALERT_RAMP] = next.alertRamp
             prefs[KEY_ALERT_REPEAT_MS] = next.alertRepeatIntervalMs
             prefs[KEY_ALERT_VOLUME] = next.alertVolume
+            prefs[KEY_FAILURE_GRACE_MS] = next.failureGraceMs
             prefs[KEY_ORIENTATION] = next.orientationLock.name
             prefs[KEY_SOUND_MODE] = next.soundMode.name
             prefs[KEY_ALERTS_ENABLED] = next.alertsEnabled
@@ -137,6 +144,7 @@ class AppSettingsRepository(private val dataStore: DataStore<Preferences>) : App
             alertRamp = prefs[KEY_ALERT_RAMP] ?: defaults.alertRamp,
             alertRepeatIntervalMs = prefs[KEY_ALERT_REPEAT_MS] ?: defaults.alertRepeatIntervalMs,
             alertVolume = prefs[KEY_ALERT_VOLUME] ?: defaults.alertVolume,
+            failureGraceMs = prefs[KEY_FAILURE_GRACE_MS] ?: defaults.failureGraceMs,
             orientationLock = prefs[KEY_ORIENTATION]
                 ?.let { stored -> OrientationLock.entries.firstOrNull { it.name == stored } }
                 ?: defaults.orientationLock,
@@ -161,6 +169,7 @@ class AppSettingsRepository(private val dataStore: DataStore<Preferences>) : App
         val KEY_ALERT_RAMP = booleanPreferencesKey("alert_ramp")
         val KEY_ALERT_REPEAT_MS = longPreferencesKey("alert_repeat_interval_ms")
         val KEY_ALERT_VOLUME = floatPreferencesKey("alert_volume")
+        val KEY_FAILURE_GRACE_MS = longPreferencesKey("failure_grace_ms")
         val KEY_ORIENTATION = stringPreferencesKey("orientation_lock")
         val KEY_SOUND_MODE = stringPreferencesKey("sound_mode")
         val KEY_ALERTS_ENABLED = booleanPreferencesKey("alerts_enabled")

@@ -28,6 +28,10 @@ internal object MonitoringStatus {
         aloudCameraIds: Set<String> = emptySet(),
         /** Whether a loud room reaches anyone at all. */
         alertsEnabled: Boolean = true,
+        /** Every way the monitor is currently failing, oldest first. */
+        failures: List<MonitoringFailure> = emptyList(),
+        /** The last failure to have cleared, for the note that it happened. */
+        recovered: RecoveredFailure? = null,
     ): Status = discloseAlertsOff(
         context = context,
         alertsEnabled = alertsEnabled,
@@ -35,9 +39,59 @@ internal object MonitoringStatus {
             context = context,
             states = states,
             aloudCameraIds = aloudCameraIds,
-            status = listening(context, anyMonitors, states, enabledCount),
+            status = noteRecovered(
+                context = context,
+                recovered = recovered,
+                status = failing(context, failures)
+                    ?: listening(context, anyMonitors, states, enabledCount),
+            ),
         ),
     )
+
+    /**
+     * A failure past its grace period outranks every other line: the
+     * "reconnecting" and "offline" lines describe a monitor that expects to
+     * be back, and this is the line for one that has been gone too long to
+     * say so. It takes precedence over a triggered camera too — that room
+     * has its own card and its own alarm, and the ongoing line is where a
+     * failure is kept for as long as it lasts.
+     */
+    private fun failing(context: Context, failures: List<MonitoringFailure>): Status? {
+        val first = failures.firstOrNull() ?: return null
+        val line = context.getString(
+            R.string.monitoring_status_failing,
+            FailureWording.title(context, first.reason),
+            FailureWording.time(context, first.sinceMs),
+        )
+        val text = if (failures.size > 1) {
+            context.getString(R.string.monitoring_status_failing_more, line, failures.size - 1)
+        } else {
+            line
+        }
+        return Status(text, null)
+    }
+
+    /**
+     * A failure that has cleared leaves a note behind it. Honesty is only
+     * useful to someone looking, and nobody was at 3am — so the morning's
+     * glance at the shade has to be able to learn that the nursery was
+     * unreachable for twenty minutes, even though it is back.
+     */
+    private fun noteRecovered(
+        context: Context,
+        recovered: RecoveredFailure?,
+        status: Status,
+    ): Status {
+        if (recovered == null) return status
+        return status.copy(
+            text = context.getString(
+                R.string.monitoring_status_recovered,
+                status.text,
+                FailureWording.title(context, recovered.reason),
+                FailureWording.time(context, recovered.clearedAtMs),
+            ),
+        )
+    }
 
     /**
      * A monitor that will not wake anyone has to say so where it is seen:

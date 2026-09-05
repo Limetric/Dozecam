@@ -9,6 +9,7 @@ import app.dozecam.monitoring.MonitoringService
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -39,6 +40,36 @@ class MainActivityAlertIntentTest {
         val shadow = shadowOf(activity)
         assertTrue(shadow.getShowWhenLocked())
         assertTrue(shadow.getTurnScreenOn())
+    }
+
+    /**
+     * A monitoring failure wakes the viewer as a sound alert does — same
+     * secret, same lock-screen privilege — but it has no room to open, so the
+     * viewer comes up on the grid, every tile as it stands.
+     */
+    @Test
+    fun `a monitoring failure wakes the viewer over the lock screen onto no camera`() {
+        val intent = MainActivity.failureIntent(context)
+
+        val activity = Robolectric.buildActivity(MainActivity::class.java, intent).create().get()
+
+        val shadow = shadowOf(activity)
+        assertTrue(shadow.getShowWhenLocked())
+        assertTrue(shadow.getTurnScreenOn())
+        assertNull(intent.getStringExtra("alert_camera_id"))
+    }
+
+    @Test
+    fun `a forged failure intent cannot lift the keyguard`() {
+        val forged = Intent(context, MainActivity::class.java)
+            .putExtra("alert_failure", true)
+            .putExtra("alert_token", "guessed")
+
+        val activity = Robolectric.buildActivity(MainActivity::class.java, forged).create().get()
+
+        val shadow = shadowOf(activity)
+        assertFalse(shadow.getShowWhenLocked())
+        assertFalse(shadow.getTurnScreenOn())
     }
 
     @Test

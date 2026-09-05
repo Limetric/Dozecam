@@ -6,6 +6,7 @@ import app.dozecam.audio.SoundDetector
 import app.dozecam.player.ConnectionState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -48,6 +49,52 @@ class MonitoringStatusTest {
         assertEquals("Alerts off · Monitoring 1 camera", status.text)
         // Still a healthy line: the monitor is running, it just will not wake
         // anyone, and the meter is proof of the former.
+        assertEquals(0.2f, status.level)
+    }
+
+    /**
+     * A failure past its grace period outranks every other line, for as long
+     * as it lasts: "reconnecting" describes a monitor that expects to be back,
+     * and this is the line for one that has been gone too long to say so.
+     */
+    @Test
+    fun `a failure is said first and carries no level`() {
+        val status = MonitoringStatus.of(
+            context,
+            anyMonitors = true,
+            states = listOf(live("a", level = 0.3f), live("b", name = "Nursery").copy(connection = ConnectionState.Offline)),
+            enabledCount = 2,
+            failures = listOf(
+                MonitoringFailure(
+                    FailureReason.CameraUnreachable("b", "Nursery", networkDown = false),
+                    sinceMs = 0L,
+                ),
+                MonitoringFailure(FailureReason.LowBattery(22), sinceMs = 0L),
+            ),
+        )
+
+        assertTrue(status.text, status.text.startsWith("Can't reach Nursery since "))
+        assertTrue(status.text, status.text.endsWith(" · 1 more"))
+        assertNull(status.level)
+    }
+
+    /** Nobody was looking at 3am, so the morning's glance has to be able to learn it happened. */
+    @Test
+    fun `a failure that cleared leaves a note on the healthy line`() {
+        val status = MonitoringStatus.of(
+            context,
+            anyMonitors = true,
+            states = listOf(live("a", level = 0.2f)),
+            enabledCount = 1,
+            recovered = RecoveredFailure(
+                FailureReason.CameraUnreachable("a", "Nursery", networkDown = true),
+                sinceMs = 0L,
+                clearedAtMs = 0L,
+            ),
+        )
+
+        assertTrue(status.text, status.text.startsWith("Monitoring 1 camera · Earlier: No network — can't reach Nursery, cleared "))
+        // The line is still the healthy one, and the meter is still proof of it.
         assertEquals(0.2f, status.level)
     }
 

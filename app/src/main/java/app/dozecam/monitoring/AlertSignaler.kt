@@ -76,7 +76,17 @@ class AlertSignaler(
      * Never a second player: two alarms overlapping is noise, not urgency, and
      * the ramp already in progress must not drop back to a whisper.
      */
-    fun signal(cameraId: String, settings: AppSettings) {
+    fun signal(
+        cameraId: String,
+        settings: AppSettings,
+        /**
+         * The tone to sound. The chosen alert sound unless told otherwise; a
+         * monitoring failure brings its own, so it is never mistaken for a
+         * room getting loud. An alarm already sounding keeps the sound it
+         * started with.
+         */
+        sound: Uri = AlarmSound.uriFor(settings),
+    ) {
         lastTriggerAtMs = clock()
         _alarmingCameraId.value = cameraId
         if (job?.isActive == true) return
@@ -89,7 +99,7 @@ class AlertSignaler(
         previewJob?.cancel()
         previewJob = null
         val token = ++generation
-        job = scope.launch { run(settings, token) }
+        job = scope.launch { run(settings, token, sound) }
     }
 
     /**
@@ -153,9 +163,8 @@ class AlertSignaler(
         player.stop()
     }
 
-    private suspend fun run(settings: AppSettings, token: Long) {
+    private suspend fun run(settings: AppSettings, token: Long, uri: Uri) {
         val schedule = settings.alarmSchedule()
-        val uri = AlarmSound.uriFor(settings)
         val startedAtMs = clock()
         try {
             burst(settings, schedule, uri, elapsedMs = 0L)
@@ -197,6 +206,13 @@ class AlertSignaler(
         const val TICK_MS = 250L
 
         const val PREVIEW_MS = 4_000L
+
+        /**
+         * What [alarmingCameraId] holds while the alarm is for the monitor
+         * itself rather than for a room. Never a real camera id, so nothing
+         * that reads it as one can be sent to a room that is not there.
+         */
+        const val MONITORING_FAILURE = "monitoring-failure"
     }
 }
 

@@ -32,6 +32,15 @@ object AlarmSound {
             ?: Settings.System.DEFAULT_ALARM_ALERT_URI
 
     /**
+     * The monitoring failure tone: the beep a physical monitor makes when it
+     * loses the other unit. Bundled rather than chosen, and deliberately not
+     * the alert sound, so the two are never confused at 3am — one means a
+     * room needs someone, the other means nobody would be told if it did.
+     */
+    fun failure(context: Context): Uri =
+        "android.resource://${context.packageName}/${R.raw.monitoring_failure}".toUri()
+
+    /**
      * Whether a tone can actually be opened by this app.
      *
      * The picker hands back bare `content://media/external/...` URIs for a file

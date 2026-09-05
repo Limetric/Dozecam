@@ -9,6 +9,7 @@ import android.content.pm.ServiceInfo
 import android.media.AudioManager
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -27,6 +28,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
@@ -60,7 +62,7 @@ class MonitoringService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var appSettings = AppSettings()
     private var detectorSettings = DetectorSettings()
-    private var networkOnline = true
+    private val networkOnline = MutableStateFlow(true)
 
     private val monitors = mutableMapOf<String, CameraAudioMonitor>()
 
@@ -78,6 +80,28 @@ class MonitoringService : Service() {
 
     private val heartbeat = StatusHeartbeat()
 
+    /**
+     * The book on what is wrong. A monitor that cannot do its job has to say
+     * so out loud, once, and keep saying it in the ongoing notification until
+     * it is true again — the ledger decides both moments.
+     */
+    private val ledger = FailureLedger(
+        monotonicClock = SystemClock::elapsedRealtime,
+        wallClock = System::currentTimeMillis,
+    )
+
+    /** Whether a failure card and alarm are up, so a change in the set refreshes the card rather than re-waking the room. */
+    private var failureAnnounced = false
+
+    /** The battery as the system last reported it; null until it has. */
+    private val battery = MutableStateFlow<BatteryStatus?>(null)
+
+    private val batteryChanged = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            BatteryStatus.of(intent)?.let { battery.value = it }
+        }
+    }
+
     /** What each running monitor was built with, to notice when that stops being true. */
     private val monitorTransports = mutableMapOf<String, List<StreamSource>>()
 
@@ -92,6 +116,16 @@ class MonitoringService : Service() {
                 addAction(ACTION_STREAM_MUTE_CHANGED)
             },
             ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        // Sticky, so registering answers with the battery as it stands now;
+        // every change after that arrives the same way.
+        battery.value = BatteryStatus.of(
+            ContextCompat.registerReceiver(
+                this,
+                batteryChanged,
+                IntentFilter(Intent.ACTION_BATTERY_CHANGED),
+                ContextCompat.RECEIVER_NOT_EXPORTED,
+            ),
         )
         ServiceCompat.startForeground(
             this,
@@ -159,7 +193,7 @@ class MonitoringService : Service() {
         val networkMonitor = NetworkMonitor(applicationContext)
         scope.launch {
             networkMonitor.isOnline.collect { online ->
-                networkOnline = online
+                networkOnline.value = online
                 monitors.values.forEach {
                     if (online) it.onNetworkAvailable() else it.onNetworkLost()
                 }
@@ -238,6 +272,9 @@ class MonitoringService : Service() {
                 container.cameras.enabledCameras,
                 container.monitoringState.listeningCameraIds,
                 container.appSettings.settings.map { it.alertsEnabled }.distinctUntilChanged(),
+                // The failure record and the tick, folded together only
+                // because combine takes five flows at most.
+                //
                 // The camera map changes on almost every decoded audio buffer —
                 // but not on every one: a run of identical levels (digital
                 // silence, exactly 0f) is conflated away by the StateFlow, and
@@ -245,8 +282,12 @@ class MonitoringService : Service() {
                 // tick keeps evaluation time-driven as well, which is the whole
                 // point of a heartbeat; a wedged process runs no ticker, so it
                 // still cannot fake one.
-                heartbeatTicks(),
-            ) { states, enabled, aloudCameraIds, alertsEnabled, _ ->
+                combine(
+                    container.monitoringState.failures,
+                    container.monitoringState.lastRecoveredFailure,
+                    heartbeatTicks(),
+                ) { failures, recovered, _ -> failures to recovered },
+            ) { states, enabled, aloudCameraIds, alertsEnabled, (failures, recovered) ->
                 MonitoringStatus.of(
                     context = this@MonitoringService,
                     anyMonitors = monitors.isNotEmpty(),
@@ -258,6 +299,8 @@ class MonitoringService : Service() {
                     // is a monitor that will not wake anyone.
                     aloudCameraIds = aloudCameraIds,
                     alertsEnabled = alertsEnabled,
+                    failures = failures,
+                    recovered = recovered,
                 )
             }
                 // Unmetered this would rebuild and repost the foreground
@@ -269,6 +312,84 @@ class MonitoringService : Service() {
                     heartbeat.offer(status.text, status.level)?.let(::updateStatusNotification)
                 }
         }
+
+        // Every way the monitor could be failing to do its job, judged
+        // together: the cameras' connections, the network they need, the
+        // battery, and the grants an alert would need to reach anyone. Time
+        // is an input too — a camera crosses the grace period with no event
+        // of its own — so the heartbeat drives this as well.
+        scope.launch {
+            combine(
+                container.monitoringState.cameras
+                    // Only the facts the ledger judges by: the map moves with
+                    // every decoded buffer, and which cameras are live does not.
+                    .map { states -> states.values.map { it.copy(level = null) } }
+                    .distinctUntilChanged(),
+                networkOnline,
+                battery,
+                heartbeatTicks(),
+            ) { cameras, online, battery, _ ->
+                MonitoringHealth(
+                    cameras = cameras,
+                    networkOnline = online,
+                    battery = battery,
+                    notificationsAllowed = AlertAccess.notificationsAllowed(this@MonitoringService),
+                    screenWakeAllowed = AlertAccess.screenWakeAllowed(this@MonitoringService),
+                )
+            }.collect(::judge)
+        }
+    }
+
+    /**
+     * One evaluation of the ledger, carried out. The record is written first,
+     * so the status line and the viewer say what the alarm is about before it
+     * sounds.
+     */
+    private fun judge(health: MonitoringHealth) {
+        val state = appContainer.monitoringState
+        val update = ledger.evaluate(health, appSettings.failureGraceMs)
+        state.failures.value = update.active
+        update.recovered.lastOrNull()?.let { state.lastRecoveredFailure.value = it }
+        if (update.unplugged) {
+            health.battery?.let { MonitoringNotifications.postUnplugged(this, it.percent) }
+        }
+        when {
+            update.announce.isNotEmpty() -> raiseFailureAlert(update.active)
+            update.active.isEmpty() -> clearFailureAlert()
+            // Something cleared but something else is still wrong: the card
+            // says what is left, without waking anyone for it again.
+            update.recovered.isNotEmpty() && failureAnnounced ->
+                MonitoringNotifications.postFailure(this, update.active, wakeScreen = false)
+        }
+    }
+
+    /**
+     * The failure alert: the same delivery path as a sound alert — the card
+     * with a full-screen intent, the latched alarm on alarm usage — under its
+     * own tone and its own words, so the two are never confused at 3am.
+     *
+     * Behind the same switch as the sound alert, for the same reason: alerts
+     * off means nothing wakes anyone, and the failure still shows in the
+     * status line and on the viewer for whoever is awake to look.
+     */
+    private fun raiseFailureAlert(failures: List<MonitoringFailure>) {
+        if (!appSettings.alertsEnabled) return
+        failureAnnounced = true
+        MonitoringNotifications.postFailure(this, failures, wakeScreen = true)
+        appContainer.alertSignaler.signal(
+            AlertSignaler.MONITORING_FAILURE,
+            appSettings,
+            sound = AlarmSound.failure(this),
+        )
+    }
+
+    /** Nothing is wrong any more: the card goes, and the alarm with it if it was this one's. */
+    private fun clearFailureAlert() {
+        if (!failureAnnounced) return
+        failureAnnounced = false
+        MonitoringNotifications.cancelFailure(this)
+        val signaler = appContainer.alertSignaler
+        if (signaler.alarmingCameraId.value == AlertSignaler.MONITORING_FAILURE) signaler.stop()
     }
 
     /**
@@ -335,7 +456,7 @@ class MonitoringService : Service() {
             monitors[camera.id] = monitor
             monitorTransports[camera.id] = transports[camera.id].orEmpty()
             monitor.start()
-            if (!networkOnline) monitor.onNetworkLost()
+            if (!networkOnline.value) monitor.onNetworkLost()
         }
 
         // A rename does not disturb a running monitor, but the label the status
@@ -518,11 +639,13 @@ class MonitoringService : Service() {
         }
     }
 
-    /** Silences whatever alert is up and takes its card down. */
+    /** Silences whatever alert is up and takes its cards down. */
     private fun dropAlert() {
         appContainer.alertSignaler.stop()
         NotificationManagerCompat.from(this)
             .cancel(MonitoringNotifications.ALERT_NOTIFICATION_ID)
+        failureAnnounced = false
+        MonitoringNotifications.cancelFailure(this)
     }
 
     private fun updateStatusNotification(display: StatusHeartbeat.Display) {
@@ -544,6 +667,7 @@ class MonitoringService : Service() {
 
     override fun onDestroy() {
         unregisterReceiver(volumeChanged)
+        unregisterReceiver(batteryChanged)
         val state = appContainer.monitoringState
         state.serviceRunning.value = false
         // The speaker goes with the monitor that was feeding it. Released here

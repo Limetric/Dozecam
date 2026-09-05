@@ -10,10 +10,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertContentDescriptionEquals
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -33,6 +35,8 @@ import app.dozecam.audio.talkback.Talkback
 import app.dozecam.audio.talkback.TalkbackAvailability
 import app.dozecam.data.Camera
 import app.dozecam.data.SoundMode
+import app.dozecam.monitoring.FailureReason
+import app.dozecam.monitoring.MonitoringFailure
 import app.dozecam.monitoring.Readiness
 import app.dozecam.monitoring.ReadinessFacts
 import app.dozecam.monitoring.ReadinessFinding
@@ -150,6 +154,7 @@ class MonitorScreenTest {
         onOpenSettings: () -> Unit = {},
         onOpenOnboarding: () -> Unit = {},
         monitoringRunning: Boolean = false,
+        monitoringFailures: List<MonitoringFailure> = emptyList(),
         canMonitor: Boolean = false,
         onStartMonitoring: () -> Unit = {},
         armingGraceMs: Long = ARMING_GRACE_MS,
@@ -190,6 +195,7 @@ class MonitorScreenTest {
                 onOpenSettings = onOpenSettings,
                 onOpenOnboarding = onOpenOnboarding,
                 monitoringRunning = monitoringRunning,
+                monitoringFailures = monitoringFailures,
                 canMonitor = canMonitor,
                 onStartMonitoring = onStartMonitoring,
                 armingGraceMs = armingGraceMs,
@@ -2205,6 +2211,42 @@ class MonitorScreenTest {
         }
 
         composeRule.onNodeWithTag("network-notice").assertIsDisplayed()
+    }
+
+    /**
+     * The tiles show the viewer's own connections, which say nothing about
+     * the monitor's: a camera can play here and still be one the monitor has
+     * lost. So the failure is said on the screen the alarm wakes into, by
+     * name.
+     */
+    @Test
+    fun `a monitoring failure is said on the viewer by name`() {
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery),
+                monitoringRunning = true,
+                monitoringFailures = listOf(
+                    MonitoringFailure(
+                        FailureReason.CameraUnreachable(nursery.id, "Nursery", networkDown = false),
+                        sinceMs = 0L,
+                    ),
+                    MonitoringFailure(FailureReason.LowBattery(22), sinceMs = 0L),
+                ),
+            )
+        }
+
+        composeRule.onAllNodesWithTag("failure-notice").assertCountEquals(2)
+        composeRule.onNodeWithText("Can't reach Nursery", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("Battery low", substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun `a healthy monitor puts no failure notice on the viewer`() {
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery), monitoringRunning = true)
+        }
+
+        composeRule.onAllNodesWithTag("failure-notice").assertCountEquals(0)
     }
 
     @Test
