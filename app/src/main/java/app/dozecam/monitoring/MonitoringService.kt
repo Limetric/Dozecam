@@ -672,8 +672,11 @@ class MonitoringService : Service() {
             .cancel(MonitoringNotifications.ALERT_NOTIFICATION_ID)
         failureAnnounced = false
         MonitoringNotifications.cancelFailure(this)
-        // Deliberately not the pending flag: alerts going off is what makes a
-        // standing failure pending in the first place.
+        // A failure still standing has just lost its card, and the ledger will
+        // not offer it again. So it is owed another announcement when alerts
+        // come back on — the same rule as a failure that crossed its grace
+        // period with alerts already off.
+        failureAnnouncementPending = appContainer.monitoringState.failures.value.isNotEmpty()
     }
 
     private fun updateStatusNotification(display: StatusHeartbeat.Display) {

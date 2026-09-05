@@ -693,6 +693,37 @@ class MonitoringServiceTest {
     }
 
     /**
+     * A failure announced in daylight, then alerts switched off for the
+     * afternoon: the card goes with the setting. Alerts back on at bedtime
+     * with the camera still gone must say so again — the ledger will not,
+     * having said it once, so the service has to remember it is owed.
+     */
+    @Test
+    fun `an announced failure is announced again when alerts are switched off and back on`() = runTest {
+        container.appSettings.update { it.copy(alertChime = false, alertVibrate = false) }
+        val grace = graceMs()
+        createService().get()
+        val state = container.monitoringState
+        state.put(live("a", "Nursery").withConnection(ConnectionState.Offline))
+        shadowOf(Looper.getMainLooper()).idle()
+        idleFor(grace + StatusHeartbeat.MIN_INTERVAL_MS)
+        assertNotNull(failureCard())
+        container.alertSignaler.acknowledge()
+
+        container.appSettings.update { it.copy(alertsEnabled = false) }
+        shadowOf(Looper.getMainLooper()).idle()
+        assertNull(failureCard())
+        assertEquals(1, state.failures.value.size)
+
+        container.appSettings.update { it.copy(alertsEnabled = true) }
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertNotNull(failureCard())
+        assertEquals(AlertSignaler.MONITORING_FAILURE, container.alertSignaler.alarmingCameraId.value)
+        container.alertSignaler.stop()
+    }
+
+    /**
      * The battery is read from the system's sticky broadcast, and a charger
      * pulled with the monitor armed gets the milder notice: a quiet card, no
      * alarm, saying where the battery stands.
