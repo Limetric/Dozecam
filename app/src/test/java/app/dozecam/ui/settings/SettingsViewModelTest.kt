@@ -10,11 +10,17 @@ import app.dozecam.data.DetectorSettingsStore
 import app.dozecam.data.ProtectStream
 import app.dozecam.monitoring.CameraMonitorState
 import app.dozecam.monitoring.MonitoringState
+import app.dozecam.monitoring.Readiness
+import app.dozecam.monitoring.ReadinessCheck
+import app.dozecam.monitoring.ReadinessFacts
+import app.dozecam.monitoring.ReadinessFinding
 import app.dozecam.protect.CredentialsStore
 import app.dozecam.protect.ProtectCredentials
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -93,12 +99,15 @@ class SettingsViewModelTest {
         detector: FakeDetectorSettings = FakeDetectorSettings(),
         monitoring: MonitoringState = MonitoringState(),
         credentials: CredentialsStore = NoCredentials(),
+        settings: FakeAppSettings = FakeAppSettings(),
+        readiness: Flow<List<ReadinessFinding>> = emptyFlow(),
     ) = SettingsViewModel(
-        FakeAppSettings(),
+        settings,
         cameras,
         detector,
         monitoring,
         credentials,
+        readiness,
         ioDispatcher = mainDispatcher.dispatcher,
     )
 
@@ -297,5 +306,53 @@ class SettingsViewModelTest {
 
         // Averaging would hide one loud room behind three quiet ones.
         assertEquals(0.42f, model.audioLevel.value)
+    }
+    /**
+     * Forgetting a check that has started passing again cannot belong to the
+     * viewer alone. This is the screen a readiness prompt sends people to and
+     * the screen they fix things on — and leaving the app from here with a
+     * stale acknowledgement would spend the one interruption that failure is
+     * owed the next time it comes back.
+     */
+    @Test
+    fun `a check that starts passing again is forgotten from settings too`() = runTest {
+        val settings = FakeAppSettings()
+        settings.state.value = AppSettings(
+            acknowledgedReadinessChecks = setOf(ReadinessCheck.ALERTS_ON.name),
+        )
+
+        val model = viewModel(
+            settings = settings,
+            readiness = MutableStateFlow(Readiness.of(ReadinessFacts())),
+        )
+        // The checklist is only watched while a screen is looking at it, which
+        // is the whole point of it not polling all night; a test has to look too.
+        backgroundScope.launch { model.readiness.collect {} }
+        runCurrent()
+
+        assertEquals(
+            emptySet<String>(),
+            settings.state.value.acknowledgedReadinessChecks,
+        )
+    }
+
+    @Test
+    fun `a check that is still failing keeps its acknowledgement`() = runTest {
+        val settings = FakeAppSettings()
+        settings.state.value = AppSettings(
+            acknowledgedReadinessChecks = setOf(ReadinessCheck.ALERTS_ON.name),
+        )
+
+        val model = viewModel(
+            settings = settings,
+            readiness = MutableStateFlow(Readiness.of(ReadinessFacts(alertsEnabled = false))),
+        )
+        backgroundScope.launch { model.readiness.collect {} }
+        runCurrent()
+
+        assertEquals(
+            setOf(ReadinessCheck.ALERTS_ON.name),
+            settings.state.value.acknowledgedReadinessChecks,
+        )
     }
 }

@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -73,6 +74,18 @@ data class AppSettings(
      * never touched.
      */
     val talkbackVolume: Float = 1f,
+    /**
+     * The bedtime checks whose failure the user has already been told about,
+     * by id (see [app.dozecam.monitoring.ReadinessCheck]).
+     *
+     * Remembered rather than held in memory because the viewer arms the
+     * monitor every time it comes to the front, and a warning that returned on
+     * every open would be a nightly nag about a thing the user has looked at
+     * and decided to live with. An entry is dropped the moment its check passes
+     * again, so the *next* time that same thing breaks it is worth saying
+     * again — which is the difference between a reminder and a nag.
+     */
+    val acknowledgedReadinessChecks: Set<String> = emptySet(),
 )
 
 interface AppSettingsStore {
@@ -110,6 +123,7 @@ class AppSettingsRepository(private val dataStore: DataStore<Preferences>) : App
             prefs.remove(KEY_LEGACY_VIEWER_SOUND)
             prefs[KEY_KEEP_SCREEN_ON] = next.keepScreenOn
             prefs[KEY_TALKBACK_VOLUME] = next.talkbackVolume
+            prefs[KEY_ACKNOWLEDGED_READINESS] = next.acknowledgedReadinessChecks
         }
     }
 
@@ -134,6 +148,8 @@ class AppSettingsRepository(private val dataStore: DataStore<Preferences>) : App
             alertsEnabled = prefs[KEY_ALERTS_ENABLED] ?: defaults.alertsEnabled,
             keepScreenOn = prefs[KEY_KEEP_SCREEN_ON] ?: defaults.keepScreenOn,
             talkbackVolume = prefs[KEY_TALKBACK_VOLUME] ?: defaults.talkbackVolume,
+            acknowledgedReadinessChecks = prefs[KEY_ACKNOWLEDGED_READINESS]
+                ?: defaults.acknowledgedReadinessChecks,
         )
     }
 
@@ -152,5 +168,6 @@ class AppSettingsRepository(private val dataStore: DataStore<Preferences>) : App
         val KEY_LEGACY_LISTEN_CAMERA = stringPreferencesKey("listen_camera_id")
         val KEY_KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
         val KEY_TALKBACK_VOLUME = floatPreferencesKey("talkback_volume")
+        val KEY_ACKNOWLEDGED_READINESS = stringSetPreferencesKey("acknowledged_readiness_checks")
     }
 }

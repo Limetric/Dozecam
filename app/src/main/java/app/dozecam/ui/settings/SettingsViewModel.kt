@@ -13,15 +13,20 @@ import app.dozecam.data.DetectorSettings
 import app.dozecam.data.DetectorSettingsStore
 import app.dozecam.data.StreamUrlValidator
 import app.dozecam.monitoring.MonitoringState
+import app.dozecam.monitoring.ReadinessFinding
+import app.dozecam.monitoring.ReadinessPrompt
 import app.dozecam.monitoring.monitorable
 import app.dozecam.protect.CredentialsStore
 import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -47,11 +52,57 @@ class SettingsViewModel(
     private val detectorSettings: DetectorSettingsStore,
     private val monitoringState: MonitoringState,
     private val credentials: CredentialsStore,
+    readinessFindings: Flow<List<ReadinessFinding>>,
     /** Where the credentials read happens; injectable so tests stay deterministic. */
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
     val monitoringRunning: StateFlow<Boolean> = monitoringState.serviceRunning
+
+    /**
+     * The bedtime check, live while this screen is open — and only while it is.
+     *
+     * The probe re-reads the device on a timer, because a permission, a ringer
+     * and a Do Not Disturb profile announce nothing when they change. That is
+     * worth doing behind a screen someone is reading and worth nothing behind
+     * one they have left, so it follows its subscribers rather than the
+     * ViewModel. The grace is what carries it across the trip out to an Android
+     * settings screen a remedy sent them to, and back.
+     */
+    val readiness: StateFlow<List<ReadinessFinding>> = readinessFindings
+        // Upstream of the sharing, deliberately. Forgetting a check that has
+        // started passing again belongs wherever the checklist is being
+        // watched, and this is the screen a prompt sends people to and the
+        // screen they fix things on — but a collector of its own would be a
+        // permanent subscriber, and would hold the probe polling every two
+        // seconds behind a settings screen left on the back stack all night.
+        // As a side effect of the shared flow it runs exactly when the screen
+        // is looking, which is exactly when it is worth running.
+        .onEach(::forgetRecoveredChecks)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(SUBSCRIPTION_GRACE_MS), emptyList())
+
+    /**
+     * Drops the record of any bedtime failure the user has been told about that
+     * is no longer failing, so the next time it breaks it is worth saying
+     * again. Left alone if nothing moved: this runs several times a second and
+     * a preference edit is a disk write.
+     */
+    private suspend fun forgetRecoveredChecks(findings: List<ReadinessFinding>) {
+        if (findings.isEmpty()) return
+        val stored = store.settings.first().acknowledgedReadinessChecks
+        if (ReadinessPrompt.remembered(findings, stored) == stored) return
+        // Recomputed inside the transform rather than written from the snapshot
+        // above: an acknowledgement can commit between the two, and writing the
+        // older set back would spend the one interruption it had just recorded.
+        store.update {
+            it.copy(
+                acknowledgedReadinessChecks = ReadinessPrompt.remembered(
+                    findings,
+                    it.acknowledgedReadinessChecks,
+                ),
+            )
+        }
+    }
 
     /** Loudest level across every monitored camera: what the meter shows. */
     val audioLevel: StateFlow<Float> = monitoringState.cameras
@@ -143,12 +194,16 @@ class SettingsViewModel(
     }
 
     companion object {
+        /** Long enough to ride out a configuration change, short enough to stop for the night. */
+        private const val SUBSCRIPTION_GRACE_MS = 5_000L
+
         fun factory(
             store: AppSettingsStore,
             cameraStore: CameraStore,
             detectorSettings: DetectorSettingsStore,
             monitoringState: MonitoringState,
             credentials: CredentialsStore,
+            readinessFindings: Flow<List<ReadinessFinding>>,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 SettingsViewModel(
@@ -157,6 +212,7 @@ class SettingsViewModel(
                     detectorSettings,
                     monitoringState,
                     credentials,
+                    readinessFindings,
                 )
             }
         }

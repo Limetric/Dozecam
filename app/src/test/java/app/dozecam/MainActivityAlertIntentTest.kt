@@ -5,6 +5,7 @@ import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
 import app.dozecam.data.AppSettings
 import app.dozecam.data.CameraRepository
+import app.dozecam.monitoring.MonitoringService
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -240,5 +241,59 @@ class MainActivityAlertIntentTest {
         val shadow = shadowOf(controller.get())
         assertFalse(shadow.getShowWhenLocked())
         assertFalse(shadow.getTurnScreenOn())
+    }
+    // ---- The bedtime test alert ----
+
+    /**
+     * The test names no room, so it must never be handed to the grid as though
+     * it did: the grid would find no such camera, take the alert down, and hand
+     * back the right to sit over the keyguard — sliding the lock screen over
+     * the very card explaining why the phone just lit up, alarm still sounding.
+     */
+    @Test
+    fun `a test alert wakes the screen without naming a camera`() {
+        val intent = MainActivity.alertIntent(
+            context,
+            MonitoringService.TEST_CAMERA_ID,
+            test = true,
+        )
+
+        val activity = Robolectric.buildActivity(MainActivity::class.java, intent).create().get()
+
+        val shadow = shadowOf(activity)
+        assertTrue(shadow.getShowWhenLocked())
+        assertTrue(shadow.getTurnScreenOn())
+    }
+
+    /**
+     * A recreated activity replays its original launch intent, by which time
+     * the single-use wake token has long been spent — so the test can no longer
+     * be recognised by its token. Its camera id belongs to no camera anyone can
+     * add, and that is what keeps it off the real-alert path.
+     */
+    @Test
+    fun `a replayed test intent still does not go looking for a camera`() {
+        val intent = MainActivity.alertIntent(
+            context,
+            MonitoringService.TEST_CAMERA_ID,
+            test = true,
+        )
+        Robolectric.buildActivity(MainActivity::class.java, intent).create()
+
+        // The token is spent; this is the recreation.
+        val again = Robolectric.buildActivity(MainActivity::class.java, intent).create().get()
+
+        // No wake privilege — the token proves nothing now — and, crucially,
+        // none was handed back either, which is what would have happened had
+        // the synthetic id been taken for a room.
+        val shadow = shadowOf(again)
+        assertFalse(shadow.getShowWhenLocked())
+    }
+
+    @Test
+    fun `a real alert is not marked as a test`() {
+        val intent = MainActivity.alertIntent(context, "cam-a")
+
+        assertFalse(intent.getBooleanExtra("alert_test", false))
     }
 }

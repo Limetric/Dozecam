@@ -75,12 +75,20 @@ import app.dozecam.audio.talkback.Talkback
 import app.dozecam.audio.talkback.TalkbackAvailability
 import app.dozecam.data.Camera
 import app.dozecam.data.SoundMode
+import app.dozecam.monitoring.ReadinessFinding
+import app.dozecam.monitoring.ReadinessState
+import app.dozecam.monitoring.problems
+import app.dozecam.monitoring.worstState
 import app.dozecam.network.NetworkReach
 import app.dozecam.player.CameraStreams
 import kotlinx.coroutines.launch
 import app.dozecam.player.StreamSource
 import app.dozecam.player.VideoPlayerController
 import app.dozecam.player.rememberCameraStreams
+import app.dozecam.ui.components.ReadinessIcon
+import app.dozecam.ui.components.readinessContainerColor
+import app.dozecam.ui.components.readinessHeadline
+import app.dozecam.ui.components.readinessSentence
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -278,6 +286,23 @@ fun MonitorScreen(
      * otherwise ready, never on the way in.
      */
     onRequestMicrophone: () -> Unit = {},
+    /**
+     * The bedtime check, for the compact card an empty viewer shows. Empty
+     * where it has not been read yet, which renders as nothing at all rather
+     * than as a clean bill of health.
+     */
+    readiness: List<ReadinessFinding> = emptyList(),
+    /**
+     * The failures worth interrupting for — a check that has just started
+     * failing and has not been mentioned yet. Empty the rest of the time, which
+     * is almost always: see [app.dozecam.monitoring.ReadinessPrompt].
+     */
+    readinessPrompt: List<ReadinessFinding> = emptyList(),
+    onReadinessPromptOpen: () -> Unit = {},
+    onReadinessPromptDismiss: () -> Unit = {},
+    /** The screen came on for the bedtime test rather than for a room. */
+    testAlertShowing: Boolean = false,
+    onTestAlertDismissed: () -> Unit = {},
 ) {
     val streams = rememberCameraStreams(
         controllerFactory,
@@ -841,6 +866,7 @@ fun MonitorScreen(
             if (cameras.isEmpty()) {
                 EmptyState(
                     hasDisabledOnly = hasDisabledOnly,
+                    readiness = readiness,
                     onOpenSettings = onOpenSettings,
                     onOpenOnboarding = onOpenOnboarding,
                 )
@@ -884,6 +910,12 @@ fun MonitorScreen(
             ToggleSnackbarHost(snackbarHostState)
         }
 
+        // One question at a time, and in this order. The exit question is the
+        // one a person asked for a second ago and is waiting on, so it keeps
+        // the screen; the other two arrive on their own schedule and can wait
+        // for an answer that is already in flight. Stacked instead, they would
+        // sit on top of each other with the first touch going to whichever
+        // window happened to be uppermost.
         if (confirmingExit) {
             ExitDialog(
                 onConfirm = {
@@ -891,6 +923,16 @@ fun MonitorScreen(
                     onExit()
                 },
                 onDismiss = { confirmingExit = false },
+            )
+        } else if (testAlertShowing) {
+            // The test says what just woke the screen; the prompt says what
+            // will not wake it later. The one that has already happened first.
+            TestAlertDialog(onDismiss = onTestAlertDismissed)
+        } else if (readinessPrompt.isNotEmpty()) {
+            ReadinessPromptDialog(
+                problems = readinessPrompt,
+                onOpen = onReadinessPromptOpen,
+                onDismiss = onReadinessPromptDismiss,
             )
         }
     }
@@ -1230,6 +1272,7 @@ private fun CameraLayout(
 @Composable
 private fun EmptyState(
     hasDisabledOnly: Boolean,
+    readiness: List<ReadinessFinding>,
     onOpenSettings: () -> Unit,
     onOpenOnboarding: () -> Unit,
 ) {
@@ -1267,7 +1310,116 @@ private fun EmptyState(
                 Text(stringResource(R.string.viewer_add_manually))
             }
         }
+        // The compact bedtime check. Here rather than over the grid because a
+        // standing warning above live cameras every night is a warning nobody
+        // reads by the night it is right — and because this page is where
+        // somebody is already being asked to go and set the app up.
+        ReadinessCompact(findings = readiness, onOpen = onOpenSettings)
     }
+}
+
+/**
+ * The whole checklist in one line, for a screen that has no room for eleven.
+ *
+ * Silent when everything passes: an empty viewer offering to set up cameras
+ * does not also need a green tick, and a card that appears only when something
+ * is wrong is a card that means something when it appears.
+ */
+@Composable
+private fun ReadinessCompact(
+    findings: List<ReadinessFinding>,
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val problems = findings.problems()
+    if (problems.isEmpty()) return
+    val state = findings.worstState()
+    Button(
+        onClick = onOpen,
+        shapes = ButtonDefaults.shapes(),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = readinessContainerColor(state),
+            contentColor = if (state == ReadinessState.FAIL) {
+                MaterialTheme.colorScheme.onErrorContainer
+            } else {
+                MaterialTheme.colorScheme.onTertiaryContainer
+            },
+        ),
+        contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+        modifier = modifier.testTag("readiness-compact"),
+    ) {
+        ReadinessIcon(state, modifier = Modifier.size(ButtonDefaults.IconSize))
+        Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+        Text(readinessHeadline(findings))
+    }
+}
+
+/**
+ * What just woke the screen, when the answer is "nothing".
+ *
+ * The test alert is deliberately indistinguishable from a real one while it is
+ * happening — that is the entire point of it — so this is the moment the
+ * pretence has to end, in the first place anyone looks.
+ */
+@Composable
+private fun TestAlertDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.viewer_test_alert_title)) },
+        text = { Text(stringResource(R.string.viewer_test_alert_body)) },
+        confirmButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.testTag("test-alert-dismiss"),
+            ) {
+                Text(stringResource(R.string.viewer_test_alert_dismiss))
+            }
+        },
+        modifier = Modifier.testTag("test-alert-dialog"),
+    )
+}
+
+/**
+ * The one interruption a failing bedtime check is allowed outside settings.
+ *
+ * Shown once, when something that was working stops working — never as a
+ * standing banner over the cameras, which is how a warning becomes wallpaper.
+ * "Later" is a real answer: the card in settings goes on saying it for as long
+ * as it is true, and the next time this same thing breaks it will speak up
+ * again.
+ */
+@Composable
+private fun ReadinessPromptDialog(
+    problems: List<ReadinessFinding>,
+    onOpen: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.readiness_prompt_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                problems.forEach { Text(readinessSentence(it)) }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onOpen,
+                modifier = Modifier.testTag("readiness-prompt-open"),
+            ) {
+                Text(stringResource(R.string.readiness_prompt_open))
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.testTag("readiness-prompt-dismiss"),
+            ) {
+                Text(stringResource(R.string.readiness_prompt_dismiss))
+            }
+        },
+        modifier = Modifier.testTag("readiness-prompt"),
+    )
 }
 
 /**

@@ -112,9 +112,26 @@ class MonitoringService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Nothing to carry in the intent: which cameras are monitored is
-        // Camera.enabled, which is already durable, so a sticky restart after a
-        // process kill resumes exactly the same set.
+        // Which cameras are monitored is Camera.enabled, which is already
+        // durable, so a sticky restart after a process kill resumes exactly the
+        // same set — and a redelivered null intent is what makes the one action
+        // below safe to carry here: a test alert is a thing a person asked for
+        // once, and must never be replayed at 3am by a service coming back.
+        // Raised here and now, from the same field and down the same call as a
+        // room that actually got loud. Reading the stored settings afresh first
+        // would be more careful and less honest: the 3am path does not do that,
+        // and a test that behaves differently from the thing it is testing has
+        // nothing to say about it.
+        if (intent?.action == ACTION_TEST_ALERT) {
+            // Never over a room that is actually crying. There is one alert
+            // card and one alarm, and a test that took them would replace a
+            // real notification with the word "test" and hand the parent a
+            // dismissal that acknowledges an alert they never saw. The card in
+            // settings is not going anywhere; the room is the urgent thing.
+            if (!appContainer.roomIsCrying()) {
+                raiseAlert(TEST_CAMERA_ID, getString(R.string.alert_test_title), test = true)
+            }
+        }
         return START_STICKY
     }
 
@@ -254,6 +271,19 @@ class MonitoringService : Service() {
         }
     }
 
+    /**
+     * The moment a buffer was decoded, rounded down to the second.
+     *
+     * A room in digital silence emits an unbroken run of identical levels, and
+     * the StateFlow conflates those away — which is what keeps the status
+     * notification from being rebuilt hundreds of times a second, and is stated
+     * as a load-bearing fact where the heartbeat is set up below. A raw
+     * millisecond stamp alongside the level would make every one of those
+     * emissions distinct and quietly undo it. A second is far finer than
+     * [Readiness.AUDIO_STALE_MS] needs and coarse enough to keep the conflation.
+     */
+    private fun coarse(atMs: Long): Long = atMs - atMs % 1_000L
+
     private fun heartbeatTicks() = flow {
         while (true) {
             emit(Unit)
@@ -291,7 +321,11 @@ class MonitoringService : Service() {
                 livestreamProvider = appContainer.protectLivestream,
                 scope = scope,
                 detectorSettings = detectorSettings,
-                onLevel = { rms -> state.update(camera.id) { it.copy(level = rms) } },
+                onLevel = { rms, atMs ->
+                    state.update(camera.id) {
+                        it.copy(level = rms, lastAudioAtMs = coarse(atMs))
+                    }
+                },
                 onPhase = { phase -> state.update(camera.id) { it.copy(phase = phase) } },
                 onConnection = { connection ->
                     state.update(camera.id) { it.withConnection(connection) }
@@ -417,7 +451,21 @@ class MonitoringService : Service() {
         return ListenTarget.heard(appContainer.monitoringState.listeningCameraIds.value, silenced)
     }
 
-    private fun raiseAlert(cameraId: String, fallbackName: String) {
+    /**
+     * [test] changes nothing about how the alert is raised, and everything
+     * about what it says. That is the whole point of the bedtime test: it fires
+     * the real notification, through the real channel, with the real
+     * full-screen intent and the real alarm, so whichever of the readiness
+     * checks is quietly failing fails here too, in daylight, where it can be
+     * fixed. Only the words differ — see [MonitoringNotifications.alertNotification]
+     * — because an alert nobody can tell from a real one is a bad way to spend
+     * a parent's adrenaline.
+     *
+     * It needs no special case in any of the rules below: [TEST_CAMERA_ID] is
+     * no room the speaker is playing, so listen mode neither silences it nor
+     * withholds it, which is exactly the treatment a test should get.
+     */
+    private fun raiseAlert(cameraId: String, fallbackName: String, test: Boolean = false) {
         // Nothing reaches anyone: no card, no screen, no alarm. The detector
         // still ran — the meters and the status line say the room is loud —
         // but the user asked not to be told, and this is where that is kept.
@@ -427,7 +475,14 @@ class MonitoringService : Service() {
         // A room being heard does not displace the alarm of one that is not:
         // there is one alert card, and clearing it acknowledges whatever alarm
         // is sounding. See ListenTarget.alertYields.
-        if (ListenTarget.alertYields(cameraId, aloud, appContainer.alertSignaler.alarmingCameraId.value)) {
+        //
+        // A test alarm earns none of that protection. It is a thing somebody
+        // asked for in daylight, standing in front of the phone; yielding a
+        // real room's alert to it would drop the alert entirely, which is the
+        // exact opposite of what this rule exists to do.
+        val alarming = appContainer.alertSignaler.alarmingCameraId.value
+            ?.takeIf { it != TEST_CAMERA_ID }
+        if (ListenTarget.alertYields(cameraId, aloud, alarming)) {
             return
         }
         state.lastAlertAtMs.value = System.currentTimeMillis()
@@ -443,8 +498,21 @@ class MonitoringService : Service() {
         // ListenTarget.alertWakesScreen and ListenTarget.alertSounds. A room
         // playing aloud is being heard by someone awake; the alarm is for the
         // person whose eyes are shut.
+        // The test is over: a real room has the card now. Its alarm would
+        // otherwise ring on behind a notification naming a nursery — and where
+        // that room is playing aloud, no alarm is due at all, so nothing would
+        // replace the test's and it would simply run to its cap.
+        if (!test && appContainer.alertSignaler.alarmingCameraId.value == TEST_CAMERA_ID) {
+            appContainer.alertSignaler.stop()
+        }
         val wakeScreen = ListenTarget.alertWakesScreen(cameraId, aloud)
-        MonitoringNotifications.postAlert(this, cameraId, name, wakeScreen = wakeScreen)
+        MonitoringNotifications.postAlert(
+            context = this,
+            cameraId = cameraId,
+            cameraName = name,
+            wakeScreen = wakeScreen,
+            test = test,
+        )
         if (ListenTarget.alertSounds(cameraId, aloud)) {
             appContainer.alertSignaler.signal(cameraId, appSettings)
         }
@@ -507,8 +575,35 @@ class MonitoringService : Service() {
         private const val ACTION_VOLUME_CHANGED = "android.media.VOLUME_CHANGED_ACTION"
         private const val ACTION_STREAM_MUTE_CHANGED = "android.media.STREAM_MUTE_CHANGED_ACTION"
 
+        private const val ACTION_TEST_ALERT = "app.dozecam.action.TEST_ALERT"
+
+        /**
+         * The camera id a test alert is raised for. Deliberately one no camera
+         * can have — ids are UUIDs, or `protect-…` — so nothing that keys off a
+         * camera id can confuse the test with a room: the viewer finds no such
+         * camera and takes the alert straight back down, and listen mode, which
+         * decides what to silence by id, never counts it as a room being heard.
+         */
+        const val TEST_CAMERA_ID = "dozecam-test-alert"
+
         fun start(context: Context) {
             context.startForegroundService(Intent(context, MonitoringService::class.java))
+        }
+
+        /**
+         * Fires the bedtime test: the real alert, from the real service, down
+         * the same path a crying room takes.
+         *
+         * Sent to the service rather than posted from the caller's screen
+         * because the path that has to work at 3am starts in the service, and a
+         * test that skipped it would prove the wrong thing — settings holds no
+         * wake lock, has no foreground-service notification, and would be gone
+         * by the time the alarm was due to repeat.
+         */
+        fun testAlert(context: Context) {
+            context.startForegroundService(
+                Intent(context, MonitoringService::class.java).setAction(ACTION_TEST_ALERT),
+            )
         }
 
         fun stop(context: Context) {
