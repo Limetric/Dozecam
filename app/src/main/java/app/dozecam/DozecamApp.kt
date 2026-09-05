@@ -9,6 +9,7 @@ import app.dozecam.data.DetectorSettingsRepository
 import app.dozecam.data.dozecamDataStore
 import app.dozecam.monitoring.AlertSignaler
 import app.dozecam.monitoring.MonitoringState
+import app.dozecam.monitoring.ReadinessProbe
 import app.dozecam.player.VlcRuntime
 import app.dozecam.protect.EncryptedCredentialsStore
 import app.dozecam.protect.ProtectLivestreamProvider
@@ -35,6 +36,21 @@ class AppContainer(context: Context) {
     val detectorSettings = DetectorSettingsRepository(dataStore)
     val appSettings = AppSettingsRepository(dataStore)
     val monitoringState = MonitoringState()
+
+    /**
+     * The bedtime check's facts. App-scoped because both screens ask it the
+     * same question — the settings card and the viewer's compact one — and two
+     * answers to "will this wake me?" would be one too many.
+     */
+    val readiness by lazy {
+        ReadinessProbe(
+            context = context.applicationContext,
+            monitoringState = monitoringState,
+            appSettings = appSettings,
+            cameras = cameras,
+            credentials = protectCredentials,
+        )
+    }
     val tofuTrustStore = TofuTrustStore(dataStore)
 
     /**

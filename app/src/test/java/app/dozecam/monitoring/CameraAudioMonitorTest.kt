@@ -54,7 +54,7 @@ class CameraAudioMonitorTest {
         livestreamProvider = context.appContainer.protectLivestream,
         scope = scope,
         detectorSettings = DetectorSettings(),
-        onLevel = {},
+        onLevel = { _, _ -> },
         onPhase = {},
         onConnection = {},
         onTrigger = {},

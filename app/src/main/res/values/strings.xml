@@ -235,4 +235,126 @@
         <item quantity="one">%2$s is shown but not monitored for sound.</item>
         <item quantity="other">%2$s are shown but not monitored for sound.</item>
     </plurals>
+    <!--
+        The bedtime check. Every row is a sentence about tonight rather than a
+        label for a setting: "will this wake me?" is the only question being
+        answered, and a tired parent should be able to read the answer without
+        knowing what a full-screen intent is.
+
+        Each check has two sentences — one for when it passes and one for when
+        it does not — because "Alerts can wake the screen" and "Alerts cannot
+        wake the screen" are the two facts worth reading, and a single label
+        with a tick beside it makes the reader do the work.
+    -->
+    <string name="section_readiness">Before the first night</string>
+    <string name="readiness_ready">Ready for tonight</string>
+    <string name="readiness_ready_summary">Everything an alert needs is in place.</string>
+    <string name="readiness_warnings">Ready, with something to know</string>
+    <plurals name="readiness_problems">
+        <item quantity="one">%1$d thing needs attention</item>
+        <item quantity="other">%1$d things need attention</item>
+    </plurals>
+    <string name="readiness_problems_summary">Until these are fixed, a room getting loud might not wake you.</string>
+    <string name="readiness_show_checks">What was checked</string>
+    <string name="readiness_hide_checks">Hide the checks</string>
+    <!-- Remedy buttons: what the button does, not what is wrong. -->
+    <string name="readiness_remedy_allow">Allow</string>
+    <string name="readiness_remedy_turn_on">Turn on</string>
+    <string name="readiness_remedy_open_settings">Open settings</string>
+    <string name="readiness_remedy_sound">Sound settings</string>
+    <string name="readiness_remedy_dnd">Do Not Disturb</string>
+    <string name="readiness_remedy_start">Start</string>
+    <string name="readiness_remedy_cameras">Cameras</string>
+    <string name="readiness_remedy_unavailable">This phone has no settings screen for that. Look for it in Android\'s settings under this app.</string>
+
+    <string name="readiness_notifications_pass">Dozecam is allowed to notify you</string>
+    <string name="readiness_notifications_fail">Dozecam is not allowed to notify you</string>
+    <string name="readiness_notifications_why">Without notification permission an alert cannot be posted at all, so nothing would reach you.</string>
+
+    <string name="readiness_channel_pass">The sound alert is switched on in Android</string>
+    <string name="readiness_channel_fail">Android has the sound alert switched off</string>
+    <string name="readiness_channel_why">The Sound alerts category has been turned off in Android\'s notification settings. It can only be turned back on there.</string>
+
+    <string name="readiness_channel_priority_pass">Android has the sound alert set to interrupt</string>
+    <string name="readiness_channel_priority_fail">Android has the sound alert turned down</string>
+    <string name="readiness_channel_priority_why">The Sound alerts category has been lowered in Android\'s notification settings. It still arrives in the shade, but Android will no longer let it light a locked screen. Set it back to the highest importance.</string>
+    <string name="readiness_wake_screen_pass">Alerts can wake the screen</string>
+    <string name="readiness_wake_screen_fail">Alerts cannot wake the screen</string>
+    <string name="readiness_wake_screen_why">Android 14 and later ask permission before an app may light a locked screen. Without it the alert becomes a banner nobody asleep will see.</string>
+
+    <string name="readiness_alerts_on_pass">Alerts are switched on</string>
+    <string name="readiness_alerts_on_fail">Alerts are switched off</string>
+    <string name="readiness_alerts_on_why">Dozecam keeps listening and the meters keep moving, but nothing wakes the screen, chimes, or vibrates.</string>
+
+    <string name="readiness_alarm_volume_pass">The alarm volume is up</string>
+    <string name="readiness_alarm_volume_fail">The alarm volume is at zero</string>
+    <string name="readiness_alarm_volume_why">Dozecam sounds its alert on the alarm stream, so a silent ringer does not matter — but the alarm volume itself does.</string>
+
+    <string name="readiness_dnd_pass">Do Not Disturb is letting alarms through</string>
+    <string name="readiness_dnd_fail">Do Not Disturb is silencing alarms</string>
+    <string name="readiness_dnd_why">Total silence stops alarms too. Allow alarms through, or turn Do Not Disturb off for the night.</string>
+
+    <string name="readiness_signal_pass">The alert will chime or vibrate</string>
+    <string name="readiness_signal_fail">The alert has no sound and no vibration</string>
+    <string name="readiness_signal_why">Both the chime and the vibration are switched off, so an alert would arrive in silence.</string>
+
+    <string name="readiness_monitoring_pass">Monitoring is running</string>
+    <string name="readiness_monitoring_fail">Monitoring is not running</string>
+    <string name="readiness_monitoring_why">Nothing is listening to your cameras, so no sound can raise an alert.</string>
+
+    <string name="readiness_battery_pass">Android will leave monitoring alone</string>
+    <string name="readiness_battery_fail">Android may stop monitoring overnight</string>
+    <string name="readiness_battery_why">Dozecam is still subject to battery optimisation. Allowing it to run unrestricted is the difference between a monitor that lasts the night and one that quietly stops.</string>
+
+    <string name="readiness_power_pass">There is power for the night</string>
+    <string name="readiness_power_fail">The phone is not charging</string>
+    <string name="readiness_power_why">Monitoring decodes audio all night. Off the charger and already low, this phone may not get to morning.</string>
+
+    <string name="readiness_local_network_pass">Dozecam can reach your home network</string>
+    <string name="readiness_local_network_fail">Dozecam cannot reach your home network</string>
+    <string name="readiness_local_network_why">Without local network access every connection to a camera is dropped as a timeout, so no room can be watched or listened to.</string>
+    <string name="readiness_cameras_pass">Every camera is being heard</string>
+    <string name="readiness_cameras_fail">Not every camera is being heard</string>
+    <string name="readiness_cameras_none">No camera is switched on</string>
+    <string name="readiness_cameras_unknown">The cameras cannot be checked yet</string>
+    <string name="readiness_cameras_unknown_why">Nothing is listening, so there is no way to tell whether a room can be heard.</string>
+    <string name="readiness_cameras_none_why">Add a camera, or switch one on, and there will be something to listen to.</string>
+    <string name="readiness_cameras_why">A camera can stream video perfectly and never send a sound. These are not being heard, so nothing in them could raise an alert: %1$s</string>
+
+    <!--
+        The test alert. What is about to happen is spelled out before it
+        happens, because the whole thing is designed to be startling.
+    -->
+    <string name="readiness_test">Test the alert</string>
+    <string name="readiness_test_summary">Fires a real alert, right now, down the exact path a crying room takes.</string>
+    <string name="readiness_test_unavailable">Start monitoring first — the test is raised by the monitor itself.</string>
+    <string name="readiness_test_unavailable_alerts_off">Turn alerts on first — with them off, a test would raise nothing at all.</string>
+    <string name="readiness_test_title">Send a test alert?</string>
+    <string name="readiness_test_body">Dozecam will raise a real alert, right now, from the monitor itself — the notification, and whatever you have chosen to go with it: the chime at your set volume, the vibration, or both. It will say it is a test.\n\nWith the screen on it arrives as a banner; that is what Android does with any alert while you are using the phone. Waking a locked screen is what the checks above answer for.\n\nTouch the screen, or dismiss the alert, to stop it.</string>
+    <string name="readiness_test_confirm">Send it</string>
+    <string name="readiness_test_cancel">Not now</string>
+    <string name="readiness_test_sent">Sending the test alert…</string>
+    <string name="readiness_test_busy">Not now — a room is alerting for real. The test would take its place.</string>
+    <string name="alert_test_title">Test alert</string>
+    <string name="notification_test_alert_title">Dozecam test alert</string>
+    <string name="notification_test_alert_text">This is the bedtime test. A real alert names the room.</string>
+    <string name="viewer_test_alert_title">This was a test</string>
+    <string name="viewer_test_alert_body">That was Dozecam\'s real alert, raised exactly as it would be for a room that got loud. Nothing has happened in the nursery.</string>
+    <string name="viewer_test_alert_dismiss">Got it</string>
+
+    <!-- The one interruption a failing check is allowed outside settings. -->
+    <string name="readiness_prompt_title">This might not wake you</string>
+    <string name="readiness_prompt_open">Open the check</string>
+    <string name="readiness_prompt_dismiss">Later</string>
+    <string name="readiness_compact_open">Check</string>
+
+    <!--
+        Full-screen intent access, asked for in words before Android is asked
+        for it. Sending someone to a system screen with no explanation is how
+        the grant gets refused.
+    -->
+    <string name="full_screen_intent_title">Let Dozecam wake the screen</string>
+    <string name="full_screen_intent_body">Android asks permission before an app may light a locked screen. Without it a sound alert becomes a banner behind the lock screen — posted, but not seen by anyone asleep.\n\nThe next screen is Android\'s. Turn on the setting there and come back.</string>
+    <string name="full_screen_intent_open">Open Android settings</string>
+    <string name="full_screen_intent_not_now">Not now</string>
 </resources>

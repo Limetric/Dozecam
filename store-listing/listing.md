@@ -34,6 +34,18 @@ failure a baby monitor can have. Dozecam watches the stream frame by frame,
 reconnects aggressively after Wi-Fi drops or camera restarts, and always shows
 LIVE, RECONNECTING, or OFFLINE — with the time of the last frame received.
 
+**A bedtime check that proves it.** A monitor you have not tested is a monitor
+you are only hoping about. Dozecam checks, in one place, everything an alert
+needs in order to reach you: notification permission, permission to light a
+locked screen, the alarm volume, Do Not Disturb, battery optimisation, power
+for the night, and whether each camera is actually sending audio rather than
+only video. Anything it finds comes with the button that fixes it — and a test
+alert fires the real thing, so you find out in daylight rather than at 3am.
+
+Some of these are Android settings only you can grant. Dozecam explains what
+each one does before sending you to it, and never claims to be ready when it
+is not.
+
 **Easy setup.** Sign in to your Protect console with a local account and
 Dozecam finds your cameras and configures their streams automatically. Prefer
 doing it by hand? Paste an rtsp:// URL directly.

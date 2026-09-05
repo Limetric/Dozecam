@@ -26,10 +26,17 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import app.dozecam.R
 import app.dozecam.audio.talkback.Talkback
 import app.dozecam.audio.talkback.TalkbackAvailability
 import app.dozecam.data.Camera
 import app.dozecam.data.SoundMode
+import app.dozecam.monitoring.Readiness
+import app.dozecam.monitoring.ReadinessFacts
+import app.dozecam.monitoring.ReadinessFinding
+import app.dozecam.monitoring.problems
 import app.dozecam.network.NetworkReach
 import app.dozecam.player.PlayerEvent
 import app.dozecam.player.StreamSource
@@ -56,6 +63,9 @@ class MonitorScreenTest {
     val composeRule = createComposeRule()
 
     private val nursery = Camera("a", "Nursery", "rtsp://cam:7447/a")
+
+    private fun text(resId: Int): String =
+        ApplicationProvider.getApplicationContext<Context>().getString(resId)
     private val playroom = Camera("b", "Play room", "rtsp://cam:7447/b")
     private val hall = Camera("c", "Hall", "rtsp://cam:7447/c")
 
@@ -161,6 +171,12 @@ class MonitorScreenTest {
         onAlertDismissed: () -> Unit = {},
         talkback: Talkback? = null,
         talkbackMinPressMs: Long = TALKBACK_MIN_PRESS,
+        readiness: List<ReadinessFinding> = emptyList(),
+        readinessPrompt: List<ReadinessFinding> = emptyList(),
+        onReadinessPromptOpen: () -> Unit = {},
+        onReadinessPromptDismiss: () -> Unit = {},
+        testAlertShowing: Boolean = false,
+        onTestAlertDismissed: () -> Unit = {},
     ) {
         backDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
         DozecamTheme {
@@ -195,6 +211,12 @@ class MonitorScreenTest {
                 onAlertDismissed = onAlertDismissed,
                 talkback = talkback,
                 talkbackMinPressMs = talkbackMinPressMs,
+                readiness = readiness,
+                readinessPrompt = readinessPrompt,
+                onReadinessPromptOpen = onReadinessPromptOpen,
+                onReadinessPromptDismiss = onReadinessPromptDismiss,
+                testAlertShowing = testAlertShowing,
+                onTestAlertDismissed = onTestAlertDismissed,
             )
         }
     }
@@ -2295,5 +2317,135 @@ class MonitorScreenTest {
 
         /** A large phone in landscape, or a tablet in split screen. */
         const val MEDIUM_SCREEN = "w700dp-h500dp"
+    }
+
+    // --- the bedtime check -------------------------------------------------
+
+    @Test
+    fun `an empty viewer says when tonight is not covered`() {
+        composeRule.setContent {
+            Screen(
+                cameras = emptyList(),
+                readiness = Readiness.of(ReadinessFacts(alertsEnabled = false)),
+            )
+        }
+
+        composeRule.onNodeWithTag("readiness-compact").assertIsDisplayed()
+    }
+
+    @Test
+    fun `a covered night adds nothing to an empty viewer`() {
+        // A card that appears only when something is wrong is a card that means
+        // something when it appears.
+        composeRule.setContent {
+            Screen(cameras = emptyList(), readiness = Readiness.of(ReadinessFacts()))
+        }
+
+        composeRule.onNodeWithTag("readiness-compact").assertDoesNotExist()
+    }
+
+    @Test
+    fun `an unread checklist claims nothing either way`() {
+        composeRule.setContent { Screen(cameras = emptyList(), readiness = emptyList()) }
+
+        composeRule.onNodeWithTag("readiness-compact").assertDoesNotExist()
+    }
+
+    @Test
+    fun `the compact card opens the full one`() {
+        var opened = false
+        composeRule.setContent {
+            Screen(
+                cameras = emptyList(),
+                readiness = Readiness.of(ReadinessFacts(alertsEnabled = false)),
+                onOpenSettings = { opened = true },
+            )
+        }
+
+        composeRule.onNodeWithTag("readiness-compact").performClick()
+
+        assertTrue(opened)
+    }
+
+    /** Once, when something that was working stops working — never as wallpaper. */
+    @Test
+    fun `a fresh failure interrupts, and says which`() {
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery),
+                readinessPrompt = Readiness.of(ReadinessFacts(alertsEnabled = false)).problems(),
+            )
+        }
+
+        composeRule.onNodeWithTag("readiness-prompt").assertIsDisplayed()
+        composeRule.onNodeWithText(text(R.string.readiness_alerts_on_fail)).assertIsDisplayed()
+    }
+
+    @Test
+    fun `nothing fresh to say interrupts nobody`() {
+        composeRule.setContent { Screen(cameras = listOf(nursery)) }
+
+        composeRule.onNodeWithTag("readiness-prompt").assertDoesNotExist()
+    }
+
+    @Test
+    fun `later is a real answer`() {
+        var dismissed = false
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery),
+                readinessPrompt = Readiness.of(ReadinessFacts(alertsEnabled = false)).problems(),
+                onReadinessPromptDismiss = { dismissed = true },
+            )
+        }
+
+        composeRule.onNodeWithTag("readiness-prompt-dismiss").performClick()
+
+        assertTrue(dismissed)
+    }
+
+    // --- the test alert ----------------------------------------------------
+
+    /**
+     * The test is indistinguishable from a real alert while it happens — that
+     * is the point of it — so this is where the pretence has to end.
+     */
+    @Test
+    fun `a woken screen says the alert was only a test`() {
+        composeRule.setContent { Screen(cameras = listOf(nursery), testAlertShowing = true) }
+
+        composeRule.onNodeWithTag("test-alert-dialog").assertIsDisplayed()
+        composeRule.onNodeWithText(text(R.string.viewer_test_alert_body)).assertIsDisplayed()
+    }
+
+    @Test
+    fun `dismissing the test acknowledges it`() {
+        var dismissed = false
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery),
+                testAlertShowing = true,
+                onTestAlertDismissed = { dismissed = true },
+            )
+        }
+
+        composeRule.onNodeWithTag("test-alert-dismiss").performClick()
+
+        assertTrue(dismissed)
+    }
+
+    /** Only one question at a time; the test explains the screen that is already on. */
+    @Test
+    fun `the test alert outranks the bedtime prompt`() {
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery),
+                testAlertShowing = true,
+                readinessPrompt = Readiness.of(ReadinessFacts(alertsEnabled = false)).problems(),
+            )
+        }
+
+        composeRule.onNodeWithTag("test-alert-dialog").assertIsDisplayed()
+        composeRule.onNodeWithTag("readiness-prompt").assertDoesNotExist()
     }
 }

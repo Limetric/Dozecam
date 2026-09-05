@@ -2,6 +2,7 @@ package app.dozecam.monitoring
 
 import android.content.Context
 import app.dozecam.AppContainer
+import app.dozecam.audio.SoundDetector
 import app.dozecam.permissions.LocalNetworkPermission
 import kotlinx.coroutines.flow.first
 
@@ -40,3 +41,23 @@ suspend fun AppContainer.shouldStopMonitoring(): Boolean {
     if (!monitoringState.serviceRunning.value) return false
     return monitorable(cameras.enabledCameras.first(), protectCredentials).isEmpty()
 }
+
+/**
+ * Whether any room's alert is live right now.
+ *
+ * Asked of the detectors as well as the alarm, because an alert and an alarm
+ * are not the same thing: a room playing aloud raises its card with no sound at
+ * all (see [ListenTarget.alertSounds]), so a test that checked only whether
+ * something was ringing would happily overwrite the card of a room that is
+ * crying.
+ *
+ * Shared between the service, which refuses a bedtime test while it is true,
+ * and the screen that offers that test — because a button that quietly did
+ * nothing while a toast said it had fired is exactly the false reassurance this
+ * whole feature exists to remove.
+ */
+fun AppContainer.roomIsCrying(): Boolean =
+    alertSignaler.alarmingCameraId.value
+        ?.let { it != MonitoringService.TEST_CAMERA_ID } == true ||
+        monitoringState.cameras.value.values
+            .any { it.phase == SoundDetector.Phase.TRIGGERED }

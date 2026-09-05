@@ -2,14 +2,13 @@ package app.dozecam.monitoring
 
 import android.Manifest
 import android.app.NotificationManager
-import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
-import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import app.dozecam.appContainer
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Starts monitoring with the grants its alert depends on. Shared by every
@@ -35,6 +34,41 @@ class MonitoringStarter(private val activity: ComponentActivity) {
     }
 
     /**
+     * Whether the screen should be explaining full-screen-intent access right
+     * now, before Android is asked for it.
+     *
+     * This used to throw the user straight into a system settings screen at the
+     * moment they first armed monitoring: no reason given, no idea what had
+     * just happened, and — most of the time — a screen dismissed with the
+     * setting untouched. A grant asked for cold is a grant refused, and this
+     * one is the difference between an alert that lights a locked screen and an
+     * alert that quietly becomes a banner.
+     *
+     * So the ask is now a sentence first, the system screen second, and the
+     * result checked afterwards rather than assumed — which is what the bedtime
+     * check ([ReadinessCheck.WAKE_SCREEN]) reads. Asked once per arm at most:
+     * an explanation that reappeared every time the viewer came to the front
+     * would be its own reason to say no.
+     */
+    val explainFullScreenIntent: StateFlow<Boolean>
+        get() = activity.appContainer.monitoringState.explainFullScreenIntent
+
+    /** The user has read it and is on their way; the dialog closes as Android's opens. */
+    fun openFullScreenIntentSettings() {
+        activity.appContainer.monitoringState.explainFullScreenIntent.value = false
+        ReadinessRemedies.open(activity, ReadinessRemedy.FULL_SCREEN_INTENT_SETTINGS)
+    }
+
+    /**
+     * "Not now". Monitoring is running either way — the alert is merely quieter
+     * than it should be, and the readiness card is where that goes on being
+     * said for as long as it stays true.
+     */
+    fun dismissFullScreenIntentExplanation() {
+        activity.appContainer.monitoringState.explainFullScreenIntent.value = false
+    }
+
+    /**
      * Asks for anything still missing, then starts the service and runs
      * [onStarted]. The callback matters because the permission prompt is
      * asynchronous: a caller that finished itself straight after this would
@@ -57,23 +91,22 @@ class MonitoringStarter(private val activity: ComponentActivity) {
     }
 
     private fun start() {
-        ensureFullScreenIntentAccess()
+        // Monitoring first, explanation second, and never the other way round:
+        // detection does not depend on this grant, and a service that waited on
+        // a dialog would leave the room unlistened-to while somebody read.
         MonitoringService.start(activity)
+        if (needsFullScreenIntentAccess()) {
+            activity.appContainer.monitoringState.explainFullScreenIntent.value = true
+        }
     }
 
     /**
      * Android 14+ gates full-screen intents behind special app access that
      * Play-installed apps may not receive by default. Without it the sound
-     * alert degrades to a heads-up notification and cannot wake the screen,
-     * so send the user straight to the grant screen.
+     * alert degrades to a heads-up notification and cannot wake the screen.
      */
-    private fun ensureFullScreenIntentAccess() {
-        if (Build.VERSION.SDK_INT < 34) return
-        val manager = activity.getSystemService(NotificationManager::class.java)
-        if (manager.canUseFullScreenIntent()) return
-        activity.startActivity(
-            Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT)
-                .setData(Uri.fromParts("package", activity.packageName, null)),
-        )
+    private fun needsFullScreenIntentAccess(): Boolean {
+        if (Build.VERSION.SDK_INT < 34) return false
+        return !activity.getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
     }
 }

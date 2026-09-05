@@ -17,6 +17,12 @@ import app.dozecam.data.AppSettings
 import app.dozecam.data.Camera
 import app.dozecam.data.DetectorSettings
 import app.dozecam.data.OrientationLock
+import app.dozecam.monitoring.CameraAudibility
+import app.dozecam.monitoring.Readiness
+import app.dozecam.monitoring.ReadinessCheck
+import app.dozecam.monitoring.ReadinessFacts
+import app.dozecam.monitoring.ReadinessFinding
+import app.dozecam.monitoring.ReadinessRemedy
 import app.dozecam.ui.theme.DozecamTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -62,6 +68,9 @@ class SettingsScreenTest {
         onBack: () -> Unit = {},
         onPickAlertSound: () -> Unit = {},
         onPreviewAlertSound: () -> Unit = {},
+        readiness: List<ReadinessFinding> = emptyList(),
+        onReadinessRemedy: (ReadinessRemedy) -> Unit = {},
+        onTestAlert: () -> Unit = {},
     ) {
         DozecamTheme {
             SettingsScreen(
@@ -71,6 +80,9 @@ class SettingsScreenTest {
                 canMonitor = canMonitor,
                 localNetworkGranted = localNetworkGranted,
                 audioLevel = audioLevel,
+                readiness = readiness,
+                onReadinessRemedy = onReadinessRemedy,
+                onTestAlert = onTestAlert,
                 cameras = cameras,
                 onCameraEnabled = onCameraEnabled,
                 onEditCamera = onEditCamera,
@@ -515,5 +527,184 @@ class SettingsScreenTest {
             .performSemanticsAction(SemanticsActions.SetProgress) { it(0.4f) }
 
         assertEquals(0.4f, changed?.threshold)
+    }
+
+    // ---- The bedtime check ----
+
+    private val healthy = Readiness.of(ReadinessFacts())
+    private val alertsOff = Readiness.of(ReadinessFacts(alertsEnabled = false))
+
+    /**
+     * The probe's first read is a frame or two behind the screen. "Ready for
+     * tonight" is the one thing this section must never say before it knows.
+     */
+    @Test
+    fun `an unread checklist claims nothing`() {
+        composeRule.setContent { Screen(readiness = emptyList()) }
+
+        composeRule.onNodeWithTag("readiness-summary").assertDoesNotExist()
+        composeRule.onNodeWithText(text(R.string.readiness_ready)).assertDoesNotExist()
+    }
+
+    @Test
+    fun `a phone with nothing wrong says so`() {
+        composeRule.setContent { Screen(readiness = healthy) }
+
+        composeRule.onNodeWithText(text(R.string.readiness_ready))
+            .performScrollTo()
+            .assertIsDisplayed()
+    }
+
+    /** What is wrong is shown; what is right waits behind a word. */
+    @Test
+    fun `a failing check is on screen without being asked for`() {
+        composeRule.setContent { Screen(readiness = alertsOff) }
+
+        composeRule.onNodeWithTag("readiness-${ReadinessCheck.ALERTS_ON.name}")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule.onNodeWithText(text(R.string.readiness_alerts_on_fail))
+            .performScrollTo()
+            .assertIsDisplayed()
+    }
+
+    @Test
+    fun `passing checks stay out of the way until they are asked for`() {
+        composeRule.setContent { Screen(readiness = alertsOff) }
+
+        composeRule.onNodeWithTag("readiness-${ReadinessCheck.NOTIFICATIONS.name}")
+            .assertDoesNotExist()
+
+        composeRule.onNodeWithTag("readiness-show-checks").performScrollTo().performClick()
+
+        // A checklist nobody can inspect is just a reassuring word.
+        composeRule.onNodeWithTag("readiness-${ReadinessCheck.NOTIFICATIONS.name}")
+            .performScrollTo()
+            .assertIsDisplayed()
+    }
+
+    @Test
+    fun `a failing check offers the button that fixes it`() {
+        var remedy: ReadinessRemedy? = null
+        composeRule.setContent {
+            Screen(readiness = alertsOff, onReadinessRemedy = { remedy = it })
+        }
+
+        composeRule.onNodeWithTag("readiness-remedy-${ReadinessCheck.ALERTS_ON.name}")
+            .performScrollTo()
+            .performClick()
+
+        assertEquals(ReadinessRemedy.TURN_ALERTS_ON, remedy)
+    }
+
+    @Test
+    fun `a passing check offers no button to press`() {
+        composeRule.setContent { Screen(readiness = healthy) }
+
+        composeRule.onNodeWithTag("readiness-show-checks").performScrollTo().performClick()
+
+        composeRule.onNodeWithTag("readiness-remedy-${ReadinessCheck.ALERTS_ON.name}")
+            .assertDoesNotExist()
+    }
+
+    /** The unheard rooms are named, because "two cameras" sends someone hunting. */
+    @Test
+    fun `an unheard room is named on its row`() {
+        val findings = Readiness.of(
+            ReadinessFacts(
+                cameras = listOf(CameraAudibility("play-room", "Play room", live = true, lastAudioAtMs = null)),
+            ),
+        )
+
+        composeRule.setContent { Screen(readiness = findings) }
+
+        composeRule.onNodeWithText("Play room", substring = true)
+            .performScrollTo()
+            .assertIsDisplayed()
+    }
+
+    // ---- The test alert ----
+
+    @Test
+    fun `the test alert asks before it startles anyone`() {
+        var fired = false
+        composeRule.setContent { Screen(readiness = healthy, onTestAlert = { fired = true }) }
+
+        composeRule.onNodeWithTag("readiness-test").performScrollTo().performClick()
+
+        assertFalse("a button that fires it outright would be a trap", fired)
+        composeRule.onNodeWithText(text(R.string.readiness_test_body)).assertIsDisplayed()
+    }
+
+    @Test
+    fun `confirming fires the real thing`() {
+        var fired = false
+        composeRule.setContent { Screen(readiness = healthy, onTestAlert = { fired = true }) }
+        composeRule.onNodeWithTag("readiness-test").performScrollTo().performClick()
+
+        composeRule.onNodeWithTag("readiness-test-confirm").performClick()
+
+        assertEquals(true, fired)
+    }
+
+    /**
+     * With alerts off the service deliberately raises nothing, so a test would
+     * be a button that does nothing while a toast claimed it had been sent.
+     */
+    @Test
+    fun `with alerts off the test says so rather than pretending`() {
+        val alertsOffFindings = Readiness.of(ReadinessFacts(alertsEnabled = false))
+        var fired = false
+
+        composeRule.setContent {
+            Screen(readiness = alertsOffFindings, onTestAlert = { fired = true })
+        }
+
+        composeRule.onNodeWithText(text(R.string.readiness_test_unavailable_alerts_off))
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule.onNodeWithTag("readiness-test").performScrollTo().performClick()
+        composeRule.onNodeWithText(text(R.string.readiness_test_body)).assertDoesNotExist()
+        assertFalse(fired)
+    }
+
+    /**
+     * The monitor raises it, so there has to be one — said out loud rather than
+     * left as a button that does nothing, which is how a person concludes the
+     * feature is broken.
+     */
+    @Test
+    fun `with no monitor running the test says why it cannot run`() {
+        val stopped = Readiness.of(ReadinessFacts(monitoringRunning = false))
+
+        composeRule.setContent { Screen(readiness = stopped) }
+
+        composeRule.onNodeWithText(text(R.string.readiness_test_unavailable))
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule.onNodeWithTag("readiness-test").performScrollTo().performClick()
+        composeRule.onNodeWithText(text(R.string.readiness_test_body)).assertDoesNotExist()
+    }
+    /**
+     * A masked check stood aside because something it depends on failed first.
+     * Listing it as checked would put a green tick beside "the sound alert is
+     * switched on in Android" over a channel nobody has looked at — a claim
+     * this card exists to stop the app making.
+     */
+    @Test
+    fun `a check that stood aside is not listed as one that passed`() {
+        val denied = Readiness.of(ReadinessFacts(notificationsAllowed = false))
+
+        composeRule.setContent { Screen(readiness = denied) }
+        composeRule.onNodeWithTag("readiness-show-checks").performScrollTo().performClick()
+
+        composeRule.onNodeWithTag("readiness-${ReadinessCheck.ALERT_CHANNEL.name}")
+            .assertDoesNotExist()
+        composeRule.onNodeWithTag("readiness-${ReadinessCheck.ALERT_CHANNEL_PRIORITY.name}")
+            .assertDoesNotExist()
+        // The one that was actually checked is still there.
+        composeRule.onNodeWithTag("readiness-${ReadinessCheck.ALARM_VOLUME.name}")
+            .performScrollTo()
+            .assertIsDisplayed()
     }
 }

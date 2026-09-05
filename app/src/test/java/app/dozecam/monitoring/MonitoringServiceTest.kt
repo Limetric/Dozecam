@@ -7,6 +7,7 @@ import android.media.AudioManager
 import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
 import app.dozecam.DozecamApp
+import app.dozecam.R
 import app.dozecam.audio.SoundDetector
 import app.dozecam.data.Camera
 import app.dozecam.data.SoundMode
@@ -519,5 +520,206 @@ class MonitoringServiceTest {
         container.monitoringState.serviceRunning.value = false
 
         assertFalse(container.shouldStopMonitoring())
+    }
+
+    // ---- The bedtime test alert ----
+
+    /**
+     * Delivers the intent [MonitoringService.testAlert] would send, to the
+     * service under test. The real thing goes through startForegroundService,
+     * which Robolectric records rather than runs, so the intent is taken from
+     * there and handed over by hand — which also proves the companion and the
+     * handler agree about the action.
+     */
+    private fun deliverTestAlert(controller: ServiceController<MonitoringService>) {
+        // The service reads its settings through a collector started in
+        // onCreate; let that first emission land, exactly as it would have long
+        // before anyone reached the button in settings.
+        shadowOf(Looper.getMainLooper()).idle()
+        MonitoringService.testAlert(context)
+        val intent = shadowOf(context.applicationContext as DozecamApp).nextStartedService
+        assertNotNull("testAlert started no service", intent)
+        controller.get().onStartCommand(intent, 0, 1)
+        shadowOf(Looper.getMainLooper()).idle()
+    }
+
+    private fun alertNotification() =
+        shadowOf(context.getSystemService(NotificationManager::class.java))
+            .getNotification(MonitoringNotifications.ALERT_NOTIFICATION_ID)
+
+    /**
+     * The whole point: not a simulation. The alert is posted by the service,
+     * on the alert channel, with the full-screen intent and the alarm behind
+     * it, so whichever readiness check is quietly failing fails here too.
+     */
+    @Test
+    fun `the test alert raises a real alert from the real service`() = runTest {
+        container.appSettings.update { it.copy(alertChime = false, alertVibrate = false) }
+        val controller = createService()
+
+        deliverTestAlert(controller)
+
+        assertNotNull(alertNotification())
+        assertEquals(
+            MonitoringService.TEST_CAMERA_ID,
+            container.alertSignaler.alarmingCameraId.value,
+        )
+    }
+
+    /** Impossible to mistake for a real one afterwards, which is the other half of it. */
+    @Test
+    fun `the test alert names itself rather than a room`() = runTest {
+        container.appSettings.update { it.copy(alertChime = false, alertVibrate = false) }
+        val controller = createService()
+
+        deliverTestAlert(controller)
+
+        val title = alertNotification().extras.getString("android.title")
+        assertEquals(context.getString(R.string.notification_test_alert_title), title)
+    }
+
+    /**
+     * "Alerts are off" is one of the answers this test exists to give honestly.
+     * Bypassing the switch would make the test prove something the night never
+     * would.
+     */
+    @Test
+    fun `the test alert obeys the alerts switch like any other`() = runTest {
+        container.appSettings.update { it.copy(alertsEnabled = false) }
+        val controller = createService()
+
+        deliverTestAlert(controller)
+
+        assertNull(alertNotification())
+        assertNull(container.alertSignaler.alarmingCameraId.value)
+    }
+
+    /**
+     * A sticky restart redelivers a null intent, and START_STICKY is what the
+     * service returns — so a test asked for once in daylight can never be
+     * replayed by a service coming back at 3am.
+     */
+    @Test
+    fun `a service restarting on its own raises no test alert`() = runTest {
+        container.appSettings.update { it.copy(alertChime = false, alertVibrate = false) }
+        val controller = createService()
+
+        assertEquals(
+            android.app.Service.START_STICKY,
+            controller.get().onStartCommand(null, 0, 1),
+        )
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertNull(alertNotification())
+        assertNull(container.alertSignaler.alarmingCameraId.value)
+    }
+
+    /**
+     * The synthetic camera id is what keeps the test out of every rule that
+     * keys off a room: listen mode neither silences it nor withholds it, so a
+     * test run with the whole house aloud still does the full thing.
+     */
+    @Test
+    fun `a house playing aloud does not silence the test`() = runTest {
+        container.appSettings.update { it.copy(alertChime = false, alertVibrate = false) }
+        val controller = createService()
+        container.monitoringState.put(live("a", "Nursery"))
+        listenAloud()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(setOf("a"), container.monitoringState.listeningCameraIds.value)
+
+        deliverTestAlert(controller)
+
+        assertNotNull(alertNotification())
+        assertNotNull(alertNotification().fullScreenIntent)
+        assertEquals(
+            MonitoringService.TEST_CAMERA_ID,
+            container.alertSignaler.alarmingCameraId.value,
+        )
+    }
+    /**
+     * There is one alert card and one alarm. A test that took them from a room
+     * that is actually crying would replace a real notification with the word
+     * "test", and hand the parent a dismissal that acknowledges an alert they
+     * never saw.
+     */
+    @Test
+    fun `a test never displaces a room that is actually crying`() = runTest {
+        container.appSettings.update { it.copy(alertChime = false, alertVibrate = false) }
+        val controller = createService()
+        val state = container.monitoringState
+        state.put(live("a", "Nursery"))
+        // The one path into raiseAlert that needs no decoder.
+        listenAloud()
+        shadowOf(Looper.getMainLooper()).idle()
+        state.update("a") { it.copy(phase = SoundDetector.Phase.TRIGGERED) }
+        state.viewerAudible.value = true
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("a", container.alertSignaler.alarmingCameraId.value)
+
+        deliverTestAlert(controller)
+
+        assertEquals("a", container.alertSignaler.alarmingCameraId.value)
+        val title = alertNotification().extras.getString("android.title")
+        assertEquals(
+            context.getString(R.string.notification_alert_title, "Nursery"),
+            title,
+        )
+    }
+
+    /**
+     * A room playing aloud raises its card with no sound at all, so nothing is
+     * ringing — and a test that only asked whether something was ringing would
+     * cheerfully overwrite the card of a room that is crying right now.
+     */
+    @Test
+    fun `a test is refused over a crying room even when nothing is ringing`() = runTest {
+        container.appSettings.update { it.copy(alertChime = false, alertVibrate = false) }
+        val controller = createService()
+        val state = container.monitoringState
+        state.put(live("a", "Nursery"))
+        listenAloud()
+        shadowOf(Looper.getMainLooper()).idle()
+        // Triggered while aloud: the card goes up, the alarm deliberately does
+        // not, so alarmingCameraId stays null.
+        state.update("a") { it.copy(phase = SoundDetector.Phase.TRIGGERED) }
+        shadowOf(Looper.getMainLooper()).idle()
+        assertNull(container.alertSignaler.alarmingCameraId.value)
+
+        deliverTestAlert(controller)
+
+        assertNull(container.alertSignaler.alarmingCameraId.value)
+    }
+
+    /**
+     * And the reverse: a test alarm earns none of the protection a real one
+     * has. Yielding a room's alert to a thing somebody asked for in daylight,
+     * standing in front of the phone, would drop the alert entirely.
+     */
+    @Test
+    fun `a real room outranks a test that is already sounding`() = runTest {
+        container.appSettings.update { it.copy(alertChime = false, alertVibrate = false) }
+        val controller = createService()
+        val state = container.monitoringState
+        state.put(live("a", "Nursery"))
+        listenAloud()
+        shadowOf(Looper.getMainLooper()).idle()
+        deliverTestAlert(controller)
+        assertEquals(
+            MonitoringService.TEST_CAMERA_ID,
+            container.alertSignaler.alarmingCameraId.value,
+        )
+
+        // A room that is playing aloud has its alarm withheld — but its card
+        // must still be raised, and the test must not be the reason it is not.
+        state.update("a") { it.copy(phase = SoundDetector.Phase.TRIGGERED) }
+        shadowOf(Looper.getMainLooper()).idle()
+        state.viewerAudible.value = true
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(
+            context.getString(R.string.notification_alert_title, "Nursery"),
+            alertNotification().extras.getString("android.title"),
+        )
     }
 }

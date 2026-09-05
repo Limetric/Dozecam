@@ -61,7 +61,7 @@ class CameraAudioMonitor(
     private val livestreamProvider: ProtectLivestreamProvider,
     private val scope: CoroutineScope,
     private val detectorSettings: DetectorSettings,
-    private val onLevel: (rms: Float) -> Unit,
+    private val onLevel: (rms: Float, atMs: Long) -> Unit,
     private val onPhase: (SoundDetector.Phase) -> Unit,
     private val onConnection: (ConnectionState) -> Unit,
     private val onTrigger: () -> Unit,
@@ -126,7 +126,7 @@ class CameraAudioMonitor(
                 // Proof this transport works, which is what makes abandoning a
                 // transport that never gets here safe.
                 fallback.onAudioDecoded()
-                onLevel(rms)
+                onLevel(rms, atMs)
                 watchdog.onPlayerEvent(PlayerEvent.TimeChanged(atMs))
                 if (detector.onLevel(rms, atMs)) onTrigger()
                 onPhase(detector.phase)

@@ -4,6 +4,7 @@ import android.app.NotificationManager
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import app.dozecam.MainActivity
+import app.dozecam.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -250,5 +251,38 @@ class MonitoringNotificationsTest {
             ExitReceiver::class.java.name,
             shadowOf(action.actionIntent).savedIntent.component?.className,
         )
+    }
+
+    /**
+     * The test alert takes exactly the path a real one takes — same channel,
+     * same priority, same full-screen intent — because a test down an easier
+     * road would prove nothing about the road that matters.
+     */
+    @Test
+    fun `a test alert is delivered exactly like a real one`() {
+        MonitoringNotifications.ensureChannels(context)
+
+        val test = MonitoringNotifications
+            .alertNotification(context, MonitoringService.TEST_CAMERA_ID, "", test = true)
+        val real = MonitoringNotifications.alertNotification(context, "a", "Nursery")
+
+        assertNotNull(test.fullScreenIntent)
+        assertNotNull(test.contentIntent)
+        assertEquals(real.channelId, test.channelId)
+        assertEquals(real.priority, test.priority)
+        assertEquals(real.category, test.category)
+    }
+
+    /** And says so, in the first place anyone would read it. */
+    @Test
+    fun `a test alert says it is a test rather than naming a room`() {
+        MonitoringNotifications.ensureChannels(context)
+
+        val notification = MonitoringNotifications
+            .alertNotification(context, MonitoringService.TEST_CAMERA_ID, "Nursery", test = true)
+
+        val title = notification.extras.getString("android.title")
+        assertEquals(context.getString(R.string.notification_test_alert_title), title)
+        assertTrue("a test must not name a room", title?.contains("Nursery") != true)
     }
 }

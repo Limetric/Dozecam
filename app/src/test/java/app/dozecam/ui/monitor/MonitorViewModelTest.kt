@@ -15,6 +15,7 @@ import app.dozecam.protect.ProtectCredentials
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -73,6 +74,7 @@ class MonitorViewModelTest {
         MutableCredentials(consoleHost),
         monitoringState,
         detectorSettings,
+        emptyFlow(),
         ioDispatcher = mainDispatcher.dispatcher,
     )
 
@@ -163,6 +165,7 @@ class MonitorViewModelTest {
             credentials,
             MonitoringState(),
             FakeDetectorSettings(),
+            emptyFlow(),
             ioDispatcher = mainDispatcher.dispatcher,
         )
         runCurrent()
