@@ -8,7 +8,24 @@
     <string name="status_live">LIVE</string>
     <string name="status_reconnecting">RECONNECTING (attempt %1$d)</string>
     <string name="status_offline">OFFLINE</string>
+    <!-- %2$s is an age, from the last_frame_*_ago plurals: "last frame 12 seconds ago". -->
     <string name="status_with_last_frame">%1$s · last frame %2$s</string>
+    <plurals name="last_frame_seconds_ago">
+        <item quantity="one">%1$d second ago</item>
+        <item quantity="other">%1$d seconds ago</item>
+    </plurals>
+    <plurals name="last_frame_minutes_ago">
+        <item quantity="one">%1$d minute ago</item>
+        <item quantity="other">%1$d minutes ago</item>
+    </plurals>
+    <plurals name="last_frame_hours_ago">
+        <item quantity="one">%1$d hour ago</item>
+        <item quantity="other">%1$d hours ago</item>
+    </plurals>
+    <plurals name="last_frame_days_ago">
+        <item quantity="one">%1$d day ago</item>
+        <item quantity="other">%1$d days ago</item>
+    </plurals>
     <string name="channel_status_name">Monitoring status</string>
     <string name="channel_alerts_name">Sound alerts</string>
     <string name="channel_alerts_description">Wakes the screen when sustained sound is detected</string>
