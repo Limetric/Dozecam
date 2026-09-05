@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import app.dozecam.monitoring.AlarmSchedule
+import app.dozecam.monitoring.FailureLedger
 import java.io.File
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.CoroutineScope
@@ -54,6 +55,7 @@ class AppSettingsRepositoryTest {
             alertRamp = false,
             alertRepeatIntervalMs = 12_000,
             alertVolume = 0.6f,
+            failureGraceMs = 90_000,
             orientationLock = OrientationLock.LANDSCAPE,
             soundMode = SoundMode.ALL_ALOUD,
             alertsEnabled = false,
@@ -84,6 +86,12 @@ class AppSettingsRepositoryTest {
             "the repeat has to be inside the range settings offers",
             defaults.alertRepeatIntervalMs in
                 AlarmSchedule.MIN_REPEAT_INTERVAL_MS..AlarmSchedule.MAX_REPEAT_INTERVAL_MS,
+        )
+        // Long enough that an ordinary reconnect never fires the failure
+        // alarm: an alarm for every brief drop is one people learn to ignore.
+        assertTrue(defaults.failureGraceMs >= 60_000)
+        assertTrue(
+            defaults.failureGraceMs in FailureLedger.MIN_GRACE_MS..FailureLedger.MAX_GRACE_MS,
         )
     }
 

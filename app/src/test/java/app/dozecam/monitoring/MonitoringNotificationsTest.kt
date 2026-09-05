@@ -1,5 +1,6 @@
 package app.dozecam.monitoring
 
+import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
@@ -43,6 +44,63 @@ class MonitoringNotificationsTest {
         assertNotNull(notification.fullScreenIntent)
         // Tap path for the heads-up fallback when full-screen is suppressed.
         assertNotNull(notification.contentIntent)
+    }
+
+    private val lostNursery = MonitoringFailure(
+        FailureReason.CameraUnreachable("a", "Nursery", networkDown = false),
+        sinceMs = 0L,
+    )
+
+    /**
+     * The failure card is its own notification, beside the sound alert's
+     * rather than in its place, and it wakes the viewer with the same urgency
+     * — under words that could never be read as a room getting loud.
+     */
+    @Test
+    fun `announcing a failure wakes the viewer and names what is wrong`() {
+        MonitoringNotifications.ensureChannels(context)
+
+        val notification = MonitoringNotifications.failureNotification(
+            context,
+            listOf(lostNursery, MonitoringFailure(FailureReason.LowBattery(22), 0L)),
+            wakeScreen = true,
+        )
+
+        assertNotNull(notification.fullScreenIntent)
+        assertNotNull(notification.contentIntent)
+        assertEquals(
+            "Can't reach Nursery · Battery low — 22%",
+            notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString(),
+        )
+        assertTrue(MonitoringNotifications.FAILURE_NOTIFICATION_ID != MonitoringNotifications.ALERT_NOTIFICATION_ID)
+        // Swiping it away acknowledges the alarm, as with a sound alert.
+        assertNotNull(notification.deleteIntent)
+    }
+
+    /** A refresh of the card, as failures join or clear, must not re-light the bedroom. */
+    @Test
+    fun `refreshing the failure card does not wake the screen again`() {
+        MonitoringNotifications.ensureChannels(context)
+
+        val notification = MonitoringNotifications
+            .failureNotification(context, listOf(lostNursery), wakeScreen = false)
+
+        assertNull(notification.fullScreenIntent)
+        assertNotNull(notification.contentIntent)
+    }
+
+    /** The unplugged notice is the mild one: the quiet channel, nothing lit. */
+    @Test
+    fun `the unplugged notice is quiet and says where the battery stands`() {
+        MonitoringNotifications.ensureChannels(context)
+
+        val notification = MonitoringNotifications.unpluggedNotification(context, 64)
+
+        assertEquals(MonitoringNotifications.STATUS_CHANNEL_ID, notification.channelId)
+        assertNull(notification.fullScreenIntent)
+        assertTrue(
+            notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString().contains("64%"),
+        )
     }
 
     @Test

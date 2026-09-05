@@ -10,6 +10,7 @@ import app.dozecam.data.CameraStore
 import app.dozecam.data.DetectorSettings
 import app.dozecam.data.DetectorSettingsStore
 import app.dozecam.monitoring.MonitorTransports
+import app.dozecam.monitoring.MonitoringFailure
 import app.dozecam.monitoring.MonitoringState
 import app.dozecam.monitoring.ReadinessFinding
 import app.dozecam.player.ConnectionState
@@ -50,6 +51,14 @@ class MonitorViewModel(
      * exactly the picture someone would take as proof that it is.
      */
     val monitoringRunning: StateFlow<Boolean> = monitoringState.serviceRunning
+
+    /**
+     * Every way the monitor is currently failing to do its job. The tiles
+     * show their own connections, which are the viewer's, not the monitor's:
+     * a camera can play here and still be one the monitor has lost, and the
+     * phone's battery or a withdrawn grant shows on no tile at all.
+     */
+    val failures: StateFlow<List<MonitoringFailure>> = monitoringState.failures
 
     /**
      * What the monitor is hearing from each camera, keyed by camera id — the

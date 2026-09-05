@@ -51,6 +51,7 @@ object SettingIds {
     const val ALERT_RAMP = "alert-ramp"
     const val ALERT_VOLUME = "alert-volume"
     const val ALERT_REPEAT = "alert-repeat"
+    const val FAILURE_GRACE = "failure-grace"
     const val NIGHT_THEME = "night-theme"
     const val KEEP_SCREEN = "keep-screen"
     const val ORIENTATION = "orientation"
@@ -161,6 +162,15 @@ fun settingsSearchEntries(
             R.string.alert_repeat_label,
             (settings.alertRepeatIntervalMs / 1000).toInt(),
         ),
+    ),
+    SettingSearchEntry(
+        id = SettingIds.FAILURE_GRACE,
+        category = SettingsCategory.ALERTS,
+        label = stringResource(
+            R.string.setting_failure_grace_label,
+            (settings.failureGraceMs / 1000).toInt(),
+        ),
+        description = stringResource(R.string.setting_failure_grace_footnote),
     ),
     SettingSearchEntry(
         id = SettingIds.NIGHT_THEME,

@@ -75,6 +75,8 @@ import app.dozecam.audio.talkback.Talkback
 import app.dozecam.audio.talkback.TalkbackAvailability
 import app.dozecam.data.Camera
 import app.dozecam.data.SoundMode
+import app.dozecam.monitoring.FailureWording
+import app.dozecam.monitoring.MonitoringFailure
 import app.dozecam.monitoring.ReadinessFinding
 import app.dozecam.monitoring.ReadinessState
 import app.dozecam.monitoring.problems
@@ -206,6 +208,13 @@ fun MonitorScreen(
      * dead monitor pass for a running one all night.
      */
     monitoringRunning: Boolean = false,
+    /**
+     * Every way the monitor is currently failing to do its job — a camera it
+     * has lost for longer than the grace period, a battery running down, an
+     * alert it could not show. Said here as well as in the notification and
+     * the alarm, because this is the screen the alarm wakes into.
+     */
+    monitoringFailures: List<MonitoringFailure> = emptyList(),
     /** Whether starting it would achieve anything — some camera can be heard. */
     canMonitor: Boolean = false,
     /** Tries the start again, asking for whatever grant it refused on. */
@@ -907,6 +916,7 @@ fun MonitorScreen(
             verticalArrangement = Arrangement.spacedBy(OverlayChrome.Gap),
         ) {
             NetworkNotice(reach = networkReach)
+            MonitoringFailureNotice(failures = monitoringFailures)
             ToggleSnackbarHost(snackbarHostState)
         }
 
@@ -1452,6 +1462,33 @@ private fun NetworkNotice(reach: NetworkReach, modifier: Modifier = Modifier) {
             .semantics { liveRegion = LiveRegionMode.Polite }
             .testTag("network-notice"),
     )
+}
+
+/**
+ * The monitor owning up: it cannot currently do its job, and this is why. One
+ * notice per failure, in the colours the other coverage notices use, because
+ * it is the same kind of fact — and the one the alarm woke someone to read.
+ */
+@Composable
+private fun MonitoringFailureNotice(
+    failures: List<MonitoringFailure>,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    failures.forEach { failure ->
+        OverlayNotice(
+            text = stringResource(
+                R.string.viewer_failure_since,
+                FailureWording.title(context, failure.reason),
+                FailureWording.time(context, failure.sinceMs),
+            ),
+            color = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+            modifier = modifier
+                .semantics { liveRegion = LiveRegionMode.Polite }
+                .testTag("failure-notice"),
+        )
+    }
 }
 
 /**

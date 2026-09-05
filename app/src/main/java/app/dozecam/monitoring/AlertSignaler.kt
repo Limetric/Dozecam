@@ -71,15 +71,45 @@ class AlertSignaler(
     private var lastTriggerAtMs = 0L
 
     /**
-     * Sounds the alarm for [cameraId], or — if one is already sounding — points
-     * the existing alarm at the newer camera and gives it a fresh five minutes.
-     * Never a second player: two alarms overlapping is noise, not urgency, and
-     * the ramp already in progress must not drop back to a whisper.
+     * Sounds the alarm for [cameraId], or — if one is already sounding for a
+     * room — points the existing alarm at the newer room and gives it a fresh
+     * five minutes. Never a second player: two alarms overlapping is noise,
+     * not urgency, and the ramp already in progress must not drop back to a
+     * whisper.
+     *
+     * The monitor's own alarm ([MONITORING_FAILURE]) ranks below a room's. A
+     * failure announced while a cry is ringing leaves that alarm exactly as
+     * it is — its identity included, because whoever clears the failure will
+     * ask whether the alarm was theirs to stop, and the answer must be no. A
+     * cry raised while the failure tone is ringing replaces it outright: the
+     * room is the more urgent of the two, and it deserves its own tone.
      */
-    fun signal(cameraId: String, settings: AppSettings) {
+    fun signal(
+        cameraId: String,
+        settings: AppSettings,
+        /**
+         * The tone to sound. The chosen alert sound unless told otherwise; a
+         * monitoring failure brings its own, so it is never mistaken for a
+         * room getting loud.
+         */
+        sound: Uri = AlarmSound.uriFor(settings),
+    ) {
         lastTriggerAtMs = clock()
+        if (job?.isActive == true) {
+            when {
+                // A room's alarm is already sounding; the failure card still
+                // says what failed, and the alarm is not relabelled as its.
+                cameraId == MONITORING_FAILURE -> return
+                // A cry outranks the monitor's own alarm: the failure run is
+                // ended here so the room can start its own, with its own tone.
+                _alarmingCameraId.value == MONITORING_FAILURE -> stop()
+                else -> {
+                    _alarmingCameraId.value = cameraId
+                    return
+                }
+            }
+        }
         _alarmingCameraId.value = cameraId
-        if (job?.isActive == true) return
         // Retired by generation as well as cancelled. Today a cancelled preview
         // always finishes unwinding before the burst below starts, because both
         // go through one FIFO event loop — but nothing states that, and the
@@ -89,7 +119,7 @@ class AlertSignaler(
         previewJob?.cancel()
         previewJob = null
         val token = ++generation
-        job = scope.launch { run(settings, token) }
+        job = scope.launch { run(settings, token, sound) }
     }
 
     /**
@@ -153,9 +183,8 @@ class AlertSignaler(
         player.stop()
     }
 
-    private suspend fun run(settings: AppSettings, token: Long) {
+    private suspend fun run(settings: AppSettings, token: Long, uri: Uri) {
         val schedule = settings.alarmSchedule()
-        val uri = AlarmSound.uriFor(settings)
         val startedAtMs = clock()
         try {
             burst(settings, schedule, uri, elapsedMs = 0L)
@@ -197,6 +226,13 @@ class AlertSignaler(
         const val TICK_MS = 250L
 
         const val PREVIEW_MS = 4_000L
+
+        /**
+         * What [alarmingCameraId] holds while the alarm is for the monitor
+         * itself rather than for a room. Never a real camera id, so nothing
+         * that reads it as one can be sent to a room that is not there.
+         */
+        const val MONITORING_FAILURE = "monitoring-failure"
     }
 }
 

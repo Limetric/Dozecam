@@ -23,11 +23,21 @@ object MonitoringNotifications {
     const val STATUS_NOTIFICATION_ID = 1
     const val ALERT_NOTIFICATION_ID = 2
 
+    /**
+     * Its own card, beside the sound alert's rather than in its place: a
+     * failure and a cry can be true at once, and the one must not take the
+     * other's notification down with it.
+     */
+    const val FAILURE_NOTIFICATION_ID = 3
+    const val UNPLUGGED_NOTIFICATION_ID = 4
+
     private const val REQUEST_ALERT_FULL_SCREEN = 0
     private const val REQUEST_ALERT_TAP = 1
     private const val REQUEST_STATUS_TAP = 2
     private const val REQUEST_STATUS_EXIT = 3
     private const val REQUEST_STATUS_STOP_LISTENING = 4
+    private const val REQUEST_FAILURE_FULL_SCREEN = 5
+    private const val REQUEST_FAILURE_TAP = 6
 
     fun ensureChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -253,6 +263,119 @@ object MonitoringNotifications {
         } catch (_: SecurityException) {
             // Notification permission revoked mid-run; monitoring continues,
             // the status notification (FGS-exempt) still reflects the alert.
+        }
+    }
+
+    /**
+     * The monitor saying it cannot currently do its job: which camera, or
+     * what else, and why. The same urgency as a sound alert — the full-screen
+     * intent wakes the viewer, which shows the failure and every tile as it
+     * stands — under a title that could never be read as a room getting loud.
+     *
+     * [wakeScreen] only for the posting that announces a failure. Later
+     * postings refresh the card as failures join or clear, and a refresh that
+     * re-launched the viewer would light the bedroom for nothing new.
+     */
+    fun failureNotification(
+        context: Context,
+        failures: List<MonitoringFailure>,
+        wakeScreen: Boolean,
+    ): Notification {
+        val first = failures.first()
+        val lines = failures.map { FailureWording.detail(context, it) }
+        val title = failures.joinToString(" · ") { FailureWording.title(context, it.reason) }
+        return NotificationCompat.Builder(context, ALERT_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(FailureWording.detail(context, first))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(lines.joinToString("\n")))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setOnlyAlertOnce(true)
+            .setAutoCancel(true)
+            // Swiping it away acknowledges the alarm, as with a sound alert.
+            .setDeleteIntent(
+                PendingIntent.getBroadcast(
+                    context,
+                    0,
+                    Intent(context, AlertDismissReceiver::class.java),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                ),
+            )
+            .apply {
+                if (!wakeScreen) return@apply
+                setFullScreenIntent(
+                    PendingIntent.getActivity(
+                        context,
+                        REQUEST_FAILURE_FULL_SCREEN,
+                        MainActivity.failureIntent(context),
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                    ),
+                    true,
+                )
+            }
+            .setContentIntent(
+                PendingIntent.getActivity(
+                    context,
+                    REQUEST_FAILURE_TAP,
+                    MainActivity.failureTapIntent(context),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                ),
+            )
+            .build()
+    }
+
+    fun postFailure(context: Context, failures: List<MonitoringFailure>, wakeScreen: Boolean) {
+        try {
+            NotificationManagerCompat.from(context)
+                .notify(FAILURE_NOTIFICATION_ID, failureNotification(context, failures, wakeScreen))
+        } catch (_: SecurityException) {
+            // Notifications blocked — which is itself one of the failures the
+            // alarm is sounding for; the sound still plays, and the status
+            // notification (FGS-exempt) still carries the condition.
+        }
+    }
+
+    fun cancelFailure(context: Context) {
+        NotificationManagerCompat.from(context).cancel(FAILURE_NOTIFICATION_ID)
+    }
+
+    /**
+     * The charger came out with the monitor armed: a milder notice, on the
+     * quiet status channel, so it lands in the shade without lighting anything
+     * up. It names the level and the level at which the real alarm would
+     * sound, so someone settling in with the phone in bed knows where they
+     * stand.
+     */
+    fun unpluggedNotification(context: Context, percent: Int): Notification =
+        NotificationCompat.Builder(context, STATUS_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(context.getString(R.string.notification_unplugged_title))
+            .setContentText(
+                context.getString(
+                    R.string.notification_unplugged_text,
+                    percent,
+                    BatteryStatus.LOW_PERCENT,
+                ),
+            )
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setAutoCancel(true)
+            .setContentIntent(
+                PendingIntent.getActivity(
+                    context,
+                    REQUEST_STATUS_TAP,
+                    MainActivity.viewerIntent(context),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                ),
+            )
+            .build()
+
+    fun postUnplugged(context: Context, percent: Int) {
+        try {
+            NotificationManagerCompat.from(context)
+                .notify(UNPLUGGED_NOTIFICATION_ID, unpluggedNotification(context, percent))
+        } catch (_: SecurityException) {
+            // Nothing to do: a notice this mild is not worth more than the shade.
         }
     }
 }

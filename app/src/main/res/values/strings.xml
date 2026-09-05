@@ -47,6 +47,30 @@
     </plurals>
     <string name="notification_stop_listening">Stop playing aloud</string>
     <!--
+        Monitoring failures: the monitor saying, out loud, that it cannot
+        currently do its job. Each has a short title for a status line or a
+        notice and a fuller line for the alert card.
+    -->
+    <string name="failure_camera_unreachable_title">Can\'t reach %1$s</string>
+    <string name="failure_camera_unreachable_detail">The camera has not answered since %1$s. Nobody will be told if that room gets loud.</string>
+    <string name="failure_network_down_title">No network — can\'t reach %1$s</string>
+    <string name="failure_network_down_detail">This phone has had no network since %1$s. Nobody will be told if a room gets loud.</string>
+    <string name="failure_battery_low_title">Battery low — %1$d%%</string>
+    <string name="failure_battery_low_detail">Plug the phone in. Dozecam may not last the night on what is left.</string>
+    <string name="failure_notifications_blocked_title">Alerts can\'t be shown</string>
+    <string name="failure_notifications_blocked_detail">Notifications are turned off for Dozecam in system settings, so an alert cannot wake the screen.</string>
+    <string name="failure_screen_wake_blocked_title">Alerts can\'t wake the screen</string>
+    <string name="failure_screen_wake_blocked_detail">Full-screen notifications are turned off for Dozecam in system settings, so an alert cannot wake the screen.</string>
+    <string name="notification_failure_text">Monitoring failure — tap to open Dozecam</string>
+    <string name="notification_unplugged_title">Unplugged while monitoring</string>
+    <string name="notification_unplugged_text">Dozecam is running on battery (%1$d%%). It will sound an alarm at %2$d%%.</string>
+    <string name="monitoring_status_failing">%1$s since %2$s</string>
+    <string name="monitoring_status_failing_more">%1$s · %2$d more</string>
+    <string name="monitoring_status_recovered">%1$s · Earlier: %2$s, cleared %3$s</string>
+    <string name="viewer_failure_since">%1$s · since %2$s</string>
+    <string name="setting_failure_grace_label">Alarm when a camera is unreachable for: %1$d s</string>
+    <string name="setting_failure_grace_footnote">A brief reconnect never fires this. A camera that stays unreachable this long sounds its own alarm, distinct from a sound alert — as does a battery running low.</string>
+    <!--
         The state of monitoring itself, not a preference about how it behaves.
         There is no switch: monitoring runs for as long as the app does.
     -->
