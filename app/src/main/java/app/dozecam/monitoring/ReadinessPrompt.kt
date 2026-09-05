@@ -30,10 +30,16 @@ object ReadinessPrompt {
         acknowledged: Set<String>,
     ): List<ReadinessFinding> =
         findings.problems().filterNot { finding ->
-            // Only when there is nothing left in it to be new about. A camera
-            // row naming two rooms where one was acknowledged is still worth
-            // saying, for the room that was not.
-            identities(finding).all { it in acknowledged }
+            // Nothing unverifiable interrupts anyone. A Do Not Disturb schedule
+            // is on every night by design, and it can neither be confirmed nor
+            // ruled out from here — a dialog about it at every bedtime would be
+            // the warning people learn to dismiss without reading, which is the
+            // one thing this must never become. The card still says it.
+            finding.unverified ||
+                // Otherwise, only when there is nothing left in it to be new
+                // about. A camera row naming two rooms where one was
+                // acknowledged is still worth saying, for the room that was not.
+                identities(finding).all { it in acknowledged }
         }
 
     /**

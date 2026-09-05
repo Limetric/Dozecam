@@ -384,4 +384,37 @@ class ReadinessPromptTest {
             ReadinessPrompt.remembered(Readiness.of(ReadinessFacts()), acknowledged),
         )
     }
+    /**
+     * A Do Not Disturb schedule is on every night by design, and whether it
+     * lets alarms through cannot be read from here. A dialog about it at every
+     * bedtime is how a warning becomes wallpaper — so the card says it and
+     * nothing else does.
+     */
+    @Test
+    fun `something that could not be checked never interrupts anyone`() {
+        val findings = Readiness.of(ReadinessFacts(dndFiltering = true))
+
+        // It is a problem, and it is on the card.
+        assertEquals(
+            listOf(ReadinessCheck.DO_NOT_DISTURB),
+            findings.problems().map { it.check },
+        )
+        // And it is not a reason to interrupt.
+        assertEquals(
+            emptyList<ReadinessFinding>(),
+            ReadinessPrompt.unannounced(findings, emptySet()),
+        )
+    }
+
+    @Test
+    fun `a failure alongside it still speaks`() {
+        val findings = Readiness.of(
+            ReadinessFacts(dndFiltering = true, alertsEnabled = false),
+        )
+
+        assertEquals(
+            listOf(ReadinessCheck.ALERTS_ON),
+            ReadinessPrompt.unannounced(findings, emptySet()).map { it.check },
+        )
+    }
 }

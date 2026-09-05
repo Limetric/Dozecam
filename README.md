@@ -37,10 +37,14 @@ The checks are:
   category still switched on in Android, and (on Android 14 and later)
   full-screen-intent access, without which an alert cannot light a locked
   screen and quietly becomes a banner nobody asleep will see.
-- **Alerts can be heard** — the alarm volume above zero, Do Not Disturb not set
-  to total silence, and at least one of the chime and the vibration switched
+- **Alerts can be heard** — the alarm volume above zero, Do Not Disturb not
+  silencing alarms, and at least one of the chime and the vibration switched
   on. Dozecam plays its alert with alarm usage, so a silent ringer does not
-  matter; the alarm stream does.
+  matter; the alarm stream does. Do Not Disturb set to total silence stops an
+  alert outright; set to filter by priority it *may*, and Dozecam says so
+  rather than guessing — whether alarms are among your exceptions is readable
+  only by an app holding notification-policy access, which this one does not
+  ask for.
 - **Monitoring will keep running** — the service armed, Dozecam allowed to run
   unrestricted rather than left to battery optimisation, and the phone charging
   or with enough battery for the night.

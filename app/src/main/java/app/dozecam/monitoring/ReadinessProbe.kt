@@ -83,6 +83,7 @@ class ReadinessProbe(
                 hasVibrator = hasVibrator(),
                 alarmsMuted = alarmsMuted(),
                 alarmsSuppressed = alarmsSuppressed(),
+                dndFiltering = dndFiltering(),
                 monitoringRunning = running,
                 batteryOptimised = batteryOptimised(),
                 charging = charging(),
@@ -186,18 +187,28 @@ class ReadinessProbe(
         context.getSystemService(AudioManager::class.java).isStreamMute(AudioManager.STREAM_ALARM)
 
     /**
-     * Whether Do Not Disturb would silence an alarm.
-     *
-     * Total silence does. "Alarms only" and "priority" deliberately do not:
-     * priority mode's own default allows alarms, and the policy that would say
-     * otherwise is readable only by an app holding notification-policy access —
-     * which Dozecam has no business asking for. So the unknown case is reported
-     * as fine rather than as a failure, because a check that cried wolf at
-     * every DND schedule would be the one people learn to ignore.
+     * Whether Do Not Disturb is silencing an alarm outright. Only total silence
+     * does that for certain; it stops sound and alarm-usage vibration alike.
      */
     private fun alarmsSuppressed(): Boolean =
-        context.getSystemService(NotificationManager::class.java).currentInterruptionFilter ==
-            NotificationManager.INTERRUPTION_FILTER_NONE
+        interruptionFilter() == NotificationManager.INTERRUPTION_FILTER_NONE
+
+    /**
+     * Whether Do Not Disturb is on and filtering by priority — the state whose
+     * effect on an alarm cannot be read from here.
+     *
+     * Alarms are among priority mode's allowed categories by default and can be
+     * taken out of them, and the policy that would say which is readable only
+     * by an app holding notification-policy access. Dozecam has no business
+     * holding that for one row of a checklist, so it reports the honest answer
+     * — that it cannot tell — rather than guessing the permissive one, which is
+     * how a card comes to promise a night it cannot deliver.
+     */
+    private fun dndFiltering(): Boolean =
+        interruptionFilter() == NotificationManager.INTERRUPTION_FILTER_PRIORITY
+
+    private fun interruptionFilter(): Int =
+        context.getSystemService(NotificationManager::class.java).currentInterruptionFilter
 
     /** Subject to battery optimisation — that is, *not* on the exempt list. */
     private fun batteryOptimised(): Boolean = !context.getSystemService(PowerManager::class.java)

@@ -1,6 +1,7 @@
 package app.dozecam.monitoring
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -107,6 +108,60 @@ class ReadinessTest {
             ReadinessState.FAIL,
             state(ReadinessCheck.DO_NOT_DISTURB, ReadinessFacts(alarmsSuppressed = true)),
         )
+    }
+
+    /**
+     * Priority mode allows alarms by default and can be set not to, and which
+     * it is cannot be read without notification-policy access. Reported as fine,
+     * it lets the card say "ready for tonight" over a phone that will deliver
+     * nothing — the exact false reassurance this whole feature exists to remove.
+     */
+    @Test
+    fun `Do Not Disturb filtering by priority is reported as unknown, not as fine`() {
+        val finding = finding(ReadinessCheck.DO_NOT_DISTURB, ReadinessFacts(dndFiltering = true))
+
+        assertEquals(ReadinessState.WARN, finding.state)
+        assertTrue(finding.unverified)
+        assertEquals(ReadinessRemedy.DO_NOT_DISTURB_SETTINGS, finding.remedy)
+    }
+
+    /**
+     * The case the checklist was silently passing: nothing to hear, everything
+     * riding on a vibration, and Do Not Disturb filtering by usage over the top
+     * of it. The alarm-volume row rightly says nothing — there is no chime for
+     * it to be about — so this is the only row left that can.
+     */
+    @Test
+    fun `a vibration-only alert under Do Not Disturb is not called ready`() {
+        val findings = Readiness.of(
+            ReadinessFacts(alertChime = false, alertVibrate = true, dndFiltering = true),
+        )
+
+        assertEquals(ReadinessState.PASS, findings.single { it.check == ReadinessCheck.ALARM_VOLUME }.state)
+        assertEquals(ReadinessState.WARN, findings.worstState())
+        assertEquals(
+            listOf(ReadinessCheck.DO_NOT_DISTURB),
+            findings.problems().map { it.check },
+        )
+    }
+
+    @Test
+    fun `total silence outranks not being able to tell`() {
+        assertEquals(
+            ReadinessState.FAIL,
+            state(
+                ReadinessCheck.DO_NOT_DISTURB,
+                ReadinessFacts(alarmsSuppressed = true, dndFiltering = true),
+            ),
+        )
+    }
+
+    @Test
+    fun `Do Not Disturb off is a plain pass`() {
+        val finding = finding(ReadinessCheck.DO_NOT_DISTURB, ReadinessFacts())
+
+        assertEquals(ReadinessState.PASS, finding.state)
+        assertFalse(finding.unverified)
     }
 
     @Test

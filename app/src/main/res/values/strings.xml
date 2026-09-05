@@ -291,6 +291,8 @@
     <string name="readiness_alarm_volume_why">Dozecam sounds its alert on the alarm stream, so a silent ringer does not matter — but the alarm volume itself does.</string>
 
     <string name="readiness_dnd_pass">Do Not Disturb is letting alarms through</string>
+    <string name="readiness_dnd_unknown">Do Not Disturb is on, and may be silencing alarms</string>
+    <string name="readiness_dnd_unknown_why">Dozecam cannot read whether your Do Not Disturb rules let alarms through — only you can see that. If alarms are switched off in its exceptions, nothing here will wake you.</string>
     <string name="readiness_dnd_fail">Do Not Disturb is silencing alarms</string>
     <string name="readiness_dnd_why">Total silence stops alarms too. Allow alarms through, or turn Do Not Disturb off for the night.</string>
 

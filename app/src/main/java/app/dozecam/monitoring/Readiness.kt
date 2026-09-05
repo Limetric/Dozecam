@@ -178,8 +178,16 @@ data class ReadinessFacts(
     /** Whether this device has a vibrator at all. Tablets often do not. */
     val hasVibrator: Boolean = true,
     val alarmsMuted: Boolean = false,
-    /** Do Not Disturb is filtering alarms out. */
+    /** Do Not Disturb is silencing everything, alarms included. */
     val alarmsSuppressed: Boolean = false,
+    /**
+     * Do Not Disturb is on and filtering by priority — a state whose effect on
+     * an alarm is not knowable from here. Whether alarms are among the allowed
+     * categories lives in the notification policy, which only an app holding
+     * notification-policy access may read, and that is a great deal of access
+     * to hold for one row of a checklist.
+     */
+    val dndFiltering: Boolean = false,
     val monitoringRunning: Boolean = true,
     /** True when Dozecam is *subject to* battery optimisation, i.e. not exempt. */
     val batteryOptimised: Boolean = false,
@@ -237,6 +245,17 @@ data class ReadinessFinding(
      * away on one. See [ReadinessPrompt].
      */
     val masked: Boolean = false,
+    /**
+     * Whether this is a warning about not being able to check, rather than
+     * about something found to be wrong.
+     *
+     * The card says it either way — "will this wake me?" is not answered by
+     * silence — but nothing unverifiable is allowed to interrupt anyone. A
+     * bedtime Do Not Disturb schedule is on every night by design, and a
+     * warning that appeared over the cameras every night would be the one
+     * people stop reading by the night it matters.
+     */
+    val unverified: Boolean = false,
 )
 
 object Readiness {
@@ -287,10 +306,19 @@ object Readiness {
             ReadinessCheck.ALARM_VOLUME,
             !facts.alertChime || (facts.alarmVolume > 0 && !facts.alarmsMuted),
         ),
-        // Do Not Disturb is asked unconditionally, unlike the volume above:
-        // total silence suppresses vibration by usage as well as sound, so it
-        // reaches a vibration-only alert too.
-        finding(ReadinessCheck.DO_NOT_DISTURB, !facts.alarmsSuppressed),
+        // Asked unconditionally, unlike the volume above: Do Not Disturb
+        // filters by usage, so it reaches a vibration-only alert exactly as it
+        // reaches a chime.
+        //
+        // Three outcomes rather than two, because there are three states and
+        // only two of them are knowable. Total silence stops an alarm outright.
+        // Priority mode might: alarms are among its allowed categories by
+        // default and can be taken out of them, and which it is cannot be read
+        // without notification-policy access. Reporting that as fine is how the
+        // card comes to say "ready for tonight" over a phone that will deliver
+        // nothing — so it says what is true instead, that it cannot tell, and
+        // offers the screen where the answer is.
+        dndFinding(facts),
         // Vibration only counts where there is something to vibrate. A tablet
         // propped up as a monitor with the chime switched off would otherwise
         // pass this row while being incapable of signalling anything at all.
@@ -337,6 +365,19 @@ object Readiness {
         finding(ReadinessCheck.LOCAL_NETWORK, facts.localNetworkGranted),
         cameras(facts),
     )
+
+    private fun dndFinding(facts: ReadinessFacts): ReadinessFinding = when {
+        facts.alarmsSuppressed -> ReadinessFinding(
+            check = ReadinessCheck.DO_NOT_DISTURB,
+            state = ReadinessState.FAIL,
+        )
+        facts.dndFiltering -> ReadinessFinding(
+            check = ReadinessCheck.DO_NOT_DISTURB,
+            state = ReadinessState.WARN,
+            unverified = true,
+        )
+        else -> ReadinessFinding(ReadinessCheck.DO_NOT_DISTURB, ReadinessState.PASS)
+    }
 
     /**
      * Which rooms the monitor is not actually hearing.

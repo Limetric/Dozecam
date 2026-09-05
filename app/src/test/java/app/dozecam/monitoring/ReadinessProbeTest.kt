@@ -13,6 +13,7 @@ import app.dozecam.player.ConnectionState
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -108,12 +109,21 @@ class ReadinessProbeTest {
     }
 
     @Test
-    fun `priority mode is not reported as a failure we cannot prove`() = runTest {
+    fun `priority mode is reported as unknown rather than guessed either way`() = runTest {
         // The policy that would say whether alarms get through is readable only
         // with notification-policy access, which Dozecam has no business
-        // holding. A check that cried wolf at every DND schedule is the check
-        // people learn to ignore.
+        // holding. Guessing the permissive answer is what would let the card
+        // promise a night it cannot deliver.
         notifications.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_PRIORITY)
+
+        val finding = finding(ReadinessCheck.DO_NOT_DISTURB)
+        assertEquals(ReadinessState.WARN, finding.state)
+        assertTrue(finding.unverified)
+    }
+
+    @Test
+    fun `alarms-only mode really does let alarms through`() = runTest {
+        notifications.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALARMS)
 
         assertEquals(ReadinessState.PASS, state(ReadinessCheck.DO_NOT_DISTURB))
     }
