@@ -7,19 +7,31 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import app.dozecam.R
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import app.dozecam.player.ConnectionState
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.delay
+import java.util.concurrent.TimeUnit
 
-private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")
+/**
+ * How often the age of the last frame is re-read. The age is shown in whole
+ * seconds, so a coarser tick would let the pill sit on a stale number.
+ */
+private const val AGE_TICK_MS = 1_000L
 
 /**
  * Honest connection state, always visible. A frozen frame silently pretending to
@@ -36,6 +48,13 @@ private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")
  * Positioned by whoever draws it: a tile puts it in its own corner, the single
  * camera puts it in the row with the back button, and the pill is the same
  * pill in both — only [height] changes, to match what it sits beside.
+ *
+ * While the stream is not live the pill also says how old the picture is —
+ * "last frame 12 seconds ago" — because that is the question a stalled tile
+ * raises: is the room still fine, or has this been frozen for a while? A
+ * clock time answered it only after arithmetic against the phone's own clock,
+ * which is not what anyone does at 3am. The age is re-read every second, from
+ * [clock], so the number keeps counting while the stream is still gone.
  */
 @Composable
 fun StatusOverlay(
@@ -43,6 +62,7 @@ fun StatusOverlay(
     lastFrameAtMs: Long?,
     modifier: Modifier = Modifier,
     height: Dp = OverlayChrome.TileHeight,
+    clock: () -> Long = System::currentTimeMillis,
 ) {
     val appearance = state.appearance(MaterialTheme.colorScheme)
     val label = when (state) {
@@ -54,10 +74,9 @@ fun StatusOverlay(
         ConnectionState.Offline -> stringResource(R.string.status_offline)
     }
     val text = if (state != ConnectionState.Live && lastFrameAtMs != null) {
-        val time = timeFormatter.format(
-            Instant.ofEpochMilli(lastFrameAtMs).atZone(ZoneId.systemDefault()),
-        )
-        stringResource(R.string.status_with_last_frame, label, time)
+        val now = rememberTickingNow(clock)
+        val age = frameAge(now - lastFrameAtMs)
+        stringResource(R.string.status_with_last_frame, label, age.text())
     } else {
         label
     }
@@ -77,6 +96,63 @@ fun StatusOverlay(
             text = text,
             style = MaterialTheme.typography.labelLarge,
         )
+    }
+}
+
+/**
+ * The wall clock, re-read every second while the screen is started. Only the
+ * non-live pill asks for it, so a healthy grid does not recompose on a timer.
+ */
+@Composable
+private fun rememberTickingNow(clock: () -> Long): Long {
+    var now by remember(clock) { mutableLongStateOf(clock()) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(clock, lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                now = clock()
+                delay(AGE_TICK_MS)
+            }
+        }
+    }
+    return now
+}
+
+/** The unit an age is said in: the largest that still gives a count of at least one. */
+internal enum class AgeUnit { SECONDS, MINUTES, HOURS, DAYS }
+
+/**
+ * How long ago the last frame arrived, in the words a person would use for it.
+ * Ages are rounded down: a picture 59 seconds old is "59 seconds ago", not a
+ * minute, because the monitor is the one place where rounding a stall up
+ * makes it sound worse than it is and rounding it down hides how long it has
+ * really been — so it says exactly what it knows.
+ */
+internal data class FrameAge(val count: Long, val unit: AgeUnit) {
+    @Composable
+    fun text(): String {
+        val quantity = count.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        return when (unit) {
+            AgeUnit.SECONDS -> pluralStringResource(R.plurals.last_frame_seconds_ago, quantity, quantity)
+            AgeUnit.MINUTES -> pluralStringResource(R.plurals.last_frame_minutes_ago, quantity, quantity)
+            AgeUnit.HOURS -> pluralStringResource(R.plurals.last_frame_hours_ago, quantity, quantity)
+            AgeUnit.DAYS -> pluralStringResource(R.plurals.last_frame_days_ago, quantity, quantity)
+        }
+    }
+}
+
+/**
+ * Kept apart from the composable so the arithmetic can be checked without a
+ * screen. A negative age — the clock was set back — reads as zero seconds
+ * rather than as a frame from the future.
+ */
+internal fun frameAge(ageMs: Long): FrameAge {
+    val seconds = TimeUnit.MILLISECONDS.toSeconds(ageMs.coerceAtLeast(0L))
+    return when {
+        seconds < 60L -> FrameAge(seconds, AgeUnit.SECONDS)
+        seconds < 3_600L -> FrameAge(seconds / 60L, AgeUnit.MINUTES)
+        seconds < 86_400L -> FrameAge(seconds / 3_600L, AgeUnit.HOURS)
+        else -> FrameAge(seconds / 86_400L, AgeUnit.DAYS)
     }
 }
 

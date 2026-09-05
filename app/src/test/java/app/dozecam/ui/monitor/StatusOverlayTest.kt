@@ -39,20 +39,69 @@ class StatusOverlayTest {
         composeRule.onNodeWithTag("status-icon-live").assertExists()
     }
 
+    /**
+     * The age of the picture, not the clock time it arrived at: "12 seconds
+     * ago" answers how long the room has been unseen without arithmetic
+     * against the phone's clock.
+     */
     @Test
-    fun `reconnecting state shows the attempt and last frame time`() {
+    fun `reconnecting state shows the attempt and how long ago the last frame was`() {
         composeRule.setContent {
             DozecamTheme {
                 StatusOverlay(
                     state = ConnectionState.Reconnecting(3),
                     lastFrameAtMs = 0L,
+                    clock = { 12_400L },
                 )
             }
         }
 
-        composeRule.onNodeWithText("RECONNECTING (attempt 3)", substring = true).assertExists()
-        composeRule.onNodeWithText("last frame", substring = true).assertExists()
+        composeRule.onNodeWithText("RECONNECTING (attempt 3) · last frame 12 seconds ago")
+            .assertExists()
         composeRule.onNodeWithTag("status-icon-connecting").assertExists()
+    }
+
+    /**
+     * The age keeps counting while the stream is gone: a pill that said
+     * "12 seconds ago" for a minute would be the frozen frame all over again.
+     */
+    @Test
+    fun `the age of the last frame counts on while the stream is not live`() {
+        var now = 5_000L
+        composeRule.setContent {
+            DozecamTheme {
+                StatusOverlay(
+                    state = ConnectionState.Offline,
+                    lastFrameAtMs = 0L,
+                    clock = { now },
+                )
+            }
+        }
+        composeRule.onNodeWithText("5 seconds ago", substring = true).assertExists()
+
+        now = 61_000L
+        composeRule.mainClock.advanceTimeBy(1_000L)
+
+        composeRule.onNodeWithText("1 minute ago", substring = true).assertExists()
+    }
+
+    @Test
+    fun `an age is said in the largest unit that fits, rounded down`() {
+        assertEquals(FrameAge(0, AgeUnit.SECONDS), frameAge(0L))
+        assertEquals(FrameAge(0, AgeUnit.SECONDS), frameAge(999L))
+        assertEquals(FrameAge(12, AgeUnit.SECONDS), frameAge(12_400L))
+        assertEquals(FrameAge(59, AgeUnit.SECONDS), frameAge(59_999L))
+        assertEquals(FrameAge(1, AgeUnit.MINUTES), frameAge(60_000L))
+        assertEquals(FrameAge(59, AgeUnit.MINUTES), frameAge(3_599_000L))
+        assertEquals(FrameAge(1, AgeUnit.HOURS), frameAge(3_600_000L))
+        assertEquals(FrameAge(23, AgeUnit.HOURS), frameAge(86_399_000L))
+        assertEquals(FrameAge(1, AgeUnit.DAYS), frameAge(86_400_000L))
+        assertEquals(FrameAge(3, AgeUnit.DAYS), frameAge(3 * 86_400_000L + 5_000L))
+    }
+
+    @Test
+    fun `a clock set back reads as no age rather than a frame from the future`() {
+        assertEquals(FrameAge(0, AgeUnit.SECONDS), frameAge(-30_000L))
     }
 
     @Test
