@@ -93,6 +93,14 @@ class MonitoringService : Service() {
     /** Whether a failure card and alarm are up, so a change in the set refreshes the card rather than re-waking the room. */
     private var failureAnnounced = false
 
+    /**
+     * A failure crossed its grace period while alerts were off, so nothing was
+     * said. The ledger will not offer it again — it is announced once — but
+     * alerts coming back on is the parent settling in for the night, and a
+     * camera that is still gone has to be said then, not never.
+     */
+    private var failureAnnouncementPending = false
+
     /** The battery as the system last reported it; null until it has. */
     private val battery = MutableStateFlow<BatteryStatus?>(null)
 
@@ -180,6 +188,13 @@ class MonitoringService : Service() {
                 // they go now rather than ringing on for a setting that says
                 // nobody wants them.
                 if (!settings.alertsEnabled) dropAlert()
+                // Switched back on with a failure standing that was never
+                // announced: it is announced now. The whole set, because the
+                // card lists everything that is wrong.
+                val failures = container.monitoringState.failures.value
+                if (settings.alertsEnabled && failureAnnouncementPending && failures.isNotEmpty()) {
+                    raiseFailureAlert(failures)
+                }
             }
         }
 
@@ -373,7 +388,11 @@ class MonitoringService : Service() {
      * status line and on the viewer for whoever is awake to look.
      */
     private fun raiseFailureAlert(failures: List<MonitoringFailure>) {
-        if (!appSettings.alertsEnabled) return
+        if (!appSettings.alertsEnabled) {
+            failureAnnouncementPending = true
+            return
+        }
+        failureAnnouncementPending = false
         failureAnnounced = true
         MonitoringNotifications.postFailure(this, failures, wakeScreen = true)
         appContainer.alertSignaler.signal(
@@ -383,8 +402,15 @@ class MonitoringService : Service() {
         )
     }
 
-    /** Nothing is wrong any more: the card goes, and the alarm with it if it was this one's. */
+    /**
+     * Nothing is wrong any more: the card goes, and the alarm with it — but
+     * only if the alarm is the failure's. A room's alarm keeps its own
+     * identity through a failure announcement (see [AlertSignaler.signal]),
+     * so a cry that nobody has acknowledged is never silenced by a camera
+     * coming back or a charger going in.
+     */
     private fun clearFailureAlert() {
+        failureAnnouncementPending = false
         if (!failureAnnounced) return
         failureAnnounced = false
         MonitoringNotifications.cancelFailure(this)
@@ -646,6 +672,8 @@ class MonitoringService : Service() {
             .cancel(MonitoringNotifications.ALERT_NOTIFICATION_ID)
         failureAnnounced = false
         MonitoringNotifications.cancelFailure(this)
+        // Deliberately not the pending flag: alerts going off is what makes a
+        // standing failure pending in the first place.
     }
 
     private fun updateStatusNotification(display: StatusHeartbeat.Display) {

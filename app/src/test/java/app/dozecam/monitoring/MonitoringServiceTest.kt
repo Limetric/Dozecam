@@ -625,6 +625,74 @@ class MonitoringServiceTest {
     }
 
     /**
+     * A cry is ringing when a failure clears. The failure's alarm was never
+     * started — the cry's was already up — so clearing the failure must leave
+     * the cry ringing for someone to acknowledge.
+     */
+    @Test
+    fun `a failure clearing does not silence an unacknowledged cry`() = runTest {
+        container.appSettings.update { it.copy(alertChime = false, alertVibrate = false) }
+        val grace = graceMs()
+        createService().get()
+        val state = container.monitoringState
+        state.put(live("a", "Nursery"))
+        state.put(live("b", "Hall").withConnection(ConnectionState.Offline))
+        shadowOf(Looper.getMainLooper()).idle()
+        // The nursery cries first, through the one path into raiseAlert that
+        // needs no decoder: heard aloud, then no longer.
+        listenAloud()
+        shadowOf(Looper.getMainLooper()).idle()
+        state.update("a") { it.copy(phase = SoundDetector.Phase.TRIGGERED) }
+        state.viewerAudible.value = true
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("a", container.alertSignaler.alarmingCameraId.value)
+
+        idleFor(grace + StatusHeartbeat.MIN_INTERVAL_MS)
+        assertEquals(1, state.failures.value.size)
+        assertNotNull(failureCard())
+        assertEquals("a", container.alertSignaler.alarmingCameraId.value)
+
+        state.update("b") { it.withConnection(ConnectionState.Live) }
+        idleFor(StatusHeartbeat.MIN_INTERVAL_MS)
+
+        assertTrue(state.failures.value.isEmpty())
+        assertNull(failureCard())
+        assertEquals("a", container.alertSignaler.alarmingCameraId.value)
+        container.alertSignaler.stop()
+    }
+
+    /**
+     * A camera that went past the grace period while alerts were off has
+     * been said to nobody. Alerts coming back on is the parent settling in
+     * for the night, and the camera is still gone: it is said then.
+     */
+    @Test
+    fun `a failure that stood while alerts were off is announced when they come back on`() = runTest {
+        container.appSettings.update {
+            it.copy(alertsEnabled = false, alertChime = false, alertVibrate = false)
+        }
+        val grace = graceMs()
+        createService().get()
+        val state = container.monitoringState
+        state.put(live("a", "Nursery").withConnection(ConnectionState.Offline))
+        shadowOf(Looper.getMainLooper()).idle()
+        idleFor(grace + StatusHeartbeat.MIN_INTERVAL_MS)
+        assertEquals(1, state.failures.value.size)
+        assertNull(failureCard())
+
+        container.appSettings.update { it.copy(alertsEnabled = true) }
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertNotNull(failureCard())
+        assertEquals(AlertSignaler.MONITORING_FAILURE, container.alertSignaler.alarmingCameraId.value)
+
+        // Once is once: acknowledged, it does not come back on the next tick.
+        container.alertSignaler.acknowledge()
+        idleFor(StatusHeartbeat.MIN_INTERVAL_MS * 2)
+        assertNull(container.alertSignaler.alarmingCameraId.value)
+    }
+
+    /**
      * The battery is read from the system's sticky broadcast, and a charger
      * pulled with the monitor armed gets the milder notice: a quiet card, no
      * alarm, saying where the battery stands.

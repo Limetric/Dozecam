@@ -117,6 +117,47 @@ class AlertSignalerTest {
         assertEquals("one burst per interval, not two", 2, player.starts.size)
     }
 
+    /**
+     * A failure announced while a cry is ringing must not take the cry's
+     * alarm over: whoever clears the failure will stop "the failure's alarm",
+     * and that must never be an unacknowledged room.
+     */
+    @Test
+    fun `a failure announced during a cry leaves the cry's alarm as it is`() = alarmTest {
+        val signaler = signaler()
+        val failureTone = Uri.parse("android.resource://test/failure")
+
+        signaler.signal("cam-1", settings())
+        runCurrent()
+        advanceTimeBy(1_000)
+        signaler.signal(AlertSignaler.MONITORING_FAILURE, settings(), sound = failureTone)
+        runCurrent()
+
+        assertEquals("cam-1", signaler.alarmingCameraId.value)
+        assertEquals(1, player.starts.size)
+        assertTrue(player.playing)
+        assertFalse(failureTone in player.uris)
+    }
+
+    /** The room is the more urgent of the two, and it gets its own tone. */
+    @Test
+    fun `a cry during the failure alarm replaces it with the room's own alarm`() = alarmTest {
+        val signaler = signaler()
+        val failureTone = Uri.parse("android.resource://test/failure")
+
+        signaler.signal(AlertSignaler.MONITORING_FAILURE, settings(), sound = failureTone)
+        runCurrent()
+        advanceTimeBy(1_000)
+        signaler.signal("cam-1", settings())
+        runCurrent()
+
+        assertEquals("cam-1", signaler.alarmingCameraId.value)
+        assertEquals(2, player.starts.size)
+        assertEquals(failureTone, player.uris[0])
+        assertEquals(AlarmSound.uriFor(settings()), player.uris[1])
+        assertTrue(player.playing)
+    }
+
     @Test
     fun `acknowledging stops everything`() = alarmTest {
         val signaler = signaler()
@@ -304,11 +345,13 @@ class AlertSignalerTest {
 
     private class FakePlayer : AlarmPlayer {
         val starts = mutableListOf<Float>()
+        val uris = mutableListOf<Uri>()
         var volume: Float? = null
         var playing = false
 
         override fun start(uri: Uri, volume: Float) {
             starts += volume
+            uris += uri
             this.volume = volume
             playing = true
         }
