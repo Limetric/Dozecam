@@ -245,7 +245,8 @@ class MainActivity : ComponentActivity() {
             val container = appContainer
             val appSettings by container.appSettings.settings
                 .collectAsStateWithLifecycle(initialValue = AppSettings())
-            DozecamTheme(nightTheme = appSettings.nightTheme) {
+            // Keep camera overlays and viewer controls dark even in system light mode.
+            DozecamTheme(nightTheme = appSettings.nightTheme, darkTheme = true) {
                 val viewModel: MonitorViewModel = viewModel(
                     factory = MonitorViewModel.factory(
                         container.cameras,

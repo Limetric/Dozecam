@@ -68,11 +68,9 @@ internal object OverlayChrome {
  * The container every piece of chrome over a camera picture sits in — status,
  * names, meters, talk-back, the return countdown.
  *
- * Overlays used to paint their own black scrim and write on it in white, which
- * looked the same under every theme and belonged to none of them. They are
- * surfaces now: the colour scheme decides how they read, so the night palette
- * needs no branch of its own, and a light theme puts light chrome over the
- * video exactly as it does everywhere else in the app.
+ * The viewer uses a dark colour scheme even in system light mode. Surface
+ * roles keep overlays dark while retaining wallpaper-derived accents and
+ * letting the night palette dim them without a branch of its own.
  *
  * The outline is what a translucent surface loses over a busy picture. A pale
  * pill on a pale wall has no edge without it, and an overlay whose boundary is
