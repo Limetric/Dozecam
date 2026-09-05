@@ -15,6 +15,23 @@ data class CameraMonitorState(
      * stream yet" — and a meter shown for the latter would be lying.
      */
     val level: Float? = null,
+    /**
+     * When the last buffer was decoded on the *current* connection
+     * ([android.os.SystemClock.elapsedRealtime]), or null before any has been.
+     *
+     * Kept alongside [level] rather than derived from it because the two answer
+     * different questions: the level is how loud the room is, this is whether
+     * anyone is still hearing it at all. A room can sit at exactly the same
+     * measured silence for an hour and be perfectly monitored, or sit at the
+     * last level it ever produced while its stream quietly stopped delivering —
+     * and only a timestamp tells those apart. The bedtime check
+     * ([Readiness.AUDIO_STALE_MS]) is what reads it.
+     *
+     * Deliberately coarse — see [MonitoringService] — so that a value which
+     * moves with every decoded buffer cannot defeat the conflation the status
+     * heartbeat depends on.
+     */
+    val lastAudioAtMs: Long? = null,
     val phase: SoundDetector.Phase = SoundDetector.Phase.ARMED,
     val connection: ConnectionState = ConnectionState.Connecting,
 ) {
@@ -23,12 +40,17 @@ data class CameraMonitorState(
      * a level measured on a stream that has since dropped is evidence about
      * the past, and it must not survive into a connection that has not yet
      * decoded anything — a player can reach Live off its clock alone, before
-     * (or without ever) producing a PCM buffer.
+     * (or without ever) producing a PCM buffer. The moment that level arrived
+     * goes with it, for the same reason and to the same end.
      */
     fun withConnection(connection: ConnectionState): CameraMonitorState = copy(
         connection = connection,
         level = if (connection == ConnectionState.Live) level else null,
+        lastAudioAtMs = if (connection == ConnectionState.Live) lastAudioAtMs else null,
     )
+
+    val isLive: Boolean
+        get() = connection == ConnectionState.Live
 
     /**
      * Whether there is audio coming through this camera to turn up: live, and
@@ -37,7 +59,7 @@ data class CameraMonitorState(
      * be decoded plays on without ever producing a sample.
      */
     val isAudible: Boolean
-        get() = connection == ConnectionState.Live && level != null
+        get() = isLive && level != null
 }
 
 /**
@@ -70,6 +92,21 @@ class MonitoringState {
      * next viewer to open: an exit is a thing that happens once.
      */
     val exitRequested = MutableStateFlow(false)
+
+    /**
+     * Whether some screen owes the user an explanation of full-screen-intent
+     * access before Android is asked for it.
+     *
+     * App-scoped rather than held by the [MonitoringStarter] that raised it,
+     * because the screen that arms the monitor is not always a screen that
+     * stays: onboarding arms and finishes itself in the same breath, and a
+     * dialog owned by it would never be seen. The viewer picks it up instead,
+     * which is the screen that is there afterwards.
+     *
+     * In memory only. This is a nudge, not a record — the durable statement is
+     * the bedtime check, which goes on saying it for as long as it is true.
+     */
+    val explainFullScreenIntent = MutableStateFlow(false)
 
     /**
      * The cameras actually coming out of the speaker right now, or none.

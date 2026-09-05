@@ -154,6 +154,18 @@ object MonitoringNotifications {
          * the nursery does not also need lighting up at 3am.
          */
         wakeScreen: Boolean = true,
+        /**
+         * The bedtime test, asked for from settings. Everything about how this
+         * notification is delivered is deliberately identical to a real alert —
+         * same channel, same priority, same full-screen intent, same alarm
+         * behind it — because a test that took an easier path would prove
+         * nothing about the one that has to work at 3am.
+         *
+         * All that changes is what it says, and it changes completely: a parent
+         * who finds this on the lock screen an hour later must not spend a
+         * second wondering which room it was about.
+         */
+        test: Boolean = false,
     ): Notification {
         // Built only when it will be used: minting one spends nothing, but
         // MainActivity.alertIntent stamps a single-use wake token into it, and
@@ -163,7 +175,7 @@ object MonitoringNotifications {
             PendingIntent.getActivity(
                 context,
                 REQUEST_ALERT_FULL_SCREEN,
-                MainActivity.alertIntent(context, cameraId),
+                MainActivity.alertIntent(context, cameraId, test = test),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
         } else {
@@ -171,8 +183,22 @@ object MonitoringNotifications {
         }
         return NotificationCompat.Builder(context, ALERT_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(context.getString(R.string.notification_alert_title, cameraName))
-            .setContentText(context.getString(R.string.notification_alert_text))
+            .setContentTitle(
+                if (test) {
+                    context.getString(R.string.notification_test_alert_title)
+                } else {
+                    context.getString(R.string.notification_alert_title, cameraName)
+                },
+            )
+            .setContentText(
+                context.getString(
+                    if (test) {
+                        R.string.notification_test_alert_text
+                    } else {
+                        R.string.notification_alert_text
+                    },
+                ),
+            )
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setAutoCancel(true)
@@ -204,7 +230,7 @@ object MonitoringNotifications {
                 PendingIntent.getActivity(
                     context,
                     REQUEST_ALERT_TAP,
-                    MainActivity.alertTapIntent(context, cameraId),
+                    MainActivity.alertTapIntent(context, cameraId, test = test),
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 ),
             )
@@ -216,12 +242,13 @@ object MonitoringNotifications {
         cameraId: String,
         cameraName: String,
         wakeScreen: Boolean = true,
+        test: Boolean = false,
     ) {
         val manager = NotificationManagerCompat.from(context)
         try {
             manager.notify(
                 ALERT_NOTIFICATION_ID,
-                alertNotification(context, cameraId, cameraName, wakeScreen),
+                alertNotification(context, cameraId, cameraName, wakeScreen, test),
             )
         } catch (_: SecurityException) {
             // Notification permission revoked mid-run; monitoring continues,

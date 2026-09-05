@@ -40,6 +40,8 @@ import app.dozecam.R
 import app.dozecam.data.AppSettings
 import app.dozecam.data.Camera
 import app.dozecam.data.DetectorSettings
+import app.dozecam.monitoring.ReadinessFinding
+import app.dozecam.monitoring.ReadinessRemedy
 import app.dozecam.ui.components.AudioLevelMeter
 import app.dozecam.ui.components.GroupRow
 import app.dozecam.ui.components.Section
@@ -60,6 +62,9 @@ fun SettingsScreen(
     canMonitor: Boolean,
     localNetworkGranted: Boolean,
     audioLevel: Float,
+    readiness: List<ReadinessFinding>,
+    onReadinessRemedy: (ReadinessRemedy) -> Unit,
+    onTestAlert: () -> Unit,
     cameras: List<Camera>,
     onCameraEnabled: (String, Boolean) -> Unit,
     onEditCamera: (Camera) -> Unit,
@@ -153,6 +158,19 @@ fun SettingsScreen(
                     localNetworkGranted = localNetworkGranted,
                     audioLevel = audioLevel,
                     threshold = detector.threshold,
+                    readiness = readiness,
+                    // The one remedy that stays inside settings: the cameras
+                    // it is about are two taps away, and sending someone to
+                    // Android for them would be absurd.
+                    onReadinessRemedy = { remedy ->
+                        if (remedy == ReadinessRemedy.CAMERA_SETTINGS) {
+                            jumpTarget = null
+                            route = SettingsCategory.CAMERAS.name
+                        } else {
+                            onReadinessRemedy(remedy)
+                        }
+                    },
+                    onTestAlert = onTestAlert,
                     jumpTarget = jumpTarget,
                     onJumpDone = { jumpTarget = null },
                 )
@@ -209,6 +227,9 @@ private fun SettingsHub(
     localNetworkGranted: Boolean,
     audioLevel: Float,
     threshold: Float,
+    readiness: List<ReadinessFinding>,
+    onReadinessRemedy: (ReadinessRemedy) -> Unit,
+    onTestAlert: () -> Unit,
     jumpTarget: String?,
     onJumpDone: () -> Unit,
 ) {
@@ -225,6 +246,16 @@ private fun SettingsHub(
             localNetworkGranted = localNetworkGranted,
             audioLevel = audioLevel,
             threshold = threshold,
+            jumpTarget = jumpTarget,
+            onJumpDone = onJumpDone,
+        )
+        // Above the doors to everything tuned once and left alone, because it
+        // is the opposite kind of thing: the one part of settings worth reading
+        // again on a night when something has quietly changed.
+        ReadinessSection(
+            findings = readiness,
+            onRemedy = onReadinessRemedy,
+            onTestAlert = onTestAlert,
             jumpTarget = jumpTarget,
             onJumpDone = onJumpDone,
         )

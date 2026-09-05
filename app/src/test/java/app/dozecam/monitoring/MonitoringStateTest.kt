@@ -113,4 +113,31 @@ class MonitoringStateTest {
         assertTrue(state.cameras.value.isEmpty())
         assertNull(state.cameras.value["a"])
     }
+
+    /**
+     * A level and the moment it arrived are evidence about one connection.
+     * Carrying the timestamp into a connection that has not decoded anything
+     * would make a camera that just dropped look freshly heard to the bedtime
+     * check — which is the one lie that check exists to catch.
+     */
+    @Test
+    fun `losing the connection forgets when the room was last heard`() {
+        val state = CameraMonitorState("a", "Nursery", level = 0.4f, lastAudioAtMs = 5_000L)
+            .withConnection(ConnectionState.Live)
+        assertEquals(5_000L, state.lastAudioAtMs)
+
+        val dropped = state.withConnection(ConnectionState.Reconnecting(1))
+
+        assertNull(dropped.lastAudioAtMs)
+        assertNull(dropped.level)
+    }
+
+    @Test
+    fun `a live connection keeps the moment its audio arrived`() {
+        val state = CameraMonitorState("a", "Nursery", level = 0.4f, lastAudioAtMs = 5_000L)
+            .withConnection(ConnectionState.Live)
+
+        assertEquals(5_000L, state.lastAudioAtMs)
+        assertTrue(state.isLive)
+    }
 }

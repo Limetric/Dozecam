@@ -11,11 +11,13 @@ import app.dozecam.data.DetectorSettings
 import app.dozecam.data.DetectorSettingsStore
 import app.dozecam.monitoring.MonitorTransports
 import app.dozecam.monitoring.MonitoringState
+import app.dozecam.monitoring.ReadinessFinding
 import app.dozecam.player.ConnectionState
 import app.dozecam.player.StreamSource
 import app.dozecam.protect.CredentialsStore
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -31,6 +33,7 @@ class MonitorViewModel(
     private val credentials: CredentialsStore,
     monitoringState: MonitoringState,
     detectorSettings: DetectorSettingsStore,
+    readinessFindings: Flow<List<ReadinessFinding>>,
     /** Where the credentials read happens; injectable so tests stay deterministic. */
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
@@ -85,6 +88,23 @@ class MonitorViewModel(
     val audioThreshold: StateFlow<Float> = detectorSettings.settings
         .map { it.threshold }
         .stateIn(viewModelScope, SharingStarted.Eagerly, DetectorSettings().threshold)
+
+    /**
+     * The bedtime check, for the compact card the empty viewer shows and for
+     * the one interruption a fresh failure is allowed.
+     *
+     * The same probe settings reads, so the two screens can never disagree
+     * about whether tonight is covered.
+     */
+    val readiness: StateFlow<List<ReadinessFinding>> = readinessFindings
+        // The one flow here that drives itself: the probe re-reads the device on
+        // a timer, because a permission and a ringer announce nothing when they
+        // change. Every other flow in this class is woken by its source and
+        // costs nothing at rest, so Eagerly is free for them — this one would
+        // poll all night behind a viewer whose screen has been off since ten,
+        // in the app whose whole promise is lasting until morning. The grace
+        // outlives a rotation without outliving a night.
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(SUBSCRIPTION_GRACE_MS), emptyList())
 
     /** Non-null once at least one camera exists but none are switched on. */
     val hasDisabledOnly: StateFlow<Boolean> =
@@ -172,14 +192,24 @@ class MonitorViewModel(
 
 
     companion object {
+        /** Long enough to ride out a configuration change, short enough to stop for the night. */
+        private const val SUBSCRIPTION_GRACE_MS = 5_000L
+
         fun factory(
             cameraStore: CameraStore,
             credentials: CredentialsStore,
             monitoringState: MonitoringState,
             detectorSettings: DetectorSettingsStore,
+            readinessFindings: Flow<List<ReadinessFinding>>,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
-                MonitorViewModel(cameraStore, credentials, monitoringState, detectorSettings)
+                MonitorViewModel(
+                    cameraStore,
+                    credentials,
+                    monitoringState,
+                    detectorSettings,
+                    readinessFindings,
+                )
             }
         }
     }

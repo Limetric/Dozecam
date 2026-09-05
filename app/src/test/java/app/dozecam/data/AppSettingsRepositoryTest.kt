@@ -157,4 +157,47 @@ class AppSettingsRepositoryTest {
 
         assertNull(repository.settings.first().alertSoundUri)
     }
+
+    /**
+     * The one interruption a failing bedtime check is allowed has to survive
+     * process death, or it would be a nightly nag: the viewer arms the monitor
+     * every time it comes to the front.
+     */
+    @Test
+    fun `acknowledged bedtime checks survive a restart`() = runTest {
+        val file = File(tmp.root, "readiness.preferences_pb")
+        // Two stores over one file is the point — a restart — so the first is
+        // closed before the second opens, which is what a restart does.
+        val firstScope = CoroutineScope(Job())
+        val first = AppSettingsRepository(
+            PreferenceDataStoreFactory.create(scope = firstScope, produceFile = { file }),
+        )
+        assertEquals(emptySet<String>(), first.settings.first().acknowledgedReadinessChecks)
+
+        first.update { it.copy(acknowledgedReadinessChecks = setOf("ALERTS_ON", "WAKE_SCREEN")) }
+        firstScope.cancel()
+
+        val reopened = AppSettingsRepository(
+            PreferenceDataStoreFactory.create(scope = backgroundScope, produceFile = { file }),
+        )
+        assertEquals(
+            setOf("ALERTS_ON", "WAKE_SCREEN"),
+            reopened.settings.first().acknowledgedReadinessChecks,
+        )
+    }
+
+    /** And clearing it has to stick too, or a fixed check could never speak up again. */
+    @Test
+    fun `forgetting an acknowledged check is remembered as well`() = runTest {
+        val dataStore = PreferenceDataStoreFactory.create(
+            scope = backgroundScope,
+            produceFile = { File(tmp.root, "readiness-cleared.preferences_pb") },
+        )
+        val repository = AppSettingsRepository(dataStore)
+        repository.update { it.copy(acknowledgedReadinessChecks = setOf("ALERTS_ON")) }
+
+        repository.update { it.copy(acknowledgedReadinessChecks = emptySet()) }
+
+        assertEquals(emptySet<String>(), repository.settings.first().acknowledgedReadinessChecks)
+    }
 }

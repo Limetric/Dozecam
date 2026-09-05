@@ -40,6 +40,7 @@ enum class SettingsCategory(
 /** Stable ids tying a search result to the row it jumps to. */
 object SettingIds {
     const val MONITORING = "monitoring"
+    const val READINESS = "readiness"
     const val THRESHOLD = "threshold"
     const val SUSTAIN = "sustain"
     const val QUIET = "quiet"
@@ -90,6 +91,12 @@ fun settingsSearchEntries(
         category = null,
         label = stringResource(R.string.monitoring_toggle),
         description = stringResource(R.string.section_monitoring),
+    ),
+    SettingSearchEntry(
+        id = SettingIds.READINESS,
+        category = null,
+        label = stringResource(R.string.section_readiness),
+        description = stringResource(R.string.readiness_test),
     ),
     SettingSearchEntry(
         id = SettingIds.THRESHOLD,
