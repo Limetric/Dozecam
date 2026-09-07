@@ -43,6 +43,7 @@ fun ReadinessRow(
         supporting = readinessReason(finding),
         shape = shape,
         containerColor = readinessContainerColor(finding.state),
+        contentColor = readinessContentColor(finding.state),
         leading = { ReadinessIcon(finding.state) },
         trailing = if (remedyLabel == null) {
             null
@@ -51,6 +52,9 @@ fun ReadinessRow(
                 TextButton(
                     onClick = { onRemedy(finding.remedy) },
                     shapes = ButtonDefaults.shapes(),
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = readinessContentColor(finding.state),
+                    ),
                     modifier = Modifier.testTag("readiness-remedy-${finding.check.name}"),
                 ) {
                     Text(remedyLabel)
@@ -95,4 +99,12 @@ fun readinessContainerColor(state: ReadinessState): Color = when (state) {
     ReadinessState.PASS -> MaterialTheme.colorScheme.surfaceContainer
     ReadinessState.WARN -> LocalReadinessColors.current.warningContainer
     ReadinessState.FAIL -> MaterialTheme.colorScheme.errorContainer
+}
+
+/** Colored cards need their matching foreground, including explanations and fixes. */
+@Composable
+fun readinessContentColor(state: ReadinessState): Color = when (state) {
+    ReadinessState.PASS -> Color.Unspecified
+    ReadinessState.WARN -> LocalReadinessColors.current.onWarningContainer
+    ReadinessState.FAIL -> MaterialTheme.colorScheme.onErrorContainer
 }

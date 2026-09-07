@@ -32,10 +32,14 @@ private val Amber20 = Color(0xFF412D00)
 private val Amber30 = Color(0xFF5D4200)
 
 /** Readiness warnings stay amber even when the wallpaper changes the accent. */
-internal data class ReadinessColors(val warning: Color, val warningContainer: Color)
+internal data class ReadinessColors(
+    val warning: Color,
+    val warningContainer: Color,
+    val onWarningContainer: Color,
+)
 
-internal val LightReadinessColors = ReadinessColors(Amber40, Amber90)
-internal val DarkReadinessColors = ReadinessColors(Amber80, Amber30)
+internal val LightReadinessColors = ReadinessColors(Amber40, Amber90, Amber10)
+internal val DarkReadinessColors = ReadinessColors(Amber80, Amber30, Amber90)
 internal val LocalReadinessColors = staticCompositionLocalOf { LightReadinessColors }
 
 internal val LightColorScheme = lightColorScheme(
@@ -116,4 +120,5 @@ internal val NightRedColorScheme = darkColorScheme(
 internal val NightReadinessColors = ReadinessColors(
     warning = NightRedColorScheme.onTertiaryContainer,
     warningContainer = NightRedColorScheme.tertiaryContainer,
+    onWarningContainer = NightRedColorScheme.onTertiaryContainer,
 )

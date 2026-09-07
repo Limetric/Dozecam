@@ -33,6 +33,7 @@ import app.dozecam.ui.components.ReadinessIcon
 import app.dozecam.ui.components.ReadinessRow
 import app.dozecam.ui.components.groupShape
 import app.dozecam.ui.components.readinessContainerColor
+import app.dozecam.ui.components.readinessContentColor
 import app.dozecam.ui.components.readinessHeadline
 
 /**
@@ -96,6 +97,7 @@ fun ReadinessSection(
                     ),
                     shape = groupShape(0, problems.size + 1),
                     containerColor = readinessContainerColor(findings.worstState()),
+                    contentColor = readinessContentColor(findings.worstState()),
                     leading = { ReadinessIcon(findings.worstState()) },
                     modifier = Modifier.testTag("readiness-summary"),
                 )
