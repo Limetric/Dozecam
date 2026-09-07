@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="checklist_status_checking">Checking…</string>
+    <string name="checklist_status_ok">OK</string>
+    <string name="checklist_status_warning">Warning</string>
+    <string name="checklist_status_problem">Problem</string>
+</resources>

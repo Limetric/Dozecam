@@ -2,6 +2,7 @@ package app.dozecam.ui.theme
 
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
 /**
@@ -29,6 +30,13 @@ private val Amber10 = Color(0xFF271900)
 private val Amber80 = Color(0xFFF5BD48)
 private val Amber20 = Color(0xFF412D00)
 private val Amber30 = Color(0xFF5D4200)
+
+/** Readiness warnings stay amber even when the wallpaper changes the accent. */
+internal data class ReadinessColors(val warning: Color, val warningContainer: Color)
+
+internal val LightReadinessColors = ReadinessColors(Amber40, Amber90)
+internal val DarkReadinessColors = ReadinessColors(Amber80, Amber30)
+internal val LocalReadinessColors = staticCompositionLocalOf { LightReadinessColors }
 
 internal val LightColorScheme = lightColorScheme(
     primary = Indigo40,
@@ -102,4 +110,10 @@ internal val NightRedColorScheme = darkColorScheme(
     errorContainer = Color(0xFF450E0E),
     onErrorContainer = Color(0xFFE89896),
     scrim = Color.Black,
+)
+
+/** Night mode deliberately dims every accent into the same red palette. */
+internal val NightReadinessColors = ReadinessColors(
+    warning = NightRedColorScheme.onTertiaryContainer,
+    warningContainer = NightRedColorScheme.tertiaryContainer,
 )

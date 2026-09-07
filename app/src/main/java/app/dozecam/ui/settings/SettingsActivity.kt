@@ -24,8 +24,6 @@ import app.dozecam.appContainer
 import app.dozecam.monitoring.AlarmSound
 import app.dozecam.monitoring.MonitoringService
 import app.dozecam.monitoring.MonitoringStarter
-import app.dozecam.monitoring.ReadinessCheck
-import app.dozecam.monitoring.ReadinessPrompt
 import app.dozecam.monitoring.ReadinessRemedies
 import app.dozecam.monitoring.ReadinessRemedy
 import app.dozecam.monitoring.roomIsCrying
@@ -33,8 +31,6 @@ import app.dozecam.monitoring.shouldArmMonitoring
 import app.dozecam.monitoring.shouldStopMonitoring
 import app.dozecam.permissions.LocalNetworkPermission
 import app.dozecam.permissions.LocalNetworkPermissionRequest
-import app.dozecam.ui.components.FullScreenIntentDialog
-import app.dozecam.ui.components.LocalNetworkPermissionDialog
 import app.dozecam.ui.onboarding.OnboardingActivity
 import app.dozecam.ui.theme.DozecamTheme
 import kotlinx.coroutines.flow.combine
@@ -44,22 +40,17 @@ class SettingsActivity : ComponentActivity() {
 
     private val monitoringStarter = MonitoringStarter(this)
 
-    // Switching monitoring on is the moment LAN access stops being optional:
-    // without it every RTSP connection is dropped as a timeout, which looks
-    // like a broken camera rather than a missing permission. A grant re-arms
-    // through the collector below, which watches this alongside the cameras;
-    // a refusal is explained rather than left to flip the switch back in
-    // silence.
+    // A checklist grant re-arms monitoring through the collector below.
+    // Returning from Android settings also refreshes the current LAN grant.
     private val localNetwork = LocalNetworkPermissionRequest(this)
 
     /**
-     * Asked for from the readiness card rather than on the way in. The system
+     * Asked for from the checklist rather than on the way in. The system
      * dialog only appears while Android is still willing to show it; once it is
      * not, the launcher returns a refusal immediately and the card goes on
      * saying so, with its remedy now pointing at the app's notification
      * settings — which is the only place left that can change the answer.
-     */
-    /**
+     *
      * Whether asking Android for the notification permission has already come
      * to nothing this visit.
      *
@@ -135,7 +126,7 @@ class SettingsActivity : ComponentActivity() {
                     localNetwork.granted,
                 ) { _, _, _ -> }.collect {
                     if (appContainer.shouldArmMonitoring(this@SettingsActivity)) {
-                        monitoringStarter.startWithAlertPermissions()
+                        monitoringStarter.start()
                     } else if (appContainer.shouldStopMonitoring()) {
                         // Switching off the last listenable camera is what ends
                         // monitoring; the service deliberately never stops
@@ -173,13 +164,11 @@ class SettingsActivity : ComponentActivity() {
                 .collectAsStateWithLifecycle()
             val canMonitor by settingsViewModel.canMonitor.collectAsStateWithLifecycle()
             val hasLocalNetwork by localNetwork.granted.collectAsStateWithLifecycle()
-            val localNetworkDenial by localNetwork.denial.collectAsStateWithLifecycle()
             val audioLevel by settingsViewModel.audioLevel.collectAsStateWithLifecycle()
             val readiness by settingsViewModel.readiness.collectAsStateWithLifecycle()
-            val explainFullScreenIntent by monitoringStarter.explainFullScreenIntent
-                .collectAsStateWithLifecycle()
             DozecamTheme(nightTheme = settings.nightTheme) {
                 SettingsScreen(
+                    initialDestination = intent.getStringExtra(EXTRA_INITIAL_DESTINATION) ?: "",
                     settings = settings,
                     onSettingsChange = settingsViewModel::update,
                     monitoringRunning = monitoringRunning,
@@ -204,44 +193,6 @@ class SettingsActivity : ComponentActivity() {
                     onBack = { finish() },
                     onPickAlertSound = { pickAlertSound(settings.alertSoundUri) },
                     onPreviewAlertSound = { appContainer.alertSignaler.preview(settings) },
-                )
-                localNetworkDenial?.let { denial ->
-                    LocalNetworkPermissionDialog(
-                        denial = denial,
-                        onAllow = localNetwork::resolve,
-                        onDismiss = localNetwork::dismiss,
-                    )
-                }
-                if (explainFullScreenIntent) {
-                    FullScreenIntentDialog(
-                        onOpenSettings = {
-                            acknowledgeWakeScreen()
-                            monitoringStarter.openFullScreenIntentSettings()
-                        },
-                        onDismiss = {
-                            acknowledgeWakeScreen()
-                            monitoringStarter.dismissFullScreenIntentExplanation()
-                        },
-                    )
-                }
-            }
-        }
-    }
-
-
-    /**
-     * The explanation was read. The viewer's prompt has no business raising a
-     * second modal about the same missing grant afterwards; the card here goes
-     * on saying it for as long as it is true, which is the durable statement.
-     */
-    private fun acknowledgeWakeScreen() {
-        lifecycleScope.launch {
-            appContainer.appSettings.update {
-                it.copy(
-                    acknowledgedReadinessChecks = ReadinessPrompt.acknowledging(
-                        ReadinessCheck.WAKE_SCREEN,
-                        it.acknowledgedReadinessChecks,
-                    ),
                 )
             }
         }
@@ -283,20 +234,19 @@ class SettingsActivity : ComponentActivity() {
             // nothing but a foreground service holding a wake lock while it
             // reconnects all night — and the readiness card would then blame
             // the cameras for it. A grant re-arms through the collector in
-            // onCreate; a refusal is explained rather than left silent.
+            // onCreate; a refusal remains visible in the checklist.
             ReadinessRemedy.START_MONITORING -> if (LocalNetworkPermission.isGranted(this)) {
                 lifecycleScope.launch {
                     if (appContainer.shouldArmMonitoring(this@SettingsActivity)) {
-                        monitoringStarter.startWithAlertPermissions()
+                        monitoringStarter.start()
                     }
                 }
             } else {
-                localNetwork.ask()
+                localNetwork.requestFromChecklist()
             }
-            // The one place that knows how to ask, and how to explain a refusal
-            // Android answers instantly once the permission is permanently
-            // denied. A grant re-arms through the collector in onCreate.
-            ReadinessRemedy.GRANT_LOCAL_NETWORK -> localNetwork.ask()
+            // A refusal leaves the checklist visible. A subsequent explicit
+            // tap opens app settings if Android cannot grant it by prompting.
+            ReadinessRemedy.GRANT_LOCAL_NETWORK -> localNetwork.requestFromChecklist()
             // Handled inside the settings screen, which owns its own navigation.
             ReadinessRemedy.CAMERA_SETTINGS, ReadinessRemedy.NONE -> Unit
             else -> if (!ReadinessRemedies.open(this, remedy)) {
@@ -365,6 +315,11 @@ class SettingsActivity : ComponentActivity() {
     }
 
     companion object {
+        private const val EXTRA_INITIAL_DESTINATION = "initial-destination"
+
         fun intent(context: Context): Intent = Intent(context, SettingsActivity::class.java)
+
+        fun checklistIntent(context: Context): Intent = intent(context)
+            .putExtra(EXTRA_INITIAL_DESTINATION, CHECKLIST_DESTINATION)
     }
 }

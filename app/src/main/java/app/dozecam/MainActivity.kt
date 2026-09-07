@@ -29,22 +29,16 @@ import app.dozecam.data.OrientationLock
 import app.dozecam.data.SoundMode
 import app.dozecam.monitoring.MonitoringService
 import app.dozecam.monitoring.MonitoringStarter
-import app.dozecam.monitoring.ReadinessCheck
-import app.dozecam.monitoring.ReadinessFinding
-import app.dozecam.monitoring.ReadinessPrompt
 import app.dozecam.monitoring.shouldArmMonitoring
 import app.dozecam.network.NetworkMonitor
 import app.dozecam.network.NetworkReach
 import app.dozecam.permissions.LocalNetworkPermission
-import app.dozecam.permissions.LocalNetworkPermissionRequest
 import app.dozecam.permissions.MicrophonePermission
 import app.dozecam.protect.ProtectApiException
 import app.dozecam.player.LivestreamVideoPlayerController
 import app.dozecam.player.StreamSource
 import app.dozecam.player.VideoPlayerController
 import app.dozecam.player.VlcVideoPlayerController
-import app.dozecam.ui.components.FullScreenIntentDialog
-import app.dozecam.ui.components.LocalNetworkPermissionDialog
 import app.dozecam.ui.monitor.MonitorScreen
 import app.dozecam.ui.monitor.MonitorViewModel
 import app.dozecam.ui.onboarding.OnboardingActivity
@@ -56,7 +50,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -77,52 +70,11 @@ class MainActivity : ComponentActivity() {
     private val alertCameraId = MutableStateFlow<String?>(null)
 
     /**
-     * Whether an alerted room is the thing on screen right now.
-     *
-     * Separate from [alertCameraId], which the viewer consumes the instant it
-     * has opened the camera, and from the alarm, which a room playing aloud
-     * deliberately never sounds. With several rooms in the mix an alert lights
-     * the screen and stays silent — and with neither of the other two left
-     * standing, nothing would stop a bedtime prompt appearing over the very
-     * room the screen was lit to identify. Cleared when the viewer says the
-     * alert is over.
-     */
-    private val alertShowing = MutableStateFlow(false)
-
-    /**
      * The screen we are on came up because of the bedtime test, not a room.
      * Held until a person dismisses it: this is the one alert whose whole job
      * is to be recognised for what it was.
      */
     private val testAlertShowing = MutableStateFlow(false)
-
-    /**
-     * The bedtime checks worth interrupting for, or nothing — which is the case
-     * on all but the first viewing of a fresh failure. See [ReadinessPrompt].
-     */
-    private val readinessPrompt = MutableStateFlow<List<ReadinessFinding>>(emptyList())
-
-    /**
-     * Whether this visit has already had its one interruption.
-     *
-     * The prompt is raised at most once per time the viewer comes to the front,
-     * which is what makes clearing it stick. Without this, a prompt displaced
-     * by a real alert would be rebuilt by the very next probe emission — a
-     * second or two later, on top of the crying room it was displaced for, with
-     * its first touch silencing the alarm. Reset on each resume, so a prompt
-     * nobody answered is offered again next time.
-     */
-    private var readinessPromptSpent = false
-
-    /**
-     * Whether an alert is what brought the viewer to the front this time.
-     *
-     * A visit somebody chose gets its one bedtime interruption; a visit an
-     * alert caused does not. They came for the room, and once they have seen it
-     * they are trying to get back to sleep — a checklist twelve seconds later
-     * is the last thing that should be waiting for them.
-     */
-    private var alertStartedThisVisit = false
 
     private val monitoringStarter = MonitoringStarter(this)
 
@@ -132,16 +84,6 @@ class MainActivity : ComponentActivity() {
      * is only ever one of its holders, and lets go as it leaves.
      */
     private val audioFocus by lazy { appContainer.audioFocus }
-
-    // Nothing in the app can reach the LAN without this, so ask up front rather
-    // than letting the first console or stream connection time out.
-    //
-    // No arming on the answer: the prompt is an activity, so answering it
-    // resumes this one and the RESUMED autoArm below picks a grant up on its
-    // own. A refusal of the ask made on launch is left to the connection that
-    // fails; one the user brought on by reaching for the "not monitoring"
-    // badge is explained, because that path has no connection left to fail.
-    private val localNetwork = LocalNetworkPermissionRequest(this)
 
     /**
      * Asked for on the first press of a talk-back control and never on the way
@@ -195,9 +137,6 @@ class MainActivity : ComponentActivity() {
         // explains it gone.
         testAlertShowing.value =
             savedInstanceState?.getBoolean(STATE_TEST_ALERT_SHOWING) == true
-        if (savedInstanceState == null && !LocalNetworkPermission.isGranted(this)) {
-            localNetwork.ask(explainRefusal = false)
-        }
         applyAlertIntent(intent)
         // Re-asserted after the intent has been re-processed, because a
         // recreated activity replays a launch intent whose single-use token was
@@ -316,10 +255,6 @@ class MainActivity : ComponentActivity() {
             repeatOnLifecycle(Lifecycle.State.RESUMED) { autoArm() }
         }
 
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.RESUMED) { watchReadiness() }
-        }
-
         // A room is crying, and nothing this app was in the middle of saying
         // matters beside it.
         //
@@ -384,12 +319,8 @@ class MainActivity : ComponentActivity() {
                 val reach by networkReach.collectAsStateWithLifecycle()
                 val alertCamera by alertCameraId.collectAsStateWithLifecycle()
                 val soundGranted by audioFocus.granted.collectAsStateWithLifecycle()
-                val localNetworkDenial by localNetwork.denial.collectAsStateWithLifecycle()
                 val readiness by viewModel.readiness.collectAsStateWithLifecycle()
-                val prompt by readinessPrompt.collectAsStateWithLifecycle()
                 val testAlert by testAlertShowing.collectAsStateWithLifecycle()
-                val explainFullScreenIntent by monitoringStarter.explainFullScreenIntent
-                    .collectAsStateWithLifecycle()
 
                 // Coming back to the front may mean a different console was
                 // signed in while we were away.
@@ -452,12 +383,9 @@ class MainActivity : ComponentActivity() {
                         microphonePermission.launch(MicrophonePermission.name)
                     },
                     readiness = readiness,
-                    readinessPrompt = prompt,
-                    onReadinessPromptOpen = {
-                        acknowledgeReadinessPrompt()
-                        startActivity(SettingsActivity.intent(this))
+                    onOpenChecklist = {
+                        startActivity(SettingsActivity.checklistIntent(this))
                     },
-                    onReadinessPromptDismiss = ::acknowledgeReadinessPrompt,
                     testAlertShowing = testAlert,
                     onTestAlertDismissed = {
                         testAlertShowing.value = false
@@ -473,28 +401,6 @@ class MainActivity : ComponentActivity() {
                         revokeLockScreenVisibility()
                     },
                 )
-                // Over the viewer rather than in it: the badge asked for this
-                // grant, and its refusal leaves nothing on the grid to read as
-                // a cause — every camera goes on playing exactly as it was.
-                localNetworkDenial?.let { denial ->
-                    LocalNetworkPermissionDialog(
-                        denial = denial,
-                        onAllow = localNetwork::resolve,
-                        onDismiss = localNetwork::dismiss,
-                    )
-                }
-                if (explainFullScreenIntent) {
-                    FullScreenIntentDialog(
-                        onOpenSettings = {
-                            acknowledgeReadinessCheck(ReadinessCheck.WAKE_SCREEN)
-                            monitoringStarter.openFullScreenIntentSettings()
-                        },
-                        onDismiss = {
-                            acknowledgeReadinessCheck(ReadinessCheck.WAKE_SCREEN)
-                            monitoringStarter.dismissFullScreenIntentExplanation()
-                        },
-                    )
-                }
             }
         }
     }
@@ -610,23 +516,14 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        // A room is actually crying, and it outranks everything this app might
-        // have been in the middle of saying. Any of the three dialogs could be
-        // standing when the alert lands — the viewer is where the bedtime
-        // prompt and the full-screen-access explanation appear, and the test
-        // card is left up until a person answers it — and a modal over the
-        // alerted camera is worse than a nuisance: the first touch aimed at it
-        // reaches onUserInteraction and silences the alarm before anyone has
-        // seen the room, and the test card would go on insisting nothing had
-        // happened in the nursery while it did.
+        // A real room alert replaces the test acknowledgement so the camera
+        // is visible before any touch can acknowledge its alarm.
         clearStandingDialogs()
-        alertStartedThisVisit = true
 
         // Deliberately outside the check above: showing a camera to someone
         // already past the lock screen is not the risk, so a second tap on the
         // alert still opens the right camera even though it can no longer wake.
         alertCameraId.value = cameraId
-        alertShowing.value = true
 
         // The full-screen launch is unattended by definition and must never be
         // read as anyone having arrived.
@@ -659,19 +556,8 @@ class MainActivity : ComponentActivity() {
         revokeLockScreenVisibility()
     }
 
-    /**
-     * Hands back the right to sit over the keyguard. Called the moment the
-     * alerted camera stops being the only thing on screen: the alert bought a
-     * look at one room, not at the whole house.
-     */
-    /**
-     * The alerted room is no longer the only thing on screen — dismissed, or
-     * gone before it could be shown. The wake privilege goes back, and the
-     * viewer stops counting itself as showing an alert, which is what lets the
-     * bedtime prompt speak again.
-     */
+    /** The alerted room has closed, so its lock-screen privilege ends too. */
     private fun onAlertDismissed() {
-        alertShowing.value = false
         revokeLockScreenVisibility()
     }
 
@@ -695,141 +581,12 @@ class MainActivity : ComponentActivity() {
      * screen-waking part of the alert.
      */
     private suspend fun autoArm() {
-        if (appContainer.shouldArmMonitoring(this)) monitoringStarter.startWithAlertPermissions()
+        if (appContainer.shouldArmMonitoring(this)) monitoringStarter.start()
     }
 
-    /**
-     * Says once, out loud, when something that has to work tonight has stopped
-     * working — and then never again for that same failure.
-     *
-     * The wait is not politeness. Arming the monitor is the moment every camera
-     * is briefly unheard: nothing has connected, nothing has decoded, and a
-     * check run against that instant would report the truth about a state that
-     * lasts two seconds. A warning that is usually wrong is not read at all by
-     * the night it is right, so this lets the monitor settle first.
-     */
-    private suspend fun watchReadiness() {
-        // A fresh visit gets its one interruption back — unless an alert is
-        // what caused it, in which case it has already been spent on the room.
-        readinessPromptSpent = alertStartedThisVisit
-        alertStartedThisVisit = false
-        delay(READINESS_SETTLE_MS)
-        appContainer.readiness.findings.collect { findings ->
-            val acknowledged = appContainer.appSettings.settings.first()
-                .acknowledgedReadinessChecks
-            // A check that has started passing again is forgotten, so the next
-            // time it breaks it is worth saying again. Written only when it
-            // actually moved: this collects several times a second.
-            val remembered = ReadinessPrompt.remembered(findings, acknowledged)
-            if (remembered != acknowledged) {
-                // Recomputed inside the transform rather than written from the
-                // snapshot above: an acknowledgement can commit between the
-                // read and this edit, and writing the older set back would
-                // spend the one interruption it had just recorded.
-                appContainer.appSettings.update {
-                    it.copy(
-                        acknowledgedReadinessChecks = ReadinessPrompt.remembered(
-                            findings,
-                            it.acknowledgedReadinessChecks,
-                        ),
-                    )
-                }
-            }
-            // Raised at most once, and then left standing until a person
-            // answers it. Both halves matter: rebuilding it as the findings
-            // churn would swap the dialog out from under a finger already on
-            // its way to a button, and raising a second one would undo every
-            // reason there was to take the first one down — a real alert
-            // arriving is exactly such a reason.
-            // Never over a room that is crying. Resuming the viewer resets the
-            // one-per-visit rule above — a resume is a new visit — but the
-            // resume that matters most is the one the alert itself caused, and
-            // twelve seconds later a checklist would be sitting on top of the
-            // nursery with its first touch silencing the alarm.
-            if (!readinessPromptSpent && !alertInFlight() && !aDialogIsUp()) {
-                val fresh = ReadinessPrompt.unannounced(findings, remembered)
-                if (fresh.isNotEmpty()) {
-                    readinessPrompt.value = fresh
-                    readinessPromptSpent = true
-                }
-            }
-        }
-    }
-
-    /**
-     * Whether an alert is the reason this viewer is on screen: an alarm
-     * sounding, or a wake alert whose camera has not been shown yet. Either way
-     * the room is the only thing worth looking at.
-     */
-    private fun alertInFlight(): Boolean =
-        appContainer.alertSignaler.isAlarming ||
-            alertCameraId.value != null ||
-            alertShowing.value
-
-    /**
-     * Whether some dialog of ours already has the screen. One question at a
-     * time is a rule the viewer keeps everywhere — and the full-screen-access
-     * explanation is about the very thing the prompt would most likely be
-     * raising, so following "Not now" with a second warning about the same
-     * missing grant would be nagging in two windows.
-     */
-    private fun aDialogIsUp(): Boolean =
-        testAlertShowing.value ||
-            appContainer.monitoringState.explainFullScreenIntent.value ||
-            localNetwork.denial.value != null
-
-    /**
-     * Takes down everything of ours that could be sitting over the cameras: the
-     * card saying the last alert was only a test, the bedtime prompt, and the
-     * full-screen-access explanation. None of them is worth a second of a
-     * parent's attention while a room is actually crying, and each of them is a
-     * thing a finger would land on instead of the room.
-     *
-     * The prompt is marked as spent rather than merely cleared, because the
-     * probe emits every couple of seconds and would otherwise put it straight
-     * back up. It is offered again the next time the viewer comes to the front.
-     */
+    /** A real alert takes precedence over the acknowledgement of a test. */
     private fun clearStandingDialogs() {
         testAlertShowing.value = false
-        readinessPrompt.value = emptyList()
-        readinessPromptSpent = true
-        appContainer.monitoringState.explainFullScreenIntent.value = false
-    }
-
-    /**
-     * Records that one check has been said out loud by something other than the
-     * prompt — the full-screen-access explanation, which is a whole dialog
-     * about the very thing [ReadinessCheck.WAKE_SCREEN] reports. Without this,
-     * answering it would be followed moments later by a second modal saying the
-     * same thing in fewer words.
-     */
-    private fun acknowledgeReadinessCheck(check: ReadinessCheck) {
-        lifecycleScope.launch {
-            appContainer.appSettings.update {
-                it.copy(
-                    acknowledgedReadinessChecks = ReadinessPrompt.acknowledging(
-                        check,
-                        it.acknowledgedReadinessChecks,
-                    ),
-                )
-            }
-        }
-    }
-
-    /** Dismissing is the acknowledgement: it was read, and it is not worth saying twice. */
-    private fun acknowledgeReadinessPrompt() {
-        val shown = readinessPrompt.value
-        readinessPrompt.value = emptyList()
-        lifecycleScope.launch {
-            appContainer.appSettings.update {
-                it.copy(
-                    acknowledgedReadinessChecks = ReadinessPrompt.acknowledging(
-                        shown,
-                        it.acknowledgedReadinessChecks,
-                    ),
-                )
-            }
-        }
     }
 
     /**
@@ -848,21 +605,12 @@ class MainActivity : ComponentActivity() {
         finishAndRemoveTask()
     }
 
-    /**
-     * Trying again, from the "not monitoring" badge, through the gate
-     * auto-arming uses so a manual start cannot misfire — except that the gate
-     * refuses outright without local-network access, which would make this
-     * the one control on screen that visibly does nothing when tapped and
-     * never says why. Asked for here instead, with [autoArm] left to a grant
-     * and a dialog to a refusal — including the refusal Android answers
-     * instantly, with no prompt of its own, once the permission is permanently
-     * denied.
-     */
+    /** A missing grant is explained and fixed on the checklist. */
     private fun startMonitoring() {
         if (LocalNetworkPermission.isGranted(this)) {
             lifecycleScope.launch { autoArm() }
         } else {
-            localNetwork.ask()
+            startActivity(SettingsActivity.checklistIntent(this))
         }
     }
 
@@ -911,16 +659,6 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
-        /**
-         * How long after coming to the front the bedtime check may speak up.
-         *
-         * Long enough for a monitor that is only just arming to have connected
-         * and decoded something — every camera reads as unheard until it has,
-         * and a prompt fired into that gap would be a warning that is wrong
-         * almost every time it appears.
-         */
-        private const val READINESS_SETTLE_MS = 12_000L
-
         private const val EXTRA_ALERT_CAMERA_ID = "alert_camera_id"
         private const val EXTRA_ALERT_TOKEN = "alert_token"
         private const val EXTRA_ALERT_TAP_KEY = "alert_tap_key"

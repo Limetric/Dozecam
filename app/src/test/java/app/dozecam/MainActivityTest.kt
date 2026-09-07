@@ -7,9 +7,11 @@ import android.view.WindowInsets
 import android.view.WindowManager
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import app.dozecam.monitoring.MonitoringService
+import app.dozecam.ui.settings.SettingsActivity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -37,6 +39,19 @@ class MainActivityTest {
         composeRule.onNodeWithTag("open-settings").assertExists()
         composeRule.onNodeWithTag("camera-name-field").assertDoesNotExist()
         composeRule.onNodeWithTag("threshold-slider").assertDoesNotExist()
+    }
+
+    @Test
+    fun `the checklist button launches the dedicated page`() {
+        composeRule.onNodeWithTag("open-checklist").performClick()
+
+        val launched = shadowOf(composeRule.activity).nextStartedActivity
+        val expected = SettingsActivity.checklistIntent(composeRule.activity)
+        assertEquals(expected.component, launched.component)
+        assertEquals(
+            expected.getStringExtra("initial-destination"),
+            launched.getStringExtra("initial-destination"),
+        )
     }
 
     @Test

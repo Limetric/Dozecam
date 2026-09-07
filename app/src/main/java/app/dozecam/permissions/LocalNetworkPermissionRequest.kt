@@ -11,9 +11,8 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Asking for local-network access from a screen, and owning what happens when
- * the answer is no. Shared by the viewer and settings because both offer the
- * same control — start monitoring — and both used to let a refusal pass in
- * silence, leaving the control looking broken.
+ * the answer is no. Checklist requests keep explanations in the checklist;
+ * callers that still need an inline refusal can use [ask] and [denial].
  *
  * Construct during activity initialisation; it registers an activity result
  * and observes the activity's lifecycle.
@@ -37,15 +36,18 @@ class LocalNetworkPermissionRequest(private val activity: ComponentActivity) {
      * take the answer, and a lost flag would take the explanation with it.
      */
     private var explainRefusal = false
+    private var checklistRequest = false
+    private var checklistRequestDenied = false
 
     private val permission = activity.registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         _granted.value = granted
-        // Nothing to explain about a yes, and an ask the user did not make —
-        // the viewer's one on launch — has no tap to account for. Explaining
-        // that one would mean a dialog on every cold start for as long as the
-        // denial stands, which is how an explanation turns into nagging.
+        if (checklistRequest) checklistRequestDenied = !granted
+        checklistRequest = false
+        // Checklist callers already show the missing grant and remedy inline.
+        // Only legacy callers that explicitly ask for an explanation receive
+        // a denial for display in a separate dialog.
         _denial.value = if (granted || !explainRefusal) {
             null
         } else {
@@ -56,13 +58,19 @@ class LocalNetworkPermissionRequest(private val activity: ComponentActivity) {
 
     init {
         activity.savedStateRegistry.registerSavedStateProvider(SAVED_STATE_KEY) {
-            Bundle().apply { putBoolean(EXPLAIN_KEY, explainRefusal) }
+            Bundle().apply {
+                putBoolean(EXPLAIN_KEY, explainRefusal)
+                putBoolean(CHECKLIST_REQUEST_KEY, checklistRequest)
+                putBoolean(CHECKLIST_DENIED_KEY, checklistRequestDenied)
+            }
         }
         activity.lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onCreate(owner: LifecycleOwner) {
-                explainRefusal = activity.savedStateRegistry
+                val restored = activity.savedStateRegistry
                     .consumeRestoredStateForKey(SAVED_STATE_KEY)
-                    ?.getBoolean(EXPLAIN_KEY) == true
+                explainRefusal = restored?.getBoolean(EXPLAIN_KEY) == true
+                checklistRequest = restored?.getBoolean(CHECKLIST_REQUEST_KEY) == true
+                checklistRequestDenied = restored?.getBoolean(CHECKLIST_DENIED_KEY) == true
                 refresh()
             }
 
@@ -78,8 +86,27 @@ class LocalNetworkPermissionRequest(private val activity: ComponentActivity) {
      * for an ask the app made on its own behalf.
      */
     fun ask(explainRefusal: Boolean = true) {
+        checklistRequest = false
         this.explainRefusal = explainRefusal
         permission.launch(LocalNetworkPermission.name)
+    }
+
+    /**
+     * A checklist fix asks Android once without putting another app dialog on
+     * top. If asking did not work, the next explicit tap opens app settings.
+     * This also handles permanent denial, where Android draws no prompt.
+     */
+    fun requestFromChecklist() {
+        _denial.value = null
+        explainRefusal = false
+        if (checklistRequestDenied) {
+            runCatching {
+                activity.startActivity(LocalNetworkPermission.appSettingsIntent(activity))
+            }
+        } else {
+            checklistRequest = true
+            permission.launch(LocalNetworkPermission.name)
+        }
     }
 
     /** Acts on the explanation being shown: ask again, or hand over to Android. */
@@ -105,11 +132,16 @@ class LocalNetworkPermissionRequest(private val activity: ComponentActivity) {
     private fun refresh() {
         val granted = LocalNetworkPermission.isGranted(activity)
         _granted.value = granted
-        if (granted) _denial.value = null
+        if (granted) {
+            _denial.value = null
+            checklistRequestDenied = false
+        }
     }
 
     private companion object {
         const val SAVED_STATE_KEY = "local-network-permission"
         const val EXPLAIN_KEY = "explain-refusal"
+        const val CHECKLIST_REQUEST_KEY = "checklist-request"
+        const val CHECKLIST_DENIED_KEY = "checklist-denied"
     }
 }

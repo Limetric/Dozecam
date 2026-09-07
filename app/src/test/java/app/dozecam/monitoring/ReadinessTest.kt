@@ -77,9 +77,9 @@ class ReadinessTest {
     }
 
     @Test
-    fun `alerts switched off in the app fail`() {
+    fun `alerts deliberately switched off in the app warn`() {
         assertEquals(
-            ReadinessState.FAIL,
+            ReadinessState.WARN,
             state(ReadinessCheck.ALERTS_ON, ReadinessFacts(alertsEnabled = false)),
         )
     }
@@ -165,9 +165,9 @@ class ReadinessTest {
     }
 
     @Test
-    fun `chime and vibration both off fails`() {
+    fun `chime and vibration deliberately switched off warn`() {
         assertEquals(
-            ReadinessState.FAIL,
+            ReadinessState.WARN,
             state(
                 ReadinessCheck.ALERT_SIGNAL,
                 ReadinessFacts(alertChime = false, alertVibrate = false),
@@ -214,47 +214,14 @@ class ReadinessTest {
     }
 
     @Test
-    fun `a low battery off the charger warns`() {
+    fun `an unplugged phone warns and plugging it in restores OK`() {
         assertEquals(
             ReadinessState.WARN,
-            state(
-                ReadinessCheck.POWER,
-                ReadinessFacts(charging = false, batteryPercent = 10),
-            ),
+            state(ReadinessCheck.POWER, ReadinessFacts(charging = false)),
         )
-    }
-
-    @Test
-    fun `a charging phone never warns about power, however low`() {
         assertEquals(
             ReadinessState.PASS,
-            state(ReadinessCheck.POWER, ReadinessFacts(charging = true, batteryPercent = 1)),
-        )
-    }
-
-    @Test
-    fun `a full battery off the charger is fine`() {
-        assertEquals(
-            ReadinessState.PASS,
-            state(ReadinessCheck.POWER, ReadinessFacts(charging = false, batteryPercent = 90)),
-        )
-    }
-
-    @Test
-    fun `the low-battery line is where it says it is`() {
-        assertEquals(
-            ReadinessState.PASS,
-            state(
-                ReadinessCheck.POWER,
-                ReadinessFacts(charging = false, batteryPercent = Readiness.LOW_BATTERY_PERCENT),
-            ),
-        )
-        assertEquals(
-            ReadinessState.WARN,
-            state(
-                ReadinessCheck.POWER,
-                ReadinessFacts(charging = false, batteryPercent = Readiness.LOW_BATTERY_PERCENT - 1),
-            ),
+            state(ReadinessCheck.POWER, ReadinessFacts(charging = true)),
         )
     }
 
@@ -381,7 +348,11 @@ class ReadinessTest {
     @Test
     fun `one failure outranks any number of warnings`() {
         val findings = Readiness.of(
-            ReadinessFacts(batteryOptimised = true, alertsEnabled = false),
+            ReadinessFacts(
+                batteryOptimised = true,
+                alertsEnabled = false,
+                notificationsAllowed = false,
+            ),
         )
 
         assertEquals(ReadinessState.FAIL, findings.worstState())
@@ -393,6 +364,42 @@ class ReadinessTest {
 
         assertEquals(ReadinessState.WARN, findings.worstState())
         assertEquals(listOf(ReadinessCheck.BATTERY_OPTIMISATION), findings.problems().map { it.check })
+    }
+
+    @Test
+    fun `disabled alert choices warn and re-enabling them restores an OK checklist`() {
+        val disabled = ReadinessFacts(alertsEnabled = false, alertChime = false, alertVibrate = false)
+        val findings = Readiness.of(disabled)
+
+        assertEquals(ReadinessState.WARN, findings.worstState())
+        assertEquals(
+            listOf(ReadinessCheck.ALERTS_ON, ReadinessCheck.ALERT_SIGNAL),
+            findings.problems().map { it.check },
+        )
+        assertEquals(
+            listOf(ReadinessRemedy.TURN_ALERTS_ON, ReadinessRemedy.TURN_CHIME_ON),
+            findings.problems().map { it.remedy },
+        )
+        assertEquals(
+            ReadinessState.PASS,
+            Readiness.of(disabled.copy(alertsEnabled = true, alertChime = true)).worstState(),
+        )
+    }
+
+    @Test
+    fun `turning alerts off does not downgrade a monitoring or permission problem`() {
+        listOf(
+            ReadinessFacts(alertsEnabled = false, notificationsAllowed = false),
+            ReadinessFacts(alertsEnabled = false, fullScreenIntentAllowed = false),
+            ReadinessFacts(alertsEnabled = false, localNetworkGranted = false),
+            ReadinessFacts(alertsEnabled = false, monitoringRunning = false),
+            ReadinessFacts(
+                alertsEnabled = false,
+                cameras = listOf(CameraAudibility("nursery", "Nursery", live = true, lastAudioAtMs = null)),
+            ),
+        ).forEach { facts ->
+            assertEquals(ReadinessState.FAIL, Readiness.of(facts).worstState())
+        }
     }
 
     @Test
@@ -418,7 +425,7 @@ class ReadinessTest {
 
     @Test
     fun `power has no button, because the fix is a cable`() {
-        val findings = Readiness.of(ReadinessFacts(charging = false, batteryPercent = 5))
+        val findings = Readiness.of(ReadinessFacts(charging = false))
 
         assertEquals(
             ReadinessRemedy.NONE,
@@ -627,20 +634,5 @@ class ReadinessTest {
 
         assertEquals(ReadinessState.PASS, state(ReadinessCheck.MONITORING, facts))
         assertEquals(ReadinessState.FAIL, state(ReadinessCheck.LOCAL_NETWORK, facts))
-    }
-    /**
-     * Not every fuel gauge reports a capacity, and the property answers
-     * `Integer.MIN_VALUE` when it cannot. Read at face value that is a flat
-     * battery on every such phone, every night.
-     */
-    @Test
-    fun `an unknown battery level is not a low one`() {
-        assertEquals(
-            ReadinessState.PASS,
-            state(
-                ReadinessCheck.POWER,
-                ReadinessFacts(charging = false, batteryPercent = null),
-            ),
-        )
     }
 }

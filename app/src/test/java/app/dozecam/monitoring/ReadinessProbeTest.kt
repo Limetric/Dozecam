@@ -179,7 +179,7 @@ class ReadinessProbeTest {
     fun `the app's own alert settings are read from the same store the alert uses`() = runTest {
         container.appSettings.update { it.copy(alertsEnabled = false) }
 
-        assertEquals(ReadinessState.FAIL, state(ReadinessCheck.ALERTS_ON))
+        assertEquals(ReadinessState.WARN, state(ReadinessCheck.ALERTS_ON))
 
         container.appSettings.update { it.copy(alertsEnabled = true) }
 

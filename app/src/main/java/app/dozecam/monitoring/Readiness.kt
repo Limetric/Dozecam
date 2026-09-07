@@ -21,15 +21,13 @@ enum class ReadinessState {
     PASS,
 
     /**
-     * Might still wake you, and might not. Reserved for the things Android
-     * gives no promise about either way — a service Doze is free to stop, a
-     * phone that may or may not last the night — because reporting a maybe as
-     * a failure would spend the user's attention on something they may have
-     * already handled.
+     * Needs attention: either a capability deliberately switched off in the
+     * app, or a risk whose outcome cannot be guaranteed, such as battery
+     * optimisation. The explanation still states what cannot happen tonight.
      */
     WARN,
 
-    /** Will not wake you, as things stand. */
+    /** Monitoring or a requested alert capability cannot work as configured. */
     FAIL,
 }
 
@@ -58,10 +56,8 @@ enum class ReadinessRemedy {
 }
 
 /**
- * One thing that has to be true tonight. The order of the entries is the order
- * the card renders them in, and the id is stable — it is remembered, in
- * [app.dozecam.data.AppSettings.acknowledgedReadinessChecks], to keep a prompt
- * about a failure from becoming a nightly one.
+ * One thing that has to be true tonight. Entries have a stable identity and
+ * order within each severity, so changing findings remain easy to locate.
  */
 enum class ReadinessCheck(val group: ReadinessGroup, val remedy: ReadinessRemedy) {
     /** Notifications denied: [MonitoringNotifications.postAlert] cannot post at all. */
@@ -192,12 +188,6 @@ data class ReadinessFacts(
     /** True when Dozecam is *subject to* battery optimisation, i.e. not exempt. */
     val batteryOptimised: Boolean = false,
     val charging: Boolean = true,
-    /**
-     * How much charge is left, or null where the device will not say. Not every
-     * fuel gauge reports a capacity, and an unknown one must not be read as an
-     * empty one.
-     */
-    val batteryPercent: Int? = 100,
     /** Every switched-on camera, whether or not the monitor found a way to hear it. */
     val cameras: List<CameraAudibility> =
         listOf(CameraAudibility(cameraId = "", name = "", live = true, lastAudioAtMs = 0L)),
@@ -215,10 +205,7 @@ data class ReadinessFacts(
 
 /**
  * One check, decided. [cameras] is the rooms that are not being heard, for the
- * one row that has something to name; every other check leaves it empty. Whole
- * cameras rather than their names, because two things want different halves of
- * them: the row shows the name, and the record of what has already been said
- * about a room has to key off the id, which a rename cannot move.
+ * one row that has something to name; every other check leaves it empty.
  */
 data class ReadinessFinding(
     val check: ReadinessCheck,
@@ -239,21 +226,16 @@ data class ReadinessFinding(
      * Several checks stand aside rather than pile a second red row onto one
      * cause: the channel rows say nothing while notifications are denied
      * outright, and the camera row says nothing while nothing is listening.
-     * They report as passing so the card stays legible — but a pass by
-     * courtesy is not evidence that anything was fixed, and anything keeping a
-     * record of what the user has already been told must not throw that record
-     * away on one. See [ReadinessPrompt].
+     * The checklist hides these rows rather than presenting an unevaluated
+     * check as evidence that a capability works.
      */
     val masked: Boolean = false,
     /**
      * Whether this is a warning about not being able to check, rather than
      * about something found to be wrong.
      *
-     * The card says it either way — "will this wake me?" is not answered by
-     * silence — but nothing unverifiable is allowed to interrupt anyone. A
-     * bedtime Do Not Disturb schedule is on every night by design, and a
-     * warning that appeared over the cameras every night would be the one
-     * people stop reading by the night it matters.
+     * The checklist explains what cannot be verified rather than presenting
+     * uncertainty as either a confirmed problem or an OK result.
      */
     val unverified: Boolean = false,
 )
@@ -268,14 +250,6 @@ object Readiness {
      * over a two-second stall would be the check nobody trusts.
      */
     const val AUDIO_STALE_MS = 15_000L
-
-    /**
-     * Below this, and off the charger, a night of decoding audio is a real
-     * question. Not a failure — plenty of phones would manage it — which is
-     * exactly why it is a [ReadinessState.WARN] with no button: the fix is a
-     * cable, and the app is not the one that can go and get it.
-     */
-    const val LOW_BATTERY_PERCENT = 30
 
     /** Every check, in the order the card shows them. */
     fun of(facts: ReadinessFacts): List<ReadinessFinding> = listOf(
@@ -296,7 +270,11 @@ object Readiness {
             masked = !facts.notificationsAllowed || !facts.alertChannelEnabled,
         ),
         finding(ReadinessCheck.WAKE_SCREEN, facts.fullScreenIntentAllowed),
-        finding(ReadinessCheck.ALERTS_ON, facts.alertsEnabled),
+        finding(
+            ReadinessCheck.ALERTS_ON,
+            facts.alertsEnabled,
+            failedState = ReadinessState.WARN,
+        ),
         // Only asked of a phone that is going to play something. With the
         // chime off, [AlertSignaler] never starts its player at all, so the
         // alarm stream's volume has no bearing on the alert — and a red row
@@ -325,6 +303,14 @@ object Readiness {
         finding(
             ReadinessCheck.ALERT_SIGNAL,
             facts.alertChime || (facts.alertVibrate && facts.hasVibrator),
+            // Choosing screen-only alerts warrants attention. A requested
+            // vibration on hardware that cannot provide it is a broken
+            // capability, so it remains a problem.
+            failedState = if (!facts.alertChime && !facts.alertVibrate) {
+                ReadinessState.WARN
+            } else {
+                ReadinessState.FAIL
+            },
         ),
         ReadinessFinding(
             check = ReadinessCheck.MONITORING,
@@ -354,12 +340,11 @@ object Readiness {
             // plenty of phones never do. Stated as the risk it is.
             failedState = ReadinessState.WARN,
         ),
-        // An unknown charge is not a low one. A device that will not report a
-        // capacity would otherwise be told every night that it may not last
-        // until morning, which is a warning that is wrong every time it appears.
+        // A full battery is no guarantee of lasting a night of decoding.
+        // Power is advice whenever unplugged; low-battery alarms are separate.
         finding(
             ReadinessCheck.POWER,
-            facts.charging || (facts.batteryPercent ?: 100) >= LOW_BATTERY_PERCENT,
+            facts.charging,
             failedState = ReadinessState.WARN,
         ),
         finding(ReadinessCheck.LOCAL_NETWORK, facts.localNetworkGranted),

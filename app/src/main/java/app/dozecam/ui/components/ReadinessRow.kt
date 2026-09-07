@@ -18,6 +18,7 @@ import app.dozecam.R
 import app.dozecam.monitoring.ReadinessFinding
 import app.dozecam.monitoring.ReadinessRemedy
 import app.dozecam.monitoring.ReadinessState
+import app.dozecam.ui.theme.LocalReadinessColors
 
 /**
  * One line of the bedtime check: what is true, why it matters, and the button
@@ -77,7 +78,7 @@ fun ReadinessIcon(state: ReadinessState, modifier: Modifier = Modifier) {
         ReadinessState.WARN -> Icon(
             imageVector = Icons.Default.Warning,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onTertiaryContainer,
+            tint = LocalReadinessColors.current.warning,
             modifier = modifier,
         )
         ReadinessState.FAIL -> Icon(
@@ -92,6 +93,6 @@ fun ReadinessIcon(state: ReadinessState, modifier: Modifier = Modifier) {
 @Composable
 fun readinessContainerColor(state: ReadinessState): Color = when (state) {
     ReadinessState.PASS -> MaterialTheme.colorScheme.surfaceContainer
-    ReadinessState.WARN -> MaterialTheme.colorScheme.tertiaryContainer
+    ReadinessState.WARN -> LocalReadinessColors.current.warningContainer
     ReadinessState.FAIL -> MaterialTheme.colorScheme.errorContainer
 }

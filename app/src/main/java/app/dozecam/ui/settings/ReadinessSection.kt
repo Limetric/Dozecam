@@ -3,6 +3,7 @@ package app.dozecam.ui.settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -10,6 +11,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -29,13 +31,12 @@ import app.dozecam.monitoring.worstState
 import app.dozecam.ui.components.GroupRow
 import app.dozecam.ui.components.ReadinessIcon
 import app.dozecam.ui.components.ReadinessRow
-import app.dozecam.ui.components.Section
 import app.dozecam.ui.components.groupShape
 import app.dozecam.ui.components.readinessContainerColor
 import app.dozecam.ui.components.readinessHeadline
 
 /**
- * The bedtime check, in settings: the one place that answers *will this wake
+ * The dedicated bedtime checklist: the one place that answers *will this wake
  * me?* before it has to.
  *
  * What is wrong is shown; what is right is offered. A checklist of eleven green
@@ -54,13 +55,20 @@ fun ReadinessSection(
     onJumpDone: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Nothing has been checked yet — the probe's first read is a frame or two
-    // behind the screen. Absent rather than green: "Ready for tonight" is the
-    // one thing this section must never say before it knows.
-    if (findings.isEmpty()) return
+    if (findings.isEmpty()) {
+        GroupRow(
+            headline = stringResource(R.string.checklist_checking),
+            supporting = stringResource(R.string.checklist_checking_summary),
+            leading = { Icon(painterResource(R.drawable.ic_bedtime), contentDescription = null) },
+            modifier = modifier.padding(top = 16.dp).testTag("checklist-checking"),
+        )
+        return
+    }
 
     var showingAll by rememberSaveable { mutableStateOf(false) }
-    val problems = findings.problems()
+    val problems = findings.problems().sortedBy {
+        if (it.state == ReadinessState.FAIL) 0 else 1
+    }
     // Checked, and found to be fine. A masked check is neither: it stood aside
     // because something it depends on had already failed, and rendering it here
     // would put a green tick beside "the sound alert is switched on in Android"
@@ -68,7 +76,7 @@ fun ReadinessSection(
     // making claims it cannot support does not get to make one.
     val passes = findings.filter { it.state == ReadinessState.PASS && !it.masked }
 
-    Section(title = stringResource(R.string.section_readiness), modifier = modifier) {
+    Column(modifier = modifier.padding(top = 16.dp)) {
         JumpTarget(
             id = SettingIds.READINESS,
             jumpTarget = jumpTarget,
@@ -157,6 +165,9 @@ private fun TestAlertRow(
     onTestAlert: () -> Unit,
 ) {
     var confirming by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(blockedBy) {
+        if (blockedBy != null) confirming = false
+    }
     GroupRow(
         headline = stringResource(R.string.readiness_test),
         supporting = stringResource(
@@ -173,7 +184,7 @@ private fun TestAlertRow(
         onClick = if (blockedBy == null) ({ confirming = true }) else null,
         modifier = Modifier.testTag("readiness-test"),
     )
-    if (confirming) {
+    if (confirming && blockedBy == null) {
         AlertDialog(
             onDismissRequest = { confirming = false },
             title = { Text(stringResource(R.string.readiness_test_title)) },

@@ -87,7 +87,6 @@ class ReadinessProbe(
                 monitoringRunning = running,
                 batteryOptimised = batteryOptimised(),
                 charging = charging(),
-                batteryPercent = batteryPercent(),
                 cameras = enabled.map { camera -> audibility(camera, heard) },
                 anyMonitorable = anyMonitorable,
                 localNetworkGranted = LocalNetworkPermission.isGranted(context),
@@ -216,16 +215,6 @@ class ReadinessProbe(
 
     private fun charging(): Boolean =
         context.getSystemService(BatteryManager::class.java).isCharging
-
-    /**
-     * Null where the device will not say. A fuel gauge that does not support
-     * this property answers `Integer.MIN_VALUE`, which taken at face value
-     * would read as a flat battery on every phone that has one — the sort of
-     * warning that is wrong every single time it appears.
-     */
-    private fun batteryPercent(): Int? = context.getSystemService(BatteryManager::class.java)
-        .getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-        .takeIf { it in 0..100 }
 
     private companion object {
         const val TICK_MS = 2_000L

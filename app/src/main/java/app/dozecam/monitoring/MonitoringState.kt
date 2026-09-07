@@ -111,21 +111,6 @@ class MonitoringState {
     val exitRequested = MutableStateFlow(false)
 
     /**
-     * Whether some screen owes the user an explanation of full-screen-intent
-     * access before Android is asked for it.
-     *
-     * App-scoped rather than held by the [MonitoringStarter] that raised it,
-     * because the screen that arms the monitor is not always a screen that
-     * stays: onboarding arms and finishes itself in the same breath, and a
-     * dialog owned by it would never be seen. The viewer picks it up instead,
-     * which is the screen that is there afterwards.
-     *
-     * In memory only. This is a nudge, not a record — the durable statement is
-     * the bedtime check, which goes on saying it for as long as it is true.
-     */
-    val explainFullScreenIntent = MutableStateFlow(false)
-
-    /**
      * The cameras actually coming out of the speaker right now, or none.
      *
      * Deliberately separate from the ask — [app.dozecam.data.SoundMode.ALL_ALOUD]
