@@ -64,8 +64,15 @@ fun GroupRow(
     leading: @Composable (() -> Unit)? = null,
     trailing: @Composable (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
+    contentColor: Color = Color.Unspecified,
 ) {
-    val colors = ListItemDefaults.colors(containerColor = containerColor)
+    val colors = ListItemDefaults.colors(
+        containerColor = containerColor,
+        contentColor = contentColor,
+        supportingContentColor = contentColor,
+        leadingContentColor = contentColor,
+        trailingContentColor = contentColor,
+    )
     val shapes = ListItemDefaults.shapes(shape = shape)
     val supportingContent: @Composable (() -> Unit)? = supporting?.let { { Text(it) } }
     if (onClick == null) {

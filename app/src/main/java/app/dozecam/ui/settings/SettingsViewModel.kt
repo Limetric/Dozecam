@@ -14,7 +14,6 @@ import app.dozecam.data.DetectorSettingsStore
 import app.dozecam.data.StreamUrlValidator
 import app.dozecam.monitoring.MonitoringState
 import app.dozecam.monitoring.ReadinessFinding
-import app.dozecam.monitoring.ReadinessPrompt
 import app.dozecam.monitoring.monitorable
 import app.dozecam.protect.CredentialsStore
 import java.util.UUID
@@ -24,9 +23,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -70,39 +67,7 @@ class SettingsViewModel(
      * settings screen a remedy sent them to, and back.
      */
     val readiness: StateFlow<List<ReadinessFinding>> = readinessFindings
-        // Upstream of the sharing, deliberately. Forgetting a check that has
-        // started passing again belongs wherever the checklist is being
-        // watched, and this is the screen a prompt sends people to and the
-        // screen they fix things on — but a collector of its own would be a
-        // permanent subscriber, and would hold the probe polling every two
-        // seconds behind a settings screen left on the back stack all night.
-        // As a side effect of the shared flow it runs exactly when the screen
-        // is looking, which is exactly when it is worth running.
-        .onEach(::forgetRecoveredChecks)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(SUBSCRIPTION_GRACE_MS), emptyList())
-
-    /**
-     * Drops the record of any bedtime failure the user has been told about that
-     * is no longer failing, so the next time it breaks it is worth saying
-     * again. Left alone if nothing moved: this runs several times a second and
-     * a preference edit is a disk write.
-     */
-    private suspend fun forgetRecoveredChecks(findings: List<ReadinessFinding>) {
-        if (findings.isEmpty()) return
-        val stored = store.settings.first().acknowledgedReadinessChecks
-        if (ReadinessPrompt.remembered(findings, stored) == stored) return
-        // Recomputed inside the transform rather than written from the snapshot
-        // above: an acknowledgement can commit between the two, and writing the
-        // older set back would spend the one interruption it had just recorded.
-        store.update {
-            it.copy(
-                acknowledgedReadinessChecks = ReadinessPrompt.remembered(
-                    findings,
-                    it.acknowledgedReadinessChecks,
-                ),
-            )
-        }
-    }
 
     /** Loudest level across every monitored camera: what the meter shows. */
     val audioLevel: StateFlow<Float> = monitoringState.cameras

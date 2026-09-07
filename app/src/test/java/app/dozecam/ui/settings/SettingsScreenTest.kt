@@ -1,8 +1,10 @@
 package app.dozecam.ui.settings
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -10,6 +12,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import app.dozecam.R
@@ -27,6 +30,7 @@ import app.dozecam.ui.theme.DozecamTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -71,6 +75,7 @@ class SettingsScreenTest {
         readiness: List<ReadinessFinding> = emptyList(),
         onReadinessRemedy: (ReadinessRemedy) -> Unit = {},
         onTestAlert: () -> Unit = {},
+        initialDestination: String = "",
     ) {
         DozecamTheme {
             SettingsScreen(
@@ -80,6 +85,7 @@ class SettingsScreenTest {
                 canMonitor = canMonitor,
                 localNetworkGranted = localNetworkGranted,
                 audioLevel = audioLevel,
+                initialDestination = initialDestination,
                 readiness = readiness,
                 onReadinessRemedy = onReadinessRemedy,
                 onTestAlert = onTestAlert,
@@ -529,6 +535,133 @@ class SettingsScreenTest {
         assertEquals(0.4f, changed?.threshold)
     }
 
+    @Test
+    fun `settings opens checklist as a separate screen and back returns to settings`() {
+        var left = false
+        composeRule.setContent { Screen(readiness = healthy, onBack = { left = true }) }
+        composeRule.onNodeWithTag("readiness-summary").assertDoesNotExist()
+
+        composeRule.onNodeWithTag("settings-checklist").performScrollTo().performClick()
+
+        composeRule.onNodeWithText(text(R.string.checklist_title)).assertIsDisplayed()
+        composeRule.onNodeWithTag("readiness-summary").assertIsDisplayed()
+        composeRule.onNodeWithTag("settings-search").assertDoesNotExist()
+        composeRule.onNodeWithTag("settings-back").performClick()
+
+        assertFalse(left)
+        composeRule.onNodeWithTag("settings-checklist").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("readiness-summary").assertDoesNotExist()
+    }
+
+    @Test
+    fun `a checklist opened from the monitor returns to the monitor`() {
+        var left = false
+        composeRule.setContent {
+            Screen(initialDestination = CHECKLIST_DESTINATION, readiness = healthy, onBack = { left = true })
+        }
+
+        composeRule.onNodeWithTag("settings-back").performClick()
+
+        assertTrue(left)
+    }
+
+    @Test
+    fun `camera remedy returns to checklist before leaving settings`() {
+        var left = false
+        var externalRemedy: ReadinessRemedy? = null
+        composeRule.setContent {
+            Screen(
+                initialDestination = CHECKLIST_DESTINATION,
+                readiness = Readiness.of(ReadinessFacts(cameras = emptyList())),
+                onReadinessRemedy = { externalRemedy = it },
+                onBack = { left = true },
+            )
+        }
+        composeRule.onNodeWithTag("readiness-remedy-CAMERAS_HEARD").performScrollTo().performClick()
+        composeRule.onNodeWithText(text(R.string.section_cameras)).assertIsDisplayed()
+        composeRule.onNodeWithTag("readiness-summary").assertDoesNotExist()
+
+        composeRule.onNodeWithTag("settings-back").performClick()
+
+        assertFalse(left)
+        assertNull(externalRemedy)
+        composeRule.onNodeWithTag("readiness-summary").assertIsDisplayed()
+        composeRule.onNodeWithTag("settings-back").performClick()
+        assertTrue(left)
+    }
+
+    @Test
+    fun `searching for the test alert opens the checklist`() {
+        composeRule.setContent { Screen(readiness = healthy) }
+        composeRule.onNodeWithTag("settings-search").performTextInput(text(R.string.readiness_test))
+
+        composeRule.onNodeWithTag("search-result-readiness").performScrollTo().performClick()
+
+        composeRule.onNodeWithTag("settings-search").assertDoesNotExist()
+        composeRule.onNodeWithTag("readiness-test").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("settings-back").performClick()
+        composeRule.onNodeWithTag("settings-checklist").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun `checklist updates from checking to problem to warning to ready`() {
+        val findings = mutableStateOf<List<ReadinessFinding>>(emptyList())
+        composeRule.setContent {
+            Screen(initialDestination = CHECKLIST_DESTINATION, readiness = findings.value)
+        }
+        composeRule.onNodeWithTag("checklist-checking").assertIsDisplayed()
+        composeRule.onNodeWithTag("readiness-test").assertDoesNotExist()
+
+        composeRule.runOnIdle { findings.value = Readiness.of(ReadinessFacts(notificationsAllowed = false)) }
+        composeRule.onNodeWithTag("checklist-checking").assertDoesNotExist()
+        composeRule.onNodeWithTag("readiness-NOTIFICATIONS").performScrollTo().assertIsDisplayed()
+
+        composeRule.runOnIdle { findings.value = alertsOff }
+        composeRule.onNodeWithTag("readiness-NOTIFICATIONS").assertDoesNotExist()
+        composeRule.onNodeWithTag("readiness-ALERTS_ON").performScrollTo().assertIsDisplayed()
+
+        composeRule.runOnIdle { findings.value = healthy }
+        composeRule.onNodeWithTag("readiness-ALERTS_ON").assertDoesNotExist()
+        composeRule.onNodeWithText(text(R.string.readiness_ready)).performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun `problems appear before warnings even when check order is different`() {
+        composeRule.setContent {
+            Screen(
+                initialDestination = CHECKLIST_DESTINATION,
+                readiness = Readiness.of(ReadinessFacts(alertsEnabled = false, monitoringRunning = false)),
+            )
+        }
+
+        val rows = composeRule.onAllNodes(
+            hasTestTag("readiness-MONITORING") or hasTestTag("readiness-ALERTS_ON"),
+        ).fetchSemanticsNodes().map { it.config[SemanticsProperties.TestTag] }
+        assertEquals(listOf("readiness-MONITORING", "readiness-ALERTS_ON"), rows)
+    }
+
+    @Test
+    fun `a test confirmation closes if alerts become unavailable`() {
+        val findings = mutableStateOf(healthy)
+        var fired = false
+        composeRule.setContent {
+            Screen(
+                initialDestination = CHECKLIST_DESTINATION,
+                readiness = findings.value,
+                onTestAlert = { fired = true },
+            )
+        }
+        composeRule.onNodeWithTag("readiness-test").performScrollTo().performClick()
+        composeRule.onNodeWithTag("readiness-test-confirm").assertIsDisplayed()
+
+        composeRule.runOnIdle { findings.value = alertsOff }
+
+        composeRule.onNodeWithTag("readiness-test-confirm").assertDoesNotExist()
+        assertFalse(fired)
+        composeRule.runOnIdle { findings.value = healthy }
+        composeRule.onNodeWithTag("readiness-test-confirm").assertDoesNotExist()
+    }
+
     // ---- The bedtime check ----
 
     private val healthy = Readiness.of(ReadinessFacts())
@@ -540,15 +673,16 @@ class SettingsScreenTest {
      */
     @Test
     fun `an unread checklist claims nothing`() {
-        composeRule.setContent { Screen(readiness = emptyList()) }
+        composeRule.setContent { Screen(initialDestination = CHECKLIST_DESTINATION, readiness = emptyList()) }
 
+        composeRule.onNodeWithTag("checklist-checking").assertIsDisplayed()
         composeRule.onNodeWithTag("readiness-summary").assertDoesNotExist()
         composeRule.onNodeWithText(text(R.string.readiness_ready)).assertDoesNotExist()
     }
 
     @Test
     fun `a phone with nothing wrong says so`() {
-        composeRule.setContent { Screen(readiness = healthy) }
+        composeRule.setContent { Screen(initialDestination = CHECKLIST_DESTINATION, readiness = healthy) }
 
         composeRule.onNodeWithText(text(R.string.readiness_ready))
             .performScrollTo()
@@ -558,7 +692,7 @@ class SettingsScreenTest {
     /** What is wrong is shown; what is right waits behind a word. */
     @Test
     fun `a failing check is on screen without being asked for`() {
-        composeRule.setContent { Screen(readiness = alertsOff) }
+        composeRule.setContent { Screen(initialDestination = CHECKLIST_DESTINATION, readiness = alertsOff) }
 
         composeRule.onNodeWithTag("readiness-${ReadinessCheck.ALERTS_ON.name}")
             .performScrollTo()
@@ -570,7 +704,7 @@ class SettingsScreenTest {
 
     @Test
     fun `passing checks stay out of the way until they are asked for`() {
-        composeRule.setContent { Screen(readiness = alertsOff) }
+        composeRule.setContent { Screen(initialDestination = CHECKLIST_DESTINATION, readiness = alertsOff) }
 
         composeRule.onNodeWithTag("readiness-${ReadinessCheck.NOTIFICATIONS.name}")
             .assertDoesNotExist()
@@ -587,7 +721,7 @@ class SettingsScreenTest {
     fun `a failing check offers the button that fixes it`() {
         var remedy: ReadinessRemedy? = null
         composeRule.setContent {
-            Screen(readiness = alertsOff, onReadinessRemedy = { remedy = it })
+            Screen(initialDestination = CHECKLIST_DESTINATION, readiness = alertsOff, onReadinessRemedy = { remedy = it })
         }
 
         composeRule.onNodeWithTag("readiness-remedy-${ReadinessCheck.ALERTS_ON.name}")
@@ -599,7 +733,7 @@ class SettingsScreenTest {
 
     @Test
     fun `a passing check offers no button to press`() {
-        composeRule.setContent { Screen(readiness = healthy) }
+        composeRule.setContent { Screen(initialDestination = CHECKLIST_DESTINATION, readiness = healthy) }
 
         composeRule.onNodeWithTag("readiness-show-checks").performScrollTo().performClick()
 
@@ -616,7 +750,7 @@ class SettingsScreenTest {
             ),
         )
 
-        composeRule.setContent { Screen(readiness = findings) }
+        composeRule.setContent { Screen(initialDestination = CHECKLIST_DESTINATION, readiness = findings) }
 
         composeRule.onNodeWithText("Play room", substring = true)
             .performScrollTo()
@@ -628,7 +762,7 @@ class SettingsScreenTest {
     @Test
     fun `the test alert asks before it startles anyone`() {
         var fired = false
-        composeRule.setContent { Screen(readiness = healthy, onTestAlert = { fired = true }) }
+        composeRule.setContent { Screen(initialDestination = CHECKLIST_DESTINATION, readiness = healthy, onTestAlert = { fired = true }) }
 
         composeRule.onNodeWithTag("readiness-test").performScrollTo().performClick()
 
@@ -639,7 +773,7 @@ class SettingsScreenTest {
     @Test
     fun `confirming fires the real thing`() {
         var fired = false
-        composeRule.setContent { Screen(readiness = healthy, onTestAlert = { fired = true }) }
+        composeRule.setContent { Screen(initialDestination = CHECKLIST_DESTINATION, readiness = healthy, onTestAlert = { fired = true }) }
         composeRule.onNodeWithTag("readiness-test").performScrollTo().performClick()
 
         composeRule.onNodeWithTag("readiness-test-confirm").performClick()
@@ -657,7 +791,7 @@ class SettingsScreenTest {
         var fired = false
 
         composeRule.setContent {
-            Screen(readiness = alertsOffFindings, onTestAlert = { fired = true })
+            Screen(initialDestination = CHECKLIST_DESTINATION, readiness = alertsOffFindings, onTestAlert = { fired = true })
         }
 
         composeRule.onNodeWithText(text(R.string.readiness_test_unavailable_alerts_off))
@@ -677,7 +811,7 @@ class SettingsScreenTest {
     fun `with no monitor running the test says why it cannot run`() {
         val stopped = Readiness.of(ReadinessFacts(monitoringRunning = false))
 
-        composeRule.setContent { Screen(readiness = stopped) }
+        composeRule.setContent { Screen(initialDestination = CHECKLIST_DESTINATION, readiness = stopped) }
 
         composeRule.onNodeWithText(text(R.string.readiness_test_unavailable))
             .performScrollTo()
@@ -695,7 +829,7 @@ class SettingsScreenTest {
     fun `a check that stood aside is not listed as one that passed`() {
         val denied = Readiness.of(ReadinessFacts(notificationsAllowed = false))
 
-        composeRule.setContent { Screen(readiness = denied) }
+        composeRule.setContent { Screen(initialDestination = CHECKLIST_DESTINATION, readiness = denied) }
         composeRule.onNodeWithTag("readiness-show-checks").performScrollTo().performClick()
 
         composeRule.onNodeWithTag("readiness-${ReadinessCheck.ALERT_CHANNEL.name}")

@@ -7,6 +7,7 @@ import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalContext
 
 /**
@@ -38,9 +39,16 @@ fun DozecamTheme(
         darkTheme -> DarkColorScheme
         else -> LightColorScheme
     }
-    MaterialExpressiveTheme(
-        colorScheme = colorScheme,
-        motionScheme = MotionScheme.expressive(),
-        content = content,
-    )
+    val readinessColors = when {
+        nightTheme -> NightReadinessColors
+        darkTheme -> DarkReadinessColors
+        else -> LightReadinessColors
+    }
+    CompositionLocalProvider(LocalReadinessColors provides readinessColors) {
+        MaterialExpressiveTheme(
+            colorScheme = colorScheme,
+            motionScheme = MotionScheme.expressive(),
+            content = content,
+        )
+    }
 }

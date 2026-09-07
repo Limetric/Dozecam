@@ -30,9 +30,8 @@ class OnboardingActivity : ComponentActivity() {
     private val monitoringStarter = MonitoringStarter(this)
 
     /**
-     * Set once the user has finished. Saved because the permission prompt can
-     * outlive this instance — rotating while it is open recreates the activity,
-     * and the callback that would have closed us belongs to the dead one.
+     * Set once the user has finished. Saved so an activity recreated while
+     * monitoring is being armed still closes the completed setup flow.
      */
     private var finishing = false
 
@@ -101,24 +100,19 @@ class OnboardingActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Recreated while the permission prompt was up: close now that it is
-        // answered, rather than leaving the user staring at a finished screen.
+        // A recreated activity must not show setup after it was completed.
         if (finishing) finish()
     }
 
     private fun finishOnboarding() {
         finishing = true
         lifecycleScope.launch {
-            // Asks for the alert grants on the way, which is why this happens
-            // here: cameras are in, so the request finally has obvious context.
-            // Closing only once the service is actually started, because the
-            // permission prompt is asynchronous and finishing first would
-            // destroy the launcher waiting for its answer.
+            // Alert permissions are explained by the night checklist. Start
+            // detection now, without blocking completion on another prompt.
             if (appContainer.shouldArmMonitoring(this@OnboardingActivity)) {
-                monitoringStarter.startWithAlertPermissions(onStarted = ::finish)
-            } else {
-                finish()
+                monitoringStarter.start()
             }
+            finish()
         }
     }
 

@@ -273,7 +273,7 @@
     <string name="section_readiness">Before the first night</string>
     <string name="readiness_ready">Ready for tonight</string>
     <string name="readiness_ready_summary">Everything an alert needs is in place.</string>
-    <string name="readiness_warnings">Ready, with something to know</string>
+    <string name="readiness_warnings">Warnings to review</string>
     <plurals name="readiness_problems">
         <item quantity="one">%1$d thing needs attention</item>
         <item quantity="other">%1$d things need attention</item>
@@ -334,7 +334,7 @@
 
     <string name="readiness_power_pass">There is power for the night</string>
     <string name="readiness_power_fail">The phone is not charging</string>
-    <string name="readiness_power_why">Monitoring decodes audio all night. Off the charger and already low, this phone may not get to morning.</string>
+    <string name="readiness_power_why">Monitoring uses power throughout the night. Plug this phone in so it can keep listening until morning.</string>
 
     <string name="readiness_local_network_pass">Dozecam can reach your home network</string>
     <string name="readiness_local_network_fail">Dozecam cannot reach your home network</string>

@@ -139,9 +139,11 @@ fun readinessRemedyLabel(remedy: ReadinessRemedy): String? = when (remedy) {
 @Composable
 fun readinessHeadline(findings: List<ReadinessFinding>): String {
     val problems = findings.problems()
+    val failures = problems.count { it.state == ReadinessState.FAIL }
     return when {
+        findings.isEmpty() -> stringResource(R.string.checklist_status_checking)
         problems.isEmpty() -> stringResource(R.string.readiness_ready)
         findings.worstState() == ReadinessState.WARN -> stringResource(R.string.readiness_warnings)
-        else -> pluralStringResource(R.plurals.readiness_problems, problems.size, problems.size)
+        else -> pluralStringResource(R.plurals.readiness_problems, failures, failures)
     }
 }

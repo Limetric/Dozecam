@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="checklist_title">Checklist for the night</string>
+    <string name="checklist_checking">Checking…</string>
+    <string name="checklist_checking_summary">Checking monitoring, cameras and alert settings.</string>
+</resources>

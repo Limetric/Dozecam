@@ -18,6 +18,7 @@ import app.dozecam.R
 import app.dozecam.monitoring.ReadinessFinding
 import app.dozecam.monitoring.ReadinessRemedy
 import app.dozecam.monitoring.ReadinessState
+import app.dozecam.ui.theme.LocalReadinessColors
 
 /**
  * One line of the bedtime check: what is true, why it matters, and the button
@@ -42,6 +43,7 @@ fun ReadinessRow(
         supporting = readinessReason(finding),
         shape = shape,
         containerColor = readinessContainerColor(finding.state),
+        contentColor = readinessContentColor(finding.state),
         leading = { ReadinessIcon(finding.state) },
         trailing = if (remedyLabel == null) {
             null
@@ -50,6 +52,9 @@ fun ReadinessRow(
                 TextButton(
                     onClick = { onRemedy(finding.remedy) },
                     shapes = ButtonDefaults.shapes(),
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = readinessContentColor(finding.state),
+                    ),
                     modifier = Modifier.testTag("readiness-remedy-${finding.check.name}"),
                 ) {
                     Text(remedyLabel)
@@ -77,7 +82,7 @@ fun ReadinessIcon(state: ReadinessState, modifier: Modifier = Modifier) {
         ReadinessState.WARN -> Icon(
             imageVector = Icons.Default.Warning,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onTertiaryContainer,
+            tint = LocalReadinessColors.current.warning,
             modifier = modifier,
         )
         ReadinessState.FAIL -> Icon(
@@ -92,6 +97,14 @@ fun ReadinessIcon(state: ReadinessState, modifier: Modifier = Modifier) {
 @Composable
 fun readinessContainerColor(state: ReadinessState): Color = when (state) {
     ReadinessState.PASS -> MaterialTheme.colorScheme.surfaceContainer
-    ReadinessState.WARN -> MaterialTheme.colorScheme.tertiaryContainer
+    ReadinessState.WARN -> LocalReadinessColors.current.warningContainer
     ReadinessState.FAIL -> MaterialTheme.colorScheme.errorContainer
+}
+
+/** Colored cards need their matching foreground, including explanations and fixes. */
+@Composable
+fun readinessContentColor(state: ReadinessState): Color = when (state) {
+    ReadinessState.PASS -> Color.Unspecified
+    ReadinessState.WARN -> LocalReadinessColors.current.onWarningContainer
+    ReadinessState.FAIL -> MaterialTheme.colorScheme.onErrorContainer
 }

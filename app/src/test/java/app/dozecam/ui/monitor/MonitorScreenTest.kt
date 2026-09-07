@@ -9,6 +9,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
@@ -40,7 +43,6 @@ import app.dozecam.monitoring.MonitoringFailure
 import app.dozecam.monitoring.Readiness
 import app.dozecam.monitoring.ReadinessFacts
 import app.dozecam.monitoring.ReadinessFinding
-import app.dozecam.monitoring.problems
 import app.dozecam.network.NetworkReach
 import app.dozecam.player.PlayerEvent
 import app.dozecam.player.StreamSource
@@ -177,9 +179,7 @@ class MonitorScreenTest {
         talkback: Talkback? = null,
         talkbackMinPressMs: Long = TALKBACK_MIN_PRESS,
         readiness: List<ReadinessFinding> = emptyList(),
-        readinessPrompt: List<ReadinessFinding> = emptyList(),
-        onReadinessPromptOpen: () -> Unit = {},
-        onReadinessPromptDismiss: () -> Unit = {},
+        onOpenChecklist: () -> Unit = {},
         testAlertShowing: Boolean = false,
         onTestAlertDismissed: () -> Unit = {},
     ) {
@@ -218,9 +218,7 @@ class MonitorScreenTest {
                 talkback = talkback,
                 talkbackMinPressMs = talkbackMinPressMs,
                 readiness = readiness,
-                readinessPrompt = readinessPrompt,
-                onReadinessPromptOpen = onReadinessPromptOpen,
-                onReadinessPromptDismiss = onReadinessPromptDismiss,
+                onOpenChecklist = onOpenChecklist,
                 testAlertShowing = testAlertShowing,
                 onTestAlertDismissed = onTestAlertDismissed,
             )
@@ -2361,89 +2359,77 @@ class MonitorScreenTest {
         const val MEDIUM_SCREEN = "w700dp-h500dp"
     }
 
-    // --- the bedtime check -------------------------------------------------
+    // --- the night checklist -----------------------------------------------
 
     @Test
-    fun `an empty viewer says when tonight is not covered`() {
-        composeRule.setContent {
-            Screen(
-                cameras = emptyList(),
-                readiness = Readiness.of(ReadinessFacts(alertsEnabled = false)),
-            )
-        }
-
-        composeRule.onNodeWithTag("readiness-compact").assertIsDisplayed()
-    }
-
-    @Test
-    fun `a covered night adds nothing to an empty viewer`() {
-        // A card that appears only when something is wrong is a card that means
-        // something when it appears.
+    fun `checklist remains available on an empty viewer when all checks pass`() {
         composeRule.setContent {
             Screen(cameras = emptyList(), readiness = Readiness.of(ReadinessFacts()))
         }
-
-        composeRule.onNodeWithTag("readiness-compact").assertDoesNotExist()
+        composeRule.onNodeWithTag("open-checklist").assertIsDisplayed()
+            .assertContentDescriptionEquals(text(R.string.checklist_title))
+            .assert(SemanticsMatcher.expectValue(
+                SemanticsProperties.StateDescription, text(R.string.checklist_status_ok),
+            ))
     }
 
     @Test
-    fun `an unread checklist claims nothing either way`() {
-        composeRule.setContent { Screen(cameras = emptyList(), readiness = emptyList()) }
-
-        composeRule.onNodeWithTag("readiness-compact").assertDoesNotExist()
-    }
-
-    @Test
-    fun `the compact card opens the full one`() {
+    fun `unread checklist is checking and can be opened`() {
         var opened = false
         composeRule.setContent {
-            Screen(
-                cameras = emptyList(),
-                readiness = Readiness.of(ReadinessFacts(alertsEnabled = false)),
-                onOpenSettings = { opened = true },
-            )
+            Screen(cameras = emptyList(), onOpenChecklist = { opened = true })
         }
-
-        composeRule.onNodeWithTag("readiness-compact").performClick()
-
+        composeRule.onNodeWithTag("open-checklist")
+            .assert(SemanticsMatcher.expectValue(
+                SemanticsProperties.StateDescription, text(R.string.checklist_status_checking),
+            ))
+            .performClick()
         assertTrue(opened)
     }
 
-    /** Once, when something that was working stops working — never as wallpaper. */
     @Test
-    fun `a fresh failure interrupts, and says which`() {
-        composeRule.setContent {
-            Screen(
-                cameras = listOf(nursery),
-                readinessPrompt = Readiness.of(ReadinessFacts(alertsEnabled = false)).problems(),
-            )
+    fun `checklist updates from OK to warning to problem and recovers without dialogs`() {
+        var findings by mutableStateOf(Readiness.of(ReadinessFacts()))
+        composeRule.setContent { Screen(cameras = listOf(nursery), readiness = findings) }
+        fun assertStatus(resource: Int) {
+            composeRule.onNodeWithTag("open-checklist").assertIsDisplayed()
+                .assert(SemanticsMatcher.expectValue(
+                    SemanticsProperties.StateDescription, text(resource),
+                ))
+            composeRule.onNodeWithTag("readiness-prompt").assertDoesNotExist()
         }
-
-        composeRule.onNodeWithTag("readiness-prompt").assertIsDisplayed()
-        composeRule.onNodeWithText(text(R.string.readiness_alerts_on_fail)).assertIsDisplayed()
+        assertStatus(R.string.checklist_status_ok)
+        composeRule.runOnIdle { findings = Readiness.of(ReadinessFacts(alertsEnabled = false)) }
+        assertStatus(R.string.checklist_status_warning)
+        composeRule.runOnIdle {
+            findings = Readiness.of(ReadinessFacts(alertsEnabled = false, notificationsAllowed = false))
+        }
+        assertStatus(R.string.checklist_status_problem)
+        composeRule.runOnIdle { findings = Readiness.of(ReadinessFacts()) }
+        assertStatus(R.string.checklist_status_ok)
     }
 
     @Test
-    fun `nothing fresh to say interrupts nobody`() {
-        composeRule.setContent { Screen(cameras = listOf(nursery)) }
-
-        composeRule.onNodeWithTag("readiness-prompt").assertDoesNotExist()
-    }
-
-    @Test
-    fun `later is a real answer`() {
-        var dismissed = false
+    fun `checklist opens its own destination rather than settings`() {
+        var checklistOpened = false
+        var settingsOpened = false
         composeRule.setContent {
             Screen(
                 cameras = listOf(nursery),
-                readinessPrompt = Readiness.of(ReadinessFacts(alertsEnabled = false)).problems(),
-                onReadinessPromptDismiss = { dismissed = true },
+                onOpenChecklist = { checklistOpened = true },
+                onOpenSettings = { settingsOpened = true },
             )
         }
+        composeRule.onNodeWithTag("open-checklist").performClick()
+        assertTrue(checklistOpened)
+        assertFalse(settingsOpened)
+    }
 
-        composeRule.onNodeWithTag("readiness-prompt-dismiss").performClick()
-
-        assertTrue(dismissed)
+    @Test
+    fun `checklist leaves fullscreen focused on the camera`() {
+        composeRule.setContent { Screen(cameras = listOf(nursery), alertCameraId = nursery.id) }
+        composeRule.onNodeWithTag("fullscreen-tile").assertIsDisplayed()
+        composeRule.onNodeWithTag("open-checklist").assertDoesNotExist()
     }
 
     // --- the test alert ----------------------------------------------------
@@ -2478,12 +2464,12 @@ class MonitorScreenTest {
 
     /** Only one question at a time; the test explains the screen that is already on. */
     @Test
-    fun `the test alert outranks the bedtime prompt`() {
+    fun `a checklist problem does not displace the test alert`() {
         composeRule.setContent {
             Screen(
                 cameras = listOf(nursery),
                 testAlertShowing = true,
-                readinessPrompt = Readiness.of(ReadinessFacts(alertsEnabled = false)).problems(),
+                readiness = Readiness.of(ReadinessFacts(notificationsAllowed = false)),
             )
         }
 

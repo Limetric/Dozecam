@@ -60,7 +60,7 @@ object SettingIds {
 
 data class SettingSearchEntry(
     val id: String,
-    /** null: the row lives on the hub itself rather than behind a category. */
+    /** null: a hub row, or the dedicated checklist identified by READINESS. */
     val category: SettingsCategory?,
     val label: String,
     val description: String? = null,
@@ -96,7 +96,7 @@ fun settingsSearchEntries(
     SettingSearchEntry(
         id = SettingIds.READINESS,
         category = null,
-        label = stringResource(R.string.section_readiness),
+        label = stringResource(R.string.checklist_title),
         description = stringResource(R.string.readiness_test),
     ),
     SettingSearchEntry(

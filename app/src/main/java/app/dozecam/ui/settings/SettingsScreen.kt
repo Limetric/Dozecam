@@ -44,8 +44,13 @@ import app.dozecam.monitoring.ReadinessFinding
 import app.dozecam.monitoring.ReadinessRemedy
 import app.dozecam.ui.components.AudioLevelMeter
 import app.dozecam.ui.components.GroupRow
+import app.dozecam.ui.components.ReadinessIcon
+import app.dozecam.ui.components.readinessHeadline
+import app.dozecam.monitoring.worstState
 import app.dozecam.ui.components.Section
 import app.dozecam.ui.components.groupShape
+
+const val CHECKLIST_DESTINATION = "checklist"
 
 /**
  * Settings is a hub and four category screens, all inside this one composable:
@@ -81,10 +86,12 @@ fun SettingsScreen(
     onPickAlertSound: () -> Unit = {},
     onPreviewAlertSound: () -> Unit = {},
     modifier: Modifier = Modifier,
+    initialDestination: String = "",
 ) {
     // A plain string survives process death where a nullable enum would need a
     // custom saver; "" is the hub.
-    var route by rememberSaveable { mutableStateOf("") }
+    var route by rememberSaveable { mutableStateOf(initialDestination) }
+    var camerasFromChecklist by rememberSaveable { mutableStateOf(false) }
     val category = SettingsCategory.entries.firstOrNull { it.name == route }
     var query by rememberSaveable { mutableStateOf("") }
     // Deliberately not saveable: a jump highlight that replays after a
@@ -94,7 +101,12 @@ fun SettingsScreen(
     val goBack = {
         when {
             category != null -> {
-                route = ""
+                route = if (camerasFromChecklist) CHECKLIST_DESTINATION else ""
+                camerasFromChecklist = false
+                jumpTarget = null
+            }
+            route == CHECKLIST_DESTINATION -> {
+                if (initialDestination == CHECKLIST_DESTINATION) onBack() else route = ""
                 jumpTarget = null
             }
             query.isNotEmpty() -> query = ""
@@ -102,7 +114,7 @@ fun SettingsScreen(
         }
     }
     // Leaving the activity stays the system's job; only inner levels are ours.
-    BackHandler(enabled = category != null || query.isNotEmpty()) { goBack() }
+    BackHandler(enabled = category != null || route == CHECKLIST_DESTINATION || query.isNotEmpty()) { goBack() }
 
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(
@@ -111,7 +123,12 @@ fun SettingsScreen(
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             LargeFlexibleTopAppBar(
-                title = { Text(stringResource(category?.titleRes ?: R.string.settings)) },
+                title = {
+                    Text(stringResource(
+                        if (route == CHECKLIST_DESTINATION) R.string.checklist_title
+                        else category?.titleRes ?: R.string.settings,
+                    ))
+                },
                 navigationIcon = {
                     IconButton(
                         onClick = goBack,
@@ -139,7 +156,23 @@ fun SettingsScreen(
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 24.dp),
         ) {
-            when (category) {
+            if (route == CHECKLIST_DESTINATION) {
+                ReadinessSection(
+                    findings = readiness,
+                    onRemedy = { remedy ->
+                        if (remedy == ReadinessRemedy.CAMERA_SETTINGS) {
+                            jumpTarget = null
+                            camerasFromChecklist = true
+                            route = SettingsCategory.CAMERAS.name
+                        } else {
+                            onReadinessRemedy(remedy)
+                        }
+                    },
+                    onTestAlert = onTestAlert,
+                    jumpTarget = jumpTarget,
+                    onJumpDone = { jumpTarget = null },
+                )
+            } else when (category) {
                 null -> SettingsHub(
                     query = query,
                     onQuery = { query = it },
@@ -147,7 +180,9 @@ fun SettingsScreen(
                     onOpenResult = { entry ->
                         query = ""
                         jumpTarget = entry.id
-                        route = entry.category?.name ?: ""
+                        route = if (entry.id == SettingIds.READINESS) {
+                            CHECKLIST_DESTINATION
+                        } else entry.category?.name ?: ""
                     },
                     onOpenCategory = { opened ->
                         jumpTarget = null
@@ -159,18 +194,10 @@ fun SettingsScreen(
                     audioLevel = audioLevel,
                     threshold = detector.threshold,
                     readiness = readiness,
-                    // The one remedy that stays inside settings: the cameras
-                    // it is about are two taps away, and sending someone to
-                    // Android for them would be absurd.
-                    onReadinessRemedy = { remedy ->
-                        if (remedy == ReadinessRemedy.CAMERA_SETTINGS) {
-                            jumpTarget = null
-                            route = SettingsCategory.CAMERAS.name
-                        } else {
-                            onReadinessRemedy(remedy)
-                        }
+                    onOpenChecklist = {
+                        jumpTarget = null
+                        route = CHECKLIST_DESTINATION
                     },
-                    onTestAlert = onTestAlert,
                     jumpTarget = jumpTarget,
                     onJumpDone = { jumpTarget = null },
                 )
@@ -228,8 +255,7 @@ private fun SettingsHub(
     audioLevel: Float,
     threshold: Float,
     readiness: List<ReadinessFinding>,
-    onReadinessRemedy: (ReadinessRemedy) -> Unit,
-    onTestAlert: () -> Unit,
+    onOpenChecklist: () -> Unit,
     jumpTarget: String?,
     onJumpDone: () -> Unit,
 ) {
@@ -249,15 +275,22 @@ private fun SettingsHub(
             jumpTarget = jumpTarget,
             onJumpDone = onJumpDone,
         )
-        // Above the doors to everything tuned once and left alone, because it
-        // is the opposite kind of thing: the one part of settings worth reading
-        // again on a night when something has quietly changed.
-        ReadinessSection(
-            findings = readiness,
-            onRemedy = onReadinessRemedy,
-            onTestAlert = onTestAlert,
-            jumpTarget = jumpTarget,
-            onJumpDone = onJumpDone,
+        GroupRow(
+            headline = stringResource(R.string.checklist_title),
+            supporting = if (readiness.isEmpty()) stringResource(R.string.checklist_checking)
+                else readinessHeadline(readiness),
+            leading = {
+                if (readiness.isEmpty()) {
+                    Icon(painterResource(R.drawable.ic_bedtime), contentDescription = null)
+                } else {
+                    ReadinessIcon(readiness.worstState())
+                }
+            },
+            trailing = {
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+            },
+            onClick = onOpenChecklist,
+            modifier = Modifier.padding(top = 16.dp).testTag("settings-checklist"),
         )
         Column(
             modifier = Modifier.padding(top = 16.dp),
