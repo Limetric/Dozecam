@@ -9,10 +9,12 @@ import android.os.SystemClock
 import androidx.test.core.app.ApplicationProvider
 import app.dozecam.DozecamApp
 import app.dozecam.data.Camera
+import app.dozecam.data.SoundMode
 import app.dozecam.player.ConnectionState
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -95,6 +97,51 @@ class ReadinessProbeTest {
         audio.setStreamVolume(AudioManager.STREAM_ALARM, 0, 0)
 
         assertEquals(ReadinessState.FAIL, state(ReadinessCheck.ALARM_VOLUME))
+    }
+
+    @Test
+    fun `both camera sound modes check media volume independently of alarm volume`() = runTest {
+        val audio = context.getSystemService(AudioManager::class.java)
+        for (mode in listOf(SoundMode.ROTATING, SoundMode.ALL_ALOUD)) {
+            container.appSettings.update { it.copy(soundMode = mode, alertChime = true) }
+            audio.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
+            audio.setStreamVolume(AudioManager.STREAM_ALARM, 6, 0)
+
+            assertEquals(mode.name, ReadinessState.FAIL, state(ReadinessCheck.MEDIA_VOLUME))
+            assertEquals(mode.name, ReadinessState.PASS, state(ReadinessCheck.ALARM_VOLUME))
+
+            audio.setStreamVolume(AudioManager.STREAM_MUSIC, 6, 0)
+            audio.setStreamVolume(AudioManager.STREAM_ALARM, 0, 0)
+
+            val media = finding(ReadinessCheck.MEDIA_VOLUME)
+            assertEquals(mode.name, ReadinessState.PASS, media.state)
+            assertFalse(mode.name, media.masked)
+            assertEquals(mode.name, ReadinessState.FAIL, state(ReadinessCheck.ALARM_VOLUME))
+        }
+    }
+
+    @Test
+    fun `muted media is detected even with a positive volume`() = runTest {
+        container.appSettings.update { it.copy(soundMode = SoundMode.ALL_ALOUD) }
+        val audio = context.getSystemService(AudioManager::class.java)
+        audio.setStreamVolume(AudioManager.STREAM_MUSIC, 6, 0)
+        audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, 0)
+
+        assertEquals(ReadinessState.FAIL, state(ReadinessCheck.MEDIA_VOLUME))
+    }
+
+    @Test
+    fun `turning camera sound off masks zero media volume`() = runTest {
+        val audio = context.getSystemService(AudioManager::class.java)
+        audio.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
+        container.appSettings.update { it.copy(soundMode = SoundMode.ALL_ALOUD) }
+        assertEquals(ReadinessState.FAIL, state(ReadinessCheck.MEDIA_VOLUME))
+
+        container.appSettings.update { it.copy(soundMode = SoundMode.OFF) }
+
+        val media = finding(ReadinessCheck.MEDIA_VOLUME)
+        assertEquals(ReadinessState.PASS, media.state)
+        assertTrue(media.masked)
     }
 
     @Test

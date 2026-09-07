@@ -12,6 +12,7 @@ import androidx.core.app.NotificationManagerCompat
 import app.dozecam.data.AppSettingsStore
 import app.dozecam.data.Camera
 import app.dozecam.data.CameraStore
+import app.dozecam.data.SoundMode
 import app.dozecam.permissions.LocalNetworkPermission
 import app.dozecam.protect.CredentialsStore
 import kotlinx.coroutines.flow.Flow
@@ -80,6 +81,11 @@ class ReadinessProbe(
                 alertChime = settings.alertChime,
                 alertVibrate = settings.alertVibrate,
                 alarmVolume = alarmVolume(),
+                cameraSoundEnabled = settings.soundMode != SoundMode.OFF,
+                mediaVolume = context.getSystemService(AudioManager::class.java)
+                    .getStreamVolume(AudioManager.STREAM_MUSIC),
+                mediaMuted = context.getSystemService(AudioManager::class.java)
+                    .isStreamMute(AudioManager.STREAM_MUSIC),
                 hasVibrator = hasVibrator(),
                 alarmsMuted = alarmsMuted(),
                 alarmsSuppressed = alarmsSuppressed(),

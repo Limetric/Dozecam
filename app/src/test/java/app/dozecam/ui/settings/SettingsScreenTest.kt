@@ -777,6 +777,49 @@ class SettingsScreenTest {
             .assertDoesNotExist()
     }
 
+    @Test
+    fun `muted camera sound explains the problem and opens sound settings`() {
+        var remedy: ReadinessRemedy? = null
+        composeRule.setContent {
+            Screen(
+                initialDestination = CHECKLIST_DESTINATION,
+                readiness = Readiness.of(ReadinessFacts(cameraSoundEnabled = true, mediaVolume = 0)),
+                onReadinessRemedy = { remedy = it },
+            )
+        }
+
+        composeRule.onNodeWithText(text(R.string.readiness_media_volume_fail))
+            .performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText(text(R.string.readiness_media_volume_why))
+            .performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("readiness-remedy-${ReadinessCheck.MEDIA_VOLUME.name}")
+            .performScrollTo().performClick()
+
+        assertEquals(ReadinessRemedy.SOUND_SETTINGS, remedy)
+    }
+
+    @Test
+    fun `camera volume check updates when volume recovers and disappears when sound is off`() {
+        val facts = mutableStateOf(ReadinessFacts(cameraSoundEnabled = true, mediaVolume = 0))
+        composeRule.setContent {
+            Screen(initialDestination = CHECKLIST_DESTINATION, readiness = Readiness.of(facts.value))
+        }
+        composeRule.onNodeWithText(text(R.string.readiness_media_volume_fail))
+            .performScrollTo().assertIsDisplayed()
+
+        composeRule.runOnIdle { facts.value = facts.value.copy(mediaVolume = 6) }
+
+        composeRule.onNodeWithText(text(R.string.readiness_media_volume_pass))
+            .performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("readiness-remedy-${ReadinessCheck.MEDIA_VOLUME.name}")
+            .assertDoesNotExist()
+
+        composeRule.runOnIdle { facts.value = facts.value.copy(cameraSoundEnabled = false, mediaVolume = 0) }
+
+        composeRule.onNodeWithTag("readiness-${ReadinessCheck.MEDIA_VOLUME.name}").assertDoesNotExist()
+        composeRule.onNodeWithText(text(R.string.readiness_media_volume_pass)).assertDoesNotExist()
+    }
+
     /** The unheard rooms are named, because "two cameras" sends someone hunting. */
     @Test
     fun `an unheard room is named on its row`() {
