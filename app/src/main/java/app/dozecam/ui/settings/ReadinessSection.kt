@@ -1,11 +1,9 @@
 package app.dozecam.ui.settings
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -27,25 +25,20 @@ import app.dozecam.monitoring.ReadinessFinding
 import app.dozecam.monitoring.ReadinessRemedy
 import app.dozecam.monitoring.ReadinessState
 import app.dozecam.monitoring.problems
-import app.dozecam.monitoring.worstState
 import app.dozecam.ui.components.GroupRow
-import app.dozecam.ui.components.ReadinessIcon
 import app.dozecam.ui.components.ReadinessRow
 import app.dozecam.ui.components.groupShape
-import app.dozecam.ui.components.readinessContainerColor
-import app.dozecam.ui.components.readinessContentColor
-import app.dozecam.ui.components.readinessHeadline
 
 /**
  * The dedicated bedtime checklist: the one place that answers *will this wake
  * me?* before it has to.
  *
- * What is wrong is shown; what is right is offered. A checklist of eleven green
- * rows is a wall of text that buries the one red one, so the failures stand
- * alone and the passes wait behind "What was checked" — which is still there,
- * because a checklist nobody can inspect is just a reassuring word, and this
- * feature exists because reassuring words are exactly what a baby monitor
- * should not be trusted for.
+ * One list, in the order that matters — what is broken, what is worth a look,
+ * then what was checked and found to be fine. The passes are not hidden behind
+ * a word: a checklist nobody can see the whole of is just a reassuring
+ * sentence, and this feature exists because reassuring sentences are exactly
+ * what a baby monitor should not be trusted for. The test alert sits above the
+ * lot, because pressing it is the only thing on this page that proves anything.
  */
 @Composable
 fun ReadinessSection(
@@ -66,90 +59,49 @@ fun ReadinessSection(
         return
     }
 
-    var showingAll by rememberSaveable { mutableStateOf(false) }
-    val problems = findings.problems().sortedBy {
-        if (it.state == ReadinessState.FAIL) 0 else 1
-    }
-    // Checked, and found to be fine. A masked check is neither: it stood aside
-    // because something it depends on had already failed, and rendering it here
-    // would put a green tick beside "the sound alert is switched on in Android"
-    // over a channel nobody has looked at. A card that exists to stop a monitor
-    // making claims it cannot support does not get to make one.
-    val passes = findings.filter { it.state == ReadinessState.PASS && !it.masked }
+    // Failures before warnings before passes: the rows that need doing
+    // something about are the ones that must not be scrolled to.
+    val rows = findings.problems().sortedBy { if (it.state == ReadinessState.FAIL) 0 else 1 } +
+        // Checked, and found to be fine. A masked check is neither: it stood
+        // aside because something it depends on had already failed, and
+        // rendering it here would put a green tick beside "the sound alert is
+        // switched on in Android" over a channel nobody has looked at. A page
+        // that exists to stop a monitor making claims it cannot support does
+        // not get to make one.
+        findings.filter { it.state == ReadinessState.PASS && !it.masked }
 
-    Column(modifier = modifier.padding(top = 16.dp)) {
+    Column(
+        modifier = modifier.padding(top = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
         JumpTarget(
             id = SettingIds.READINESS,
             jumpTarget = jumpTarget,
             onJumpDone = onJumpDone,
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                // The verdict first, and always — including when everything
-                // passes, which is the answer somebody opened this to get.
-                GroupRow(
-                    headline = readinessHeadline(findings),
-                    supporting = stringResource(
-                        if (problems.isEmpty()) {
-                            R.string.readiness_ready_summary
-                        } else {
-                            R.string.readiness_problems_summary
-                        },
-                    ),
-                    shape = groupShape(0, problems.size + 1),
-                    containerColor = readinessContainerColor(findings.worstState()),
-                    contentColor = readinessContentColor(findings.worstState()),
-                    leading = { ReadinessIcon(findings.worstState()) },
-                    modifier = Modifier.testTag("readiness-summary"),
-                )
-                problems.forEachIndexed { index, finding ->
-                    ReadinessRow(
-                        finding = finding,
-                        onRemedy = onRemedy,
-                        shape = groupShape(index + 1, problems.size + 1),
-                    )
-                }
-            }
-        }
-
-        // Deliberately below the failures rather than folded in with them: the
-        // rows that pass are evidence, not work, and nobody fixing something at
-        // bedtime should have to scroll past them.
-        TextButton(
-            onClick = { showingAll = !showingAll },
-            shapes = ButtonDefaults.shapes(),
-            modifier = Modifier.testTag("readiness-show-checks"),
-        ) {
-            Text(
-                stringResource(
-                    if (showingAll) R.string.readiness_hide_checks
-                    else R.string.readiness_show_checks,
-                ),
+            TestAlertRow(
+                // Two things have to be true before a test can raise anything:
+                // the monitor raises it, and the alerts switch is what lets it
+                // reach anyone. Whichever is missing is named, rather than
+                // greyed out in silence — both are rows in the list below, and
+                // a disabled button that does not say why is how a person
+                // concludes the feature is broken.
+                blockedBy = TEST_PRECONDITIONS.firstOrNull { check ->
+                    findings.any { it.check == check && it.state != ReadinessState.PASS }
+                },
+                onTestAlert = onTestAlert,
             )
         }
-        AnimatedVisibility(visible = showingAll) {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                passes.forEachIndexed { index, finding ->
-                    ReadinessRow(
-                        finding = finding,
-                        onRemedy = onRemedy,
-                        shape = groupShape(index, passes.size),
-                    )
-                }
+
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            rows.forEachIndexed { index, finding ->
+                ReadinessRow(
+                    finding = finding,
+                    onRemedy = onRemedy,
+                    shape = groupShape(index, rows.size),
+                )
             }
         }
-
-        TestAlertRow(
-            // Two things have to be true before a test can raise anything: the
-            // monitor raises it, and the alerts switch is what lets it reach
-            // anyone. Whichever is missing is named, rather than greyed out in
-            // silence — both are rows directly above this one, and a disabled
-            // button that does not say why is how a person concludes the
-            // feature is broken.
-            blockedBy = TEST_PRECONDITIONS.firstOrNull { check ->
-                findings.any { it.check == check && it.state != ReadinessState.PASS }
-            },
-            onTestAlert = onTestAlert,
-        )
     }
 }
 

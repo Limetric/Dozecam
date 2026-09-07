@@ -539,18 +539,18 @@ class SettingsScreenTest {
     fun `settings opens checklist as a separate screen and back returns to settings`() {
         var left = false
         composeRule.setContent { Screen(readiness = healthy, onBack = { left = true }) }
-        composeRule.onNodeWithTag("readiness-summary").assertDoesNotExist()
+        composeRule.onNodeWithTag("readiness-test").assertDoesNotExist()
 
         composeRule.onNodeWithTag("settings-checklist").performScrollTo().performClick()
 
         composeRule.onNodeWithText(text(R.string.checklist_title)).assertIsDisplayed()
-        composeRule.onNodeWithTag("readiness-summary").assertIsDisplayed()
+        composeRule.onNodeWithTag("readiness-test").assertIsDisplayed()
         composeRule.onNodeWithTag("settings-search").assertDoesNotExist()
         composeRule.onNodeWithTag("settings-back").performClick()
 
         assertFalse(left)
         composeRule.onNodeWithTag("settings-checklist").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithTag("readiness-summary").assertDoesNotExist()
+        composeRule.onNodeWithTag("readiness-test").assertDoesNotExist()
     }
 
     @Test
@@ -579,13 +579,13 @@ class SettingsScreenTest {
         }
         composeRule.onNodeWithTag("readiness-remedy-CAMERAS_HEARD").performScrollTo().performClick()
         composeRule.onNodeWithText(text(R.string.section_cameras)).assertIsDisplayed()
-        composeRule.onNodeWithTag("readiness-summary").assertDoesNotExist()
+        composeRule.onNodeWithTag("readiness-test").assertDoesNotExist()
 
         composeRule.onNodeWithTag("settings-back").performClick()
 
         assertFalse(left)
         assertNull(externalRemedy)
-        composeRule.onNodeWithTag("readiness-summary").assertIsDisplayed()
+        composeRule.onNodeWithTag("readiness-test").assertIsDisplayed()
         composeRule.onNodeWithTag("settings-back").performClick()
         assertTrue(left)
     }
@@ -614,15 +614,23 @@ class SettingsScreenTest {
 
         composeRule.runOnIdle { findings.value = Readiness.of(ReadinessFacts(notificationsAllowed = false)) }
         composeRule.onNodeWithTag("checklist-checking").assertDoesNotExist()
-        composeRule.onNodeWithTag("readiness-NOTIFICATIONS").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText(text(R.string.readiness_notifications_fail))
+            .performScrollTo()
+            .assertIsDisplayed()
 
         composeRule.runOnIdle { findings.value = alertsOff }
-        composeRule.onNodeWithTag("readiness-NOTIFICATIONS").assertDoesNotExist()
-        composeRule.onNodeWithTag("readiness-ALERTS_ON").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText(text(R.string.readiness_notifications_fail)).assertDoesNotExist()
+        composeRule.onNodeWithText(text(R.string.readiness_alerts_on_fail))
+            .performScrollTo()
+            .assertIsDisplayed()
 
+        // Every row a sentence about tonight: the one that was failing now
+        // reads as the thing being true, rather than disappearing.
         composeRule.runOnIdle { findings.value = healthy }
-        composeRule.onNodeWithTag("readiness-ALERTS_ON").assertDoesNotExist()
-        composeRule.onNodeWithText(text(R.string.readiness_ready)).performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText(text(R.string.readiness_alerts_on_fail)).assertDoesNotExist()
+        composeRule.onNodeWithText(text(R.string.readiness_alerts_on_pass))
+            .performScrollTo()
+            .assertIsDisplayed()
     }
 
     @Test
@@ -676,20 +684,23 @@ class SettingsScreenTest {
         composeRule.setContent { Screen(initialDestination = CHECKLIST_DESTINATION, readiness = emptyList()) }
 
         composeRule.onNodeWithTag("checklist-checking").assertIsDisplayed()
-        composeRule.onNodeWithTag("readiness-summary").assertDoesNotExist()
-        composeRule.onNodeWithText(text(R.string.readiness_ready)).assertDoesNotExist()
+        composeRule.onNodeWithTag("readiness-test").assertDoesNotExist()
+        composeRule.onNodeWithText(text(R.string.readiness_alerts_on_pass)).assertDoesNotExist()
     }
 
     @Test
     fun `a phone with nothing wrong says so`() {
         composeRule.setContent { Screen(initialDestination = CHECKLIST_DESTINATION, readiness = healthy) }
 
-        composeRule.onNodeWithText(text(R.string.readiness_ready))
+        composeRule.onNodeWithText(text(R.string.readiness_alerts_on_pass))
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule.onNodeWithText(text(R.string.readiness_monitoring_pass))
             .performScrollTo()
             .assertIsDisplayed()
     }
 
-    /** What is wrong is shown; what is right waits behind a word. */
+    /** What is wrong comes first, before anything that is right. */
     @Test
     fun `a failing check is on screen without being asked for`() {
         composeRule.setContent { Screen(initialDestination = CHECKLIST_DESTINATION, readiness = alertsOff) }
@@ -702,19 +713,43 @@ class SettingsScreenTest {
             .assertIsDisplayed()
     }
 
+    /** A checklist nobody can see the whole of is just a reassuring word. */
     @Test
-    fun `passing checks stay out of the way until they are asked for`() {
+    fun `passing checks are listed without being asked for`() {
         composeRule.setContent { Screen(initialDestination = CHECKLIST_DESTINATION, readiness = alertsOff) }
 
         composeRule.onNodeWithTag("readiness-${ReadinessCheck.NOTIFICATIONS.name}")
-            .assertDoesNotExist()
-
-        composeRule.onNodeWithTag("readiness-show-checks").performScrollTo().performClick()
-
-        // A checklist nobody can inspect is just a reassuring word.
-        composeRule.onNodeWithTag("readiness-${ReadinessCheck.NOTIFICATIONS.name}")
             .performScrollTo()
             .assertIsDisplayed()
+    }
+
+    /** The failures are what somebody opened this to fix; they go first. */
+    @Test
+    fun `a failure is listed above the checks that passed`() {
+        composeRule.setContent { Screen(initialDestination = CHECKLIST_DESTINATION, readiness = alertsOff) }
+
+        val rows = composeRule.onAllNodes(
+            hasTestTag("readiness-${ReadinessCheck.ALERTS_ON.name}") or
+                hasTestTag("readiness-${ReadinessCheck.NOTIFICATIONS.name}"),
+        ).fetchSemanticsNodes().map { it.config[SemanticsProperties.TestTag] }
+        assertEquals(
+            listOf(
+                "readiness-${ReadinessCheck.ALERTS_ON.name}",
+                "readiness-${ReadinessCheck.NOTIFICATIONS.name}",
+            ),
+            rows,
+        )
+    }
+
+    /** Pressing it is the only thing on this page that proves anything. */
+    @Test
+    fun `the test alert sits above the checks`() {
+        composeRule.setContent { Screen(initialDestination = CHECKLIST_DESTINATION, readiness = alertsOff) }
+
+        val rows = composeRule.onAllNodes(
+            hasTestTag("readiness-test") or hasTestTag("readiness-${ReadinessCheck.ALERTS_ON.name}"),
+        ).fetchSemanticsNodes().map { it.config[SemanticsProperties.TestTag] }
+        assertEquals(listOf("readiness-test", "readiness-${ReadinessCheck.ALERTS_ON.name}"), rows)
     }
 
     @Test
@@ -735,8 +770,9 @@ class SettingsScreenTest {
     fun `a passing check offers no button to press`() {
         composeRule.setContent { Screen(initialDestination = CHECKLIST_DESTINATION, readiness = healthy) }
 
-        composeRule.onNodeWithTag("readiness-show-checks").performScrollTo().performClick()
-
+        composeRule.onNodeWithTag("readiness-${ReadinessCheck.ALERTS_ON.name}")
+            .performScrollTo()
+            .assertIsDisplayed()
         composeRule.onNodeWithTag("readiness-remedy-${ReadinessCheck.ALERTS_ON.name}")
             .assertDoesNotExist()
     }
@@ -830,7 +866,6 @@ class SettingsScreenTest {
         val denied = Readiness.of(ReadinessFacts(notificationsAllowed = false))
 
         composeRule.setContent { Screen(initialDestination = CHECKLIST_DESTINATION, readiness = denied) }
-        composeRule.onNodeWithTag("readiness-show-checks").performScrollTo().performClick()
 
         composeRule.onNodeWithTag("readiness-${ReadinessCheck.ALERT_CHANNEL.name}")
             .assertDoesNotExist()

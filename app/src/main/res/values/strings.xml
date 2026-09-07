@@ -272,15 +272,11 @@
     -->
     <string name="section_readiness">Before the first night</string>
     <string name="readiness_ready">Ready for tonight</string>
-    <string name="readiness_ready_summary">Everything an alert needs is in place.</string>
     <string name="readiness_warnings">Warnings to review</string>
     <plurals name="readiness_problems">
         <item quantity="one">%1$d thing needs attention</item>
         <item quantity="other">%1$d things need attention</item>
     </plurals>
-    <string name="readiness_problems_summary">Until these are fixed, a room getting loud might not wake you.</string>
-    <string name="readiness_show_checks">What was checked</string>
-    <string name="readiness_hide_checks">Hide the checks</string>
     <!-- Remedy buttons: what the button does, not what is wrong. -->
     <string name="readiness_remedy_allow">Allow</string>
     <string name="readiness_remedy_turn_on">Turn on</string>
