@@ -1,7 +1,10 @@
 package app.dozecam.monitoring
 
 import android.app.NotificationManager
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioManager
 import android.os.BatteryManager
 import android.os.Build
@@ -9,6 +12,7 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.os.VibratorManager
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import app.dozecam.data.AppSettingsStore
 import app.dozecam.data.Camera
 import app.dozecam.data.CameraStore
@@ -16,10 +20,13 @@ import app.dozecam.data.SoundMode
 import app.dozecam.permissions.LocalNetworkPermission
 import app.dozecam.protect.CredentialsStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.delay
 
 /**
@@ -32,7 +39,8 @@ import kotlinx.coroutines.delay
  * they are. So the device half is *read*, on a slow tick and again whenever the
  * app-side half moves, rather than collected — which also means the card
  * corrects itself a second or two after the user returns from the very settings
- * screen a remedy sent them to.
+ * screen a remedy sent them to. Battery broadcasts also refresh the checklist
+ * immediately when a charger is connected or removed.
  */
 class ReadinessProbe(
     private val context: Context,
@@ -69,7 +77,7 @@ class ReadinessProbe(
         monitoringState.cameras
             .map { states -> states.mapValues { (_, it) -> it.isLive to it.lastAudioAtMs } }
             .distinctUntilChanged(),
-        ticks(),
+        merge(ticks(), batteryChanges()),
     ) { settings, (enabled, anyMonitorable), running, heard, _ ->
         Readiness.of(
             ReadinessFacts(
@@ -142,6 +150,22 @@ class ReadinessProbe(
             emit(Unit)
             delay(tickMs)
         }
+    }
+
+    /** Refresh immediately on power changes, even when the monitor is not running. */
+    private fun batteryChanges(): Flow<Unit> = callbackFlow {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                trySend(Unit)
+            }
+        }
+        ContextCompat.registerReceiver(
+            context,
+            receiver,
+            IntentFilter(Intent.ACTION_BATTERY_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        awaitClose { context.unregisterReceiver(receiver) }
     }
 
     private fun notificationsAllowed(): Boolean =
@@ -219,8 +243,16 @@ class ReadinessProbe(
     private fun batteryOptimised(): Boolean = !context.getSystemService(PowerManager::class.java)
         .isIgnoringBatteryOptimizations(context.packageName)
 
-    private fun charging(): Boolean =
-        context.getSystemService(BatteryManager::class.java).isCharging
+    private fun charging(): Boolean {
+        // A charger still supplies power when adaptive charging or a battery
+        // limit pauses charging. Match the monitor's plugged-in power check.
+        val battery = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        return if (battery?.hasExtra(BatteryManager.EXTRA_PLUGGED) == true) {
+            battery.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
+        } else {
+            context.getSystemService(BatteryManager::class.java).isCharging
+        }
+    }
 
     private companion object {
         const val TICK_MS = 2_000L

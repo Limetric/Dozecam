@@ -3,7 +3,10 @@ package app.dozecam.monitoring
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
 import android.media.AudioManager
+import android.os.BatteryManager
+import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
 import androidx.test.core.app.ApplicationProvider
@@ -12,6 +15,10 @@ import app.dozecam.data.Camera
 import app.dozecam.data.SoundMode
 import app.dozecam.player.ConnectionState
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -28,6 +35,7 @@ import org.robolectric.Shadows.shadowOf
  * a sound.
  */
 @RunWith(RobolectricTestRunner::class)
+@OptIn(ExperimentalCoroutinesApi::class)
 class ReadinessProbeTest {
 
     private val context: Context = ApplicationProvider.getApplicationContext()
@@ -48,6 +56,76 @@ class ReadinessProbeTest {
 
     private suspend fun finding(check: ReadinessCheck): ReadinessFinding =
         probe().findings.first().single { it.check == check }
+
+    private fun power(plugged: Int) {
+        // Charging can be paused at a battery limit even with a charger connected.
+        shadowOf(context.getSystemService(BatteryManager::class.java)).setIsCharging(false)
+        context.sendStickyBroadcast(
+            Intent(Intent.ACTION_BATTERY_CHANGED)
+                .putExtra(BatteryManager.EXTRA_PLUGGED, plugged)
+                .putExtra(BatteryManager.EXTRA_STATUS, BatteryManager.BATTERY_STATUS_NOT_CHARGING),
+        )
+        shadowOf(Looper.getMainLooper()).idle()
+    }
+
+    @Test
+    fun `power updates without reopening the checklist or waiting for a tick`() = runTest {
+        power(0)
+        val findings = probe().findings.stateIn(backgroundScope)
+        runCurrent()
+        fun powerState() = findings.value.single { it.check == ReadinessCheck.POWER }.state
+        assertEquals(ReadinessState.WARN, powerState())
+
+        for (charger in listOf(
+            BatteryManager.BATTERY_PLUGGED_AC,
+            BatteryManager.BATTERY_PLUGGED_USB,
+            BatteryManager.BATTERY_PLUGGED_WIRELESS,
+        )) {
+            power(charger)
+            runCurrent()
+            assertEquals(ReadinessState.PASS, powerState())
+
+            power(0)
+            runCurrent()
+            assertEquals(ReadinessState.WARN, powerState())
+        }
+    }
+
+    @Test
+    fun `device settings refresh on ticks during the same checklist subscription`() = runTest {
+        container.appSettings.update { it.copy(alertChime = true, soundMode = SoundMode.ALL_ALOUD) }
+        val audio = context.getSystemService(AudioManager::class.java)
+        val power = shadowOf(context.getSystemService(PowerManager::class.java))
+        shadowOf(notifications).setNotificationsEnabled(true)
+        notifications.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL)
+        audio.setStreamVolume(AudioManager.STREAM_ALARM, 6, 0)
+        audio.setStreamVolume(AudioManager.STREAM_MUSIC, 6, 0)
+        power.setIgnoringBatteryOptimizations(context.packageName, true)
+        val findings = probe().findings.stateIn(backgroundScope)
+        runCurrent()
+        val checks = listOf(ReadinessCheck.NOTIFICATIONS, ReadinessCheck.DO_NOT_DISTURB,
+            ReadinessCheck.ALARM_VOLUME, ReadinessCheck.MEDIA_VOLUME, ReadinessCheck.BATTERY_OPTIMISATION)
+        fun states() = checks.map { check -> findings.value.single { it.check == check }.state }
+        assertEquals(List(5) { ReadinessState.PASS }, states())
+
+        shadowOf(notifications).setNotificationsEnabled(false)
+        notifications.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_NONE)
+        audio.setStreamVolume(AudioManager.STREAM_ALARM, 0, 0)
+        audio.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
+        power.setIgnoringBatteryOptimizations(context.packageName, false)
+        advanceTimeBy(2_000)
+        runCurrent()
+        assertEquals(List(4) { ReadinessState.FAIL } + ReadinessState.WARN, states())
+
+        shadowOf(notifications).setNotificationsEnabled(true)
+        notifications.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL)
+        audio.setStreamVolume(AudioManager.STREAM_ALARM, 6, 0)
+        audio.setStreamVolume(AudioManager.STREAM_MUSIC, 6, 0)
+        power.setIgnoringBatteryOptimizations(context.packageName, true)
+        advanceTimeBy(2_000)
+        runCurrent()
+        assertEquals(List(5) { ReadinessState.PASS }, states())
+    }
 
     @Test
     fun `notifications switched off in Android are noticed`() = runTest {
