@@ -20,6 +20,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
@@ -251,6 +252,7 @@ private fun BoxScope.TileChrome(
         }
         if (audioLevel != null) {
             AudioMeterPill(
+                cameraId = camera.id,
                 cameraName = camera.name,
                 level = audioLevel,
                 threshold = audioThreshold,
@@ -266,21 +268,29 @@ private fun BoxScope.TileChrome(
  */
 @Composable
 internal fun AudioMeterPill(
+    cameraId: String,
     cameraName: String,
     level: Float,
     threshold: Float,
     modifier: Modifier = Modifier,
     height: Dp = OverlayChrome.TileHeight,
 ) {
-    OverlayPill(
-        height = height,
-        modifier = modifier.testTag("camera-meter-$cameraName"),
-    ) {
-        AudioLevelMeter(
-            level = level,
-            threshold = threshold,
-            modifier = Modifier.width(64.dp),
-        )
+    // Keyed by room: the meter carries a fading level from one reading to the
+    // next, and fullscreen can switch straight from one camera to another at
+    // the same spot on screen. Without the key the new room would wear the old
+    // room's sound for as long as the fade lasts. The id, not the name: names
+    // are user-typed and two rooms may share one.
+    key(cameraId) {
+        OverlayPill(
+            height = height,
+            modifier = modifier.testTag("camera-meter-$cameraName"),
+        ) {
+            AudioLevelMeter(
+                level = level,
+                threshold = threshold,
+                modifier = Modifier.width(96.dp),
+            )
+        }
     }
 }
 
