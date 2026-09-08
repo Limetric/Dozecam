@@ -55,7 +55,7 @@ class ReadinessTest {
 
     @Test
     fun `a check that really passes is not marked as standing aside`() {
-        assertTrue(Readiness.of(ReadinessFacts()).none { it.masked })
+        assertTrue(Readiness.of(ReadinessFacts(cameraSoundEnabled = true)).none { it.masked })
     }
 
     @Test
@@ -100,6 +100,52 @@ class ReadinessTest {
             ReadinessState.FAIL,
             state(ReadinessCheck.ALARM_VOLUME, ReadinessFacts(alarmVolume = 7, alarmsMuted = true)),
         )
+    }
+
+    @Test
+    fun `camera sound at zero or muted fails with a sound settings remedy`() {
+        listOf(
+            ReadinessFacts(cameraSoundEnabled = true, mediaVolume = 0),
+            ReadinessFacts(cameraSoundEnabled = true, mediaVolume = 7, mediaMuted = true),
+        ).forEach { facts ->
+            val media = finding(ReadinessCheck.MEDIA_VOLUME, facts)
+            assertEquals(ReadinessState.FAIL, media.state)
+            assertFalse(media.masked)
+            assertEquals(ReadinessRemedy.SOUND_SETTINGS, media.remedy)
+            assertEquals(ReadinessState.FAIL, Readiness.of(facts).worstState())
+        }
+    }
+
+    @Test
+    fun `audible camera sound passes without a remedy`() {
+        val media = finding(ReadinessCheck.MEDIA_VOLUME, ReadinessFacts(cameraSoundEnabled = true))
+
+        assertEquals(ReadinessState.PASS, media.state)
+        assertFalse(media.masked)
+        assertEquals(ReadinessRemedy.NONE, media.remedy)
+    }
+
+    @Test
+    fun `deliberately turning camera sound off hides even muted media volume`() {
+        val media = finding(
+            ReadinessCheck.MEDIA_VOLUME,
+            ReadinessFacts(cameraSoundEnabled = false, mediaVolume = 0, mediaMuted = true),
+        )
+
+        assertEquals(ReadinessState.PASS, media.state)
+        assertTrue(media.masked)
+        assertEquals(ReadinessRemedy.NONE, media.remedy)
+    }
+
+    @Test
+    fun `camera sound still needs volume when alerts and chime are off`() {
+        val media = finding(
+            ReadinessCheck.MEDIA_VOLUME,
+            ReadinessFacts(cameraSoundEnabled = true, mediaVolume = 0, alertsEnabled = false, alertChime = false),
+        )
+
+        assertEquals(ReadinessState.FAIL, media.state)
+        assertFalse(media.masked)
     }
 
     @Test

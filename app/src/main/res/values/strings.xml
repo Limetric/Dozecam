@@ -306,6 +306,9 @@
     <string name="readiness_alerts_on_fail">Alerts are switched off</string>
     <string name="readiness_alerts_on_why">Dozecam keeps listening and the meters keep moving, but nothing wakes the screen, chimes, or vibrates.</string>
 
+    <string name="readiness_media_volume_pass">The media volume is up</string>
+    <string name="readiness_media_volume_fail">Camera sound is muted</string>
+    <string name="readiness_media_volume_why">Camera sound is on, but the phone’s media volume is at zero or muted. Turn up media volume in Sound settings to hear your cameras.</string>
     <string name="readiness_alarm_volume_pass">The alarm volume is up</string>
     <string name="readiness_alarm_volume_fail">The alarm volume is at zero</string>
     <string name="readiness_alarm_volume_why">Dozecam sounds its alert on the alarm stream, so a silent ringer does not matter — but the alarm volume itself does.</string>

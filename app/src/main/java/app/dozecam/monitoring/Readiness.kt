@@ -97,6 +97,9 @@ enum class ReadinessCheck(val group: ReadinessGroup, val remedy: ReadinessRemedy
     /** The alarm stream at zero, or muted. Dozecam plays on it and never overrides it. */
     ALARM_VOLUME(ReadinessGroup.AUDIBLE, ReadinessRemedy.SOUND_SETTINGS),
 
+    /** Camera playback uses media volume independently of the alert alarm stream. */
+    MEDIA_VOLUME(ReadinessGroup.AUDIBLE, ReadinessRemedy.SOUND_SETTINGS),
+
     /**
      * Do Not Disturb filtering alarms out. Alarm usage gets through DND's
      * *default* rules — see [AlarmAudio] — but a profile that silences alarms
@@ -171,6 +174,9 @@ data class ReadinessFacts(
     val alertVibrate: Boolean = true,
     /** The device's alarm stream volume, and whether it is muted. */
     val alarmVolume: Int = 1,
+    val cameraSoundEnabled: Boolean = false,
+    val mediaVolume: Int = 1,
+    val mediaMuted: Boolean = false,
     /** Whether this device has a vibrator at all. Tablets often do not. */
     val hasVibrator: Boolean = true,
     val alarmsMuted: Boolean = false,
@@ -283,6 +289,11 @@ object Readiness {
         finding(
             ReadinessCheck.ALARM_VOLUME,
             !facts.alertChime || (facts.alarmVolume > 0 && !facts.alarmsMuted),
+        ),
+        finding(
+            ReadinessCheck.MEDIA_VOLUME,
+            facts.mediaVolume > 0 && !facts.mediaMuted,
+            masked = !facts.cameraSoundEnabled,
         ),
         // Asked unconditionally, unlike the volume above: Do Not Disturb
         // filters by usage, so it reaches a vibration-only alert exactly as it

@@ -43,6 +43,9 @@ fun readinessSentence(finding: ReadinessFinding): String {
             ReadinessCheck.ALARM_VOLUME ->
                 if (passed) R.string.readiness_alarm_volume_pass
                 else R.string.readiness_alarm_volume_fail
+            ReadinessCheck.MEDIA_VOLUME ->
+                if (passed) R.string.readiness_media_volume_pass
+                else R.string.readiness_media_volume_fail
             // Three outcomes: letting alarms through, stopping them, and being
             // on in a mode whose effect cannot be read from here.
             ReadinessCheck.DO_NOT_DISTURB -> when {
@@ -88,6 +91,7 @@ fun readinessReason(finding: ReadinessFinding): String? {
         ReadinessCheck.WAKE_SCREEN -> stringResource(R.string.readiness_wake_screen_why)
         ReadinessCheck.ALERTS_ON -> stringResource(R.string.readiness_alerts_on_why)
         ReadinessCheck.ALARM_VOLUME -> stringResource(R.string.readiness_alarm_volume_why)
+        ReadinessCheck.MEDIA_VOLUME -> stringResource(R.string.readiness_media_volume_why)
         ReadinessCheck.DO_NOT_DISTURB -> stringResource(
             if (finding.unverified) R.string.readiness_dnd_unknown_why
             else R.string.readiness_dnd_why,
