@@ -770,6 +770,7 @@ fun MonitorScreen(
                 val level = audioLevels[fullscreen.id]
                 if (level != null) {
                     AudioMeterPill(
+                        cameraId = fullscreen.id,
                         cameraName = fullscreen.name,
                         level = level,
                         threshold = audioThreshold,
