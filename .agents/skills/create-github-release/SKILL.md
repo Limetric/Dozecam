@@ -127,5 +127,8 @@ After approval:
    Play Store section matching the approved locale block.
 
 Report the release URL and note that publishing starts the Android Release
-workflow. Do not create a pull request or upload to Google Play unless the user
-separately requests it.
+workflow, which builds the signed bundle, attaches the APK and AAB to the
+release, and uploads the bundle to Google Play's internal testing track using
+the marked Play Store section as the "What's new" copy. Promotion to a wider
+track stays a manual step in the Play Console. Do not create a pull request or
+upload to Google Play by hand.

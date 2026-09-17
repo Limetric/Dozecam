@@ -36,6 +36,9 @@ keystore_dozecam_upload.properties
 # Codegraph local index
 .codegraph/
 
+# Play Store release notes generated in CI
+distribution/
+
 # Diff scaffolding written by the automated PR review workflows
 .review-scope/
 

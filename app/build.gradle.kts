@@ -22,6 +22,19 @@ fun signingValue(name: String): String =
     signingProperties.getProperty(name)
         ?: error("Missing $name in ${signingPropertiesFile.name}")
 
+// Release versions come from CI, not from a number edited by hand: the release
+// workflow passes the tag as APP_VERSION_NAME and the commit count as
+// APP_VERSION_CODE, so every build off main is strictly newer than the last.
+// A local checkout falls back to `git describe` and code 1.
+val appVersionEnv = mapOf(
+    "APP_VERSION_NAME" to providers.environmentVariable("APP_VERSION_NAME").orNull.orEmpty(),
+    "APP_VERSION_CODE" to providers.environmentVariable("APP_VERSION_CODE").orNull.orEmpty(),
+)
+val gitDescribeVersion = providers.exec {
+    commandLine("git", "describe", "--tags", "--always", "--dirty")
+    isIgnoreExitValue = true
+}.standardOutput.asText.map { it.trim() }.orElse("")
+
 android {
     namespace = "app.dozecam"
     compileSdk = 37
@@ -30,8 +43,8 @@ android {
         applicationId = "app.dozecam"
         minSdk = 31
         targetSdk = 37
-        versionCode = 2
-        versionName = "1.0.0"
+        versionCode = AppVersioning.versionCode(appVersionEnv)
+        versionName = AppVersioning.versionName(appVersionEnv) { gitDescribeVersion.get() }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

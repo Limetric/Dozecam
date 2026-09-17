@@ -32,7 +32,9 @@ Single Gradle module `:app`. One flavor dimension, `environment`:
 
 Release-build unit tests are deliberately disabled (Compose-rule Robolectric tests need `ui-test-manifest`, which is debug-only); `testProductionDebugUnitTest` is the canonical test task. All tests live in `app/src/test` and run on the JVM — Robolectric with Android resources enabled, including Compose UI tests via `createComposeRule`.
 
-For a release: bump `versionCode`/`versionName` in `app/build.gradle.kts`. The `create-github-release` and `play-store-changelog` skills in `.claude/skills/` handle GitHub releases and Play "What's new" copy.
+Versions are never edited by hand. `buildSrc`'s `AppVersioning` reads `APP_VERSION_NAME` and `APP_VERSION_CODE`, which the release workflow fills with the release tag and `git rev-list --count HEAD`; a local checkout falls back to `git describe` and code 1.
+
+Releasing is publishing a SemVer GitHub release: `android-release.yml` then builds the signed bundle, attaches the APK and AAB to the release, lifts the approved Play copy out of the release body (`tools/release/extract_play_store_notes.py`, which reads the `play-store-release-notes` markers) into `distribution/whatsnew/`, and uploads the bundle to Google Play's **internal testing** track. Promotion to any wider track is a manual step in the Play Console. The `create-github-release` and `play-store-changelog` skills in `.claude/skills/` write the release body and the Play "What's new" copy.
 
 ## Architecture
 

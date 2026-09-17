@@ -23,10 +23,18 @@ jobs:
     timeout-minutes: 45
     env:
       ARTIFACT_VERSION: ${{ github.event.release.tag_name || github.ref_name }}
+      APP_VERSION_NAME: ${{ github.event.release.tag_name || github.ref_name }}
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
+        with:
+          # The version code counts commits, so the full history has to be here.
+          fetch-depth: 0
+
+      - name: Compute Android version code
+        id: android_version
+        run: echo "code=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK
         uses: actions/setup-java@v6
@@ -69,6 +77,8 @@ jobs:
         run: ./gradlew :app:testProductionDebugUnitTest --stacktrace
 
       - name: Build release APK and AAB
+        env:
+          APP_VERSION_CODE: ${{ steps.android_version.outputs.code }}
         run: ./gradlew :app:assembleProductionRelease :app:bundleProductionRelease --stacktrace
 
       - name: Collect release artifacts
@@ -99,3 +109,26 @@ jobs:
           gh release upload "${{ github.event.release.tag_name }}" release-artifacts/* \
             --repo "${{ github.repository }}" \
             --clobber
+
+      - name: Extract Play Store release notes
+        if: github.event_name == 'release'
+        env:
+          RELEASE_BODY: ${{ github.event.release.body }}
+        run: |
+          set -euo pipefail
+
+          printf '%s' "${RELEASE_BODY}" | python3 tools/release/extract_play_store_notes.py \
+            --output-dir distribution/whatsnew
+
+      - name: Publish AAB to Google Play
+        if: github.event_name == 'release'
+        uses: r0adkll/upload-google-play@v1.1.5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: app.dozecam
+          releaseFiles: app/build/outputs/bundle/productionRelease/app-production-release.aab
+          releaseName: ${{ github.event.release.tag_name }}
+          mappingFile: app/build/outputs/mapping/productionRelease/mapping.txt
+          whatsNewDirectory: distribution/whatsnew
+          track: internal
+          status: completed
