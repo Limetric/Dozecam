@@ -764,5 +764,25 @@ class MonitoringService : Service() {
         fun stop(context: Context) {
             context.stopService(Intent(context, MonitoringService::class.java))
         }
+
+        /**
+         * Leaving Dozecam: the monitor stops, and every notification it could
+         * have left behind goes with it. Both ways out come through here — the
+         * viewer's exit button and the notification's "Exit" action — so
+         * neither can leave a card standing that the other takes down.
+         *
+         * The request is marked as well as carried out because no one caller
+         * can reach every screen: whatever is still alive reads
+         * [MonitoringState.exitRequested] and finishes itself.
+         */
+        fun exit(context: Context) {
+            context.appContainer.monitoringState.exitRequested.value = true
+            stop(context)
+            // After the stop, not before: the service takes its own alert and
+            // failure cards down as it goes (see onDestroy), and this is what
+            // catches the rest — the unplugged notice, and anything at all
+            // when the exit came with no service running to do it.
+            MonitoringNotifications.cancelAll(context)
+        }
     }
 }
