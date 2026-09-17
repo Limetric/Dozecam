@@ -341,6 +341,25 @@ object MonitoringNotifications {
     }
 
     /**
+     * Every card Dozecam can have in the shade, taken down at once: what the
+     * app leaves behind when it is exited.
+     *
+     * The ongoing notification goes with the service that posted it, but the
+     * others outlive it — a sound alert, a failure, an unplugged notice — and
+     * each of them would sit there afterwards describing a monitor that is no
+     * longer running, offering to open a viewer that has just been closed.
+     * Named by id rather than cancelled wholesale so nothing else Dozecam may
+     * one day post is taken down by surprise.
+     */
+    fun cancelAll(context: Context) {
+        val manager = NotificationManagerCompat.from(context)
+        manager.cancel(STATUS_NOTIFICATION_ID)
+        manager.cancel(ALERT_NOTIFICATION_ID)
+        manager.cancel(FAILURE_NOTIFICATION_ID)
+        manager.cancel(UNPLUGGED_NOTIFICATION_ID)
+    }
+
+    /**
      * The charger came out with the monitor armed: a milder notice, on the
      * quiet status channel, so it lands in the shade without lighting anything
      * up. It names the level and the level at which the real alarm would

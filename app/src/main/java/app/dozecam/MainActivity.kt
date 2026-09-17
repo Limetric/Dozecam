@@ -597,11 +597,12 @@ class MainActivity : ComponentActivity() {
      * they were; that is what "remembered" means.
      */
     private fun exit() {
-        // Marked as well as done, so any other screen of ours still alive
-        // finishes too and nothing re-arms the monitor on its way out; the
-        // next viewer to open clears it.
-        appContainer.monitoringState.exitRequested.value = true
-        MonitoringService.stop(this)
+        // The same leaving the notification's "Exit" performs: the service
+        // stopped, its cards taken out of the shade, and the request marked so
+        // any other screen of ours still alive finishes too and nothing
+        // re-arms the monitor on its way out; the next viewer to open clears
+        // it.
+        MonitoringService.exit(this)
         finishAndRemoveTask()
     }
 

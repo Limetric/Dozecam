@@ -1,6 +1,7 @@
 package app.dozecam.monitoring
 
 import android.app.Application
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
@@ -38,5 +39,24 @@ class ExitReceiverTest {
         ExitReceiver().onReceive(context, Intent())
 
         assertTrue(state.exitRequested.value)
+    }
+
+    /**
+     * Exiting is the app going away: the notices it posted go with it. The
+     * unplugged one in particular would otherwise outlive the service — it is
+     * not the service's own card, so stopping the service does not take it
+     * down.
+     */
+    @Test
+    fun `exiting clears the notifications monitoring left behind`() {
+        MonitoringNotifications.ensureChannels(context)
+        MonitoringNotifications.postUnplugged(context, 64)
+        MonitoringNotifications.postAlert(context, "a", "Nursery")
+        val manager = context.getSystemService(NotificationManager::class.java)
+        assertEquals(2, shadowOf(manager).size())
+
+        ExitReceiver().onReceive(context, Intent())
+
+        assertEquals(0, shadowOf(manager).size())
     }
 }

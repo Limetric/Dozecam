@@ -103,6 +103,29 @@ class MonitoringNotificationsTest {
         )
     }
 
+    /**
+     * Exiting is the app going away, and nothing it posted may outlive it: a
+     * card left in the shade would describe a monitor that is no longer
+     * running and offer to open a viewer that has just been closed.
+     */
+    @Test
+    fun `exiting takes every card out of the shade`() {
+        MonitoringNotifications.ensureChannels(context)
+        val manager = context.getSystemService(NotificationManager::class.java)
+        MonitoringNotifications.postAlert(context, "a", "Nursery")
+        MonitoringNotifications.postFailure(context, listOf(lostNursery), wakeScreen = true)
+        MonitoringNotifications.postUnplugged(context, 64)
+        manager.notify(
+            MonitoringNotifications.STATUS_NOTIFICATION_ID,
+            MonitoringNotifications.statusNotification(context, "Listening"),
+        )
+        assertEquals(4, shadowOf(manager).size())
+
+        MonitoringNotifications.cancelAll(context)
+
+        assertEquals(0, shadowOf(manager).size())
+    }
+
     @Test
     fun `a room already coming out of the speaker is not also lit up`() {
         MonitoringNotifications.ensureChannels(context)
