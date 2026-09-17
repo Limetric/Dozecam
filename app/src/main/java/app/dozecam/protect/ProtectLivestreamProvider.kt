@@ -67,12 +67,7 @@ class ProtectLivestreamProvider(
      * on it is pinned like any other.
      */
     private suspend fun mediaFingerprintFor(url: String): String {
-        // HttpUrl parses only http(s); map the WebSocket schemes the way
-        // OkHttp itself does when it opens the upgrade request.
-        val parsed = url
-            .replaceFirst(Regex("^wss://", RegexOption.IGNORE_CASE), "https://")
-            .replaceFirst(Regex("^ws://", RegexOption.IGNORE_CASE), "http://")
-            .toHttpUrlOrNull()
+        val parsed = mediaEndpointOf(url)
             ?: throw ProtectApiException("Console returned an unusable livestream URL")
         val endpoint = endpointKey(parsed.host, parsed.port)
         trustStore.fingerprintFor(endpoint).first()?.let { return it }
@@ -80,6 +75,28 @@ class ProtectLivestreamProvider(
         trustStore.pin(endpoint, learned)
         return learned
     }
+
+    /**
+     * The media endpoint behind [url] presented a certificate other than the
+     * one learned for it. A UniFi OS update reissues the media ports'
+     * certificates while leaving the console's own alone, and these pins were
+     * learned silently — no screen exists on which the user could clear one.
+     * Forgetting it sends the next negotiation back through a first sighting,
+     * which is still only reached by way of the console whose pin the user
+     * confirmed; a console whose own certificate changed is refused before
+     * any of this, exactly as before.
+     */
+    suspend fun onMediaCertificateChanged(url: String) {
+        val parsed = mediaEndpointOf(url) ?: return
+        trustStore.forget(endpointKey(parsed.host, parsed.port))
+    }
+
+    // HttpUrl parses only http(s); map the WebSocket schemes the way OkHttp
+    // itself does when it opens the upgrade request.
+    private fun mediaEndpointOf(url: String) = url
+        .replaceFirst(Regex("^wss://", RegexOption.IGNORE_CASE), "https://")
+        .replaceFirst(Regex("^ws://", RegexOption.IGNORE_CASE), "http://")
+        .toHttpUrlOrNull()
 
     /** Drops the cached session; the next connect logs in again. */
     fun invalidate() {

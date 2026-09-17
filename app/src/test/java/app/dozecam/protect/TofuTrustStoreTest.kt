@@ -67,4 +67,18 @@ class TofuTrustStoreTest {
         assertNull(store.fingerprintFor("192.168.1.1:7441").first())
         assertEquals("MEDIA-2", store.fingerprintFor("192.168.1.2:7441").first())
     }
+
+    @Test
+    fun `forgetting one endpoint leaves the console pin and its other endpoints`() = runTest {
+        val store = store()
+        store.pin("192.168.1.1", "CONSOLE")
+        store.pin("192.168.1.1:7441", "MEDIA-1")
+        store.pin("192.168.1.1:7443", "MEDIA-2")
+
+        store.forget("192.168.1.1:7441")
+
+        assertEquals("CONSOLE", store.fingerprintFor("192.168.1.1").first())
+        assertNull(store.fingerprintFor("192.168.1.1:7441").first())
+        assertEquals("MEDIA-2", store.fingerprintFor("192.168.1.1:7443").first())
+    }
 }

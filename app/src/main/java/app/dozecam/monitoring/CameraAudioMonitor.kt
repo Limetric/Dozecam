@@ -143,6 +143,7 @@ class CameraAudioMonitor(
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
+                    Log.w(TAG, "${camera.name}: monitor playback failed over ${label(transport)}", error)
                     watchdog.onPlayerEvent(PlayerEvent.Error)
                 }
             })
@@ -243,7 +244,8 @@ class CameraAudioMonitor(
 
                 is StreamSource.Livestream -> {
                     val opened = try {
-                        LivestreamConnection.open(livestreamProvider, source) {
+                        LivestreamConnection.open(livestreamProvider, source) { cause ->
+                            Log.w(TAG, "${camera.name}: monitor livestream socket failed", cause)
                             // The pipe only surfaces this once ExoPlayer next
                             // reads; tell the watchdog straight away so a socket
                             // that dies between fragments still reconnects.
@@ -251,6 +253,7 @@ class CameraAudioMonitor(
                         }
                     } catch (e: Exception) {
                         ensureActive() // a cancelled attempt is not a stream failure
+                        Log.w(TAG, "${camera.name}: monitor livestream negotiation failed", e)
                         watchdog.onPlayerEvent(PlayerEvent.Error)
                         return@launch
                     }

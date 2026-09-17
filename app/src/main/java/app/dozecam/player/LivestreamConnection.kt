@@ -8,8 +8,10 @@ import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.extractor.ExtractorsFactory
 import androidx.media3.extractor.mp4.FragmentedMp4Extractor
 import androidx.media3.extractor.text.DefaultSubtitleParserFactory
+import app.dozecam.protect.ChangedCertificateException
 import app.dozecam.protect.ProtectLivestreamProvider
 import app.dozecam.protect.ProtectLivestreamSocket
+import kotlinx.coroutines.runBlocking
 
 /**
  * One negotiated livestream, handed over as something Media3 can play.
@@ -59,6 +61,12 @@ class LivestreamConnection private constructor(
                 // extractor and decoder made of it.
                 onCodec = { Log.i(TAG, "console codec string: $it") },
                 onFailure = { cause ->
+                    // Before the caller hears of it, so the reconnect it
+                    // schedules finds the stale pin already gone.
+                    if (cause.hasCause<ChangedCertificateException>()) {
+                        Log.w(TAG, "media certificate changed; re-learning it via the console")
+                        runBlocking { provider.onMediaCertificateChanged(negotiated.url) }
+                    }
                     pipe.fail(cause)
                     onFailure(cause)
                 },
@@ -76,3 +84,6 @@ class LivestreamConnection private constructor(
         }
     }
 }
+
+private inline fun <reified T : Throwable> Throwable.hasCause(): Boolean =
+    generateSequence(this) { it.cause }.any { it is T }

@@ -83,6 +83,10 @@ class TofuTrustStore(private val dataStore: DataStore<Preferences>) {
         dataStore.edit { it[keyFor(endpoint)] = fingerprint }
     }
 
+    suspend fun forget(endpoint: String) {
+        dataStore.edit { it -= keyFor(endpoint) }
+    }
+
     /**
      * Forgets the media endpoints learned on [host], leaving the console's own
      * pin — the one the user confirmed — alone.

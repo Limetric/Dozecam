@@ -84,6 +84,7 @@ class LivestreamVideoPlayerController(
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                Log.w(TAG, "livestream playback failed", error)
                 listener?.invoke(PlayerEvent.Error)
             }
 
@@ -182,7 +183,8 @@ class LivestreamVideoPlayerController(
         stop()
         connection = scope.launch {
             val opened = try {
-                LivestreamConnection.open(provider, livestream) {
+                LivestreamConnection.open(provider, livestream) { cause ->
+                    Log.w(TAG, "livestream socket failed", cause)
                     // The pipe only surfaces this once ExoPlayer next reads;
                     // tell the watchdog straight away so a socket that dies
                     // while the player is idle still triggers a reconnect.
@@ -190,6 +192,7 @@ class LivestreamVideoPlayerController(
                 }
             } catch (e: Exception) {
                 ensureActive() // a cancelled attempt is not a stream failure
+                Log.w(TAG, "livestream negotiation failed", e)
                 listener?.invoke(PlayerEvent.Error)
                 return@launch
             }
