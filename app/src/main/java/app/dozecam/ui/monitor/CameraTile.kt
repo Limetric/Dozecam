@@ -106,6 +106,12 @@ fun CameraTile(
     zoom: PinchZoomState? = null,
     /** Fires on every zoom gesture — fingers on the picture are presence. */
     onZoomGesture: () -> Unit = {},
+    /**
+     * Pauses this camera, from a button in the tile's free top corner. Null
+     * for no button: the camera with the screen to itself keeps its pause
+     * among the screen's own controls.
+     */
+    onPause: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val host = remember(camera.id) { FrameLayout(context) }
@@ -186,6 +192,7 @@ fun CameraTile(
                 audible = audible,
                 audioLevel = audioLevel,
                 audioThreshold = audioThreshold,
+                onPause = onPause,
             )
         }
     }
@@ -205,14 +212,27 @@ private fun BoxScope.TileChrome(
     audible: Boolean,
     audioLevel: Float?,
     audioThreshold: Float,
+    onPause: (() -> Unit)?,
 ) {
     StatusOverlay(
         state = connection,
         lastFrameAtMs = lastFrameAtMs,
         modifier = Modifier
             .align(Alignment.TopStart)
-            .padding(OverlayChrome.Margin),
+            .padding(OverlayChrome.Margin)
+            // A long status — reconnecting, with the age of the last frame —
+            // stretches to the tile's far edge, where the pause button lives.
+            // Its footprint is given up front, as the name row does for the
+            // audible badge, so the two can never cover each other.
+            .padding(end = if (onPause != null) OverlayChrome.TileHeight + OverlayChrome.Gap else 0.dp),
     )
+    if (onPause != null) {
+        PauseTileButton(
+            cameraName = camera.name,
+            onClick = onPause,
+            modifier = Modifier.align(Alignment.TopEnd),
+        )
+    }
     if (audible) {
         AudibleBadge(
             cameraName = camera.name,

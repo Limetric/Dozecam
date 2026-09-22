@@ -17,6 +17,7 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getBoundsInRoot
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -61,6 +62,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 class MonitorScreenTest {
@@ -182,6 +184,9 @@ class MonitorScreenTest {
         onOpenChecklist: () -> Unit = {},
         testAlertShowing: Boolean = false,
         onTestAlertDismissed: () -> Unit = {},
+        pausedCameraIds: Set<String> = emptySet(),
+        onPauseCamera: (String) -> Unit = {},
+        onResumeCamera: (String) -> Unit = {},
     ) {
         backDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
         DozecamTheme {
@@ -221,7 +226,249 @@ class MonitorScreenTest {
                 onOpenChecklist = onOpenChecklist,
                 testAlertShowing = testAlertShowing,
                 onTestAlertDismissed = onTestAlertDismissed,
+                pausedCameraIds = pausedCameraIds,
+                onPauseCamera = onPauseCamera,
+                onResumeCamera = onResumeCamera,
             )
+        }
+    }
+
+    // --- pausing a camera --------------------------------------------------
+
+    private fun playedUrls() = controllers.mapNotNull { (it.played as? StreamSource.Rtsp)?.url }.toSet()
+
+    /**
+     * A paused room keeps its slot, says it is not being watched, and has no
+     * session behind it at all — pausing is the absence of a stream, not a
+     * stream nobody is shown.
+     */
+    @Test
+    @Config(qualifiers = TABLET_SCREEN)
+    fun `a paused camera is a placeholder with no stream behind it`() {
+        controllers.clear()
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery, playroom), pausedCameraIds = setOf("a"))
+        }
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithTag("paused-tile-Nursery").assertIsDisplayed()
+        composeRule.onNodeWithText(text(R.string.viewer_camera_paused)).assertIsDisplayed()
+        composeRule.onNodeWithTag("camera-tile-Nursery").assertDoesNotExist()
+        composeRule.onNodeWithTag("camera-tile-Play room").assertIsDisplayed()
+        assertEquals(setOf(playroom.url), playedUrls())
+    }
+
+    @Test
+    fun `resuming a paused camera hands the choice back and says so`() {
+        var resumed: String? = null
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery, playroom),
+                pausedCameraIds = setOf("a"),
+                onResumeCamera = { resumed = it },
+            )
+        }
+
+        composeRule.onNodeWithTag("resume-camera-Nursery").performClick()
+
+        assertEquals("a", resumed)
+        composeRule.onNodeWithText("Nursery resumed").assertExists()
+    }
+
+    /** Back from paused, the room plays again — on a session of its own. */
+    @Test
+    @Config(qualifiers = TABLET_SCREEN)
+    fun `a resumed camera plays again`() {
+        controllers.clear()
+        var paused by mutableStateOf(setOf("a"))
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery, playroom), pausedCameraIds = paused)
+        }
+        composeRule.waitForIdle()
+        assertFalse(nursery.url in playedUrls())
+
+        composeRule.runOnIdle { paused = emptySet() }
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithTag("camera-tile-Nursery").assertIsDisplayed()
+        assertTrue(nursery.url in playedUrls())
+    }
+
+    /** The pause button on a tile pauses that tile, and does not open it. */
+    @Test
+    fun `a tile's pause button pauses that camera`() {
+        var paused: String? = null
+        composeRule.setContent {
+            Screen(cameras = listOf(nursery, playroom), onPauseCamera = { paused = it })
+        }
+
+        composeRule.onNodeWithTag("pause-camera-Play room").performClick()
+
+        assertEquals("b", paused)
+        composeRule.onNodeWithTag("fullscreen-tile").assertDoesNotExist()
+        composeRule.onNodeWithText(
+            "Play room paused. Nothing there raises an alert until you resume it.",
+        ).assertExists()
+    }
+
+    /**
+     * Pausing the room on screen leaves nothing to show, so the grid comes
+     * back — with the room's placeholder where it was.
+     */
+    @Test
+    fun `pausing the camera on screen returns to the grid`() {
+        var paused by mutableStateOf(emptySet<String>())
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery, playroom),
+                pausedCameraIds = paused,
+                onPauseCamera = { paused = paused + it },
+            )
+        }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+
+        composeRule.onNodeWithTag("pause-fullscreen")
+            .assertContentDescriptionEquals("Pause Nursery")
+            .performClick()
+
+        assertEquals(setOf("a"), paused)
+        composeRule.onNodeWithTag("fullscreen-tile").assertDoesNotExist()
+        composeRule.onNodeWithTag("paused-tile-Nursery").assertExists()
+    }
+
+    /** Pausing an alerted room ends the alert with the look it bought. */
+    @Test
+    fun `pausing an alerted camera ends the alert`() {
+        var dismissed = false
+        var paused by mutableStateOf(emptySet<String>())
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery, playroom),
+                alertCameraId = "b",
+                onAlertDismissed = { dismissed = true },
+                pausedCameraIds = paused,
+                onPauseCamera = { paused = paused + it },
+            )
+        }
+        composeRule.onNodeWithTag("fullscreen-tile").assertExists()
+
+        composeRule.onNodeWithTag("pause-fullscreen").performClick()
+
+        composeRule.onNodeWithTag("fullscreen-tile").assertDoesNotExist()
+        assertTrue(dismissed)
+    }
+
+    /** A paused room has nothing to show, so an alert naming it has nothing to open. */
+    @Test
+    fun `an alert for a paused camera leaves the viewer alone`() {
+        var dismissed = false
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery, playroom),
+                pausedCameraIds = setOf("b"),
+                alertCameraId = "b",
+                onAlertDismissed = { dismissed = true },
+            )
+        }
+
+        composeRule.onNodeWithTag("fullscreen-tile").assertDoesNotExist()
+        assertTrue(dismissed)
+    }
+
+    /** A paused room never takes a turn at the speaker, nor joins the mix. */
+    @Test
+    @Config(qualifiers = TABLET_SCREEN)
+    fun `a paused camera is never audible`() {
+        var mode by mutableStateOf(SoundMode.ROTATING)
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery, playroom),
+                pausedCameraIds = setOf("a"),
+                soundMode = mode,
+            )
+        }
+
+        repeat(3) {
+            composeRule.onNodeWithTag("audible-badge-Play room", useUnmergedTree = true)
+                .assertIsDisplayed()
+            composeRule.onNodeWithTag("audible-badge-Nursery", useUnmergedTree = true)
+                .assertDoesNotExist()
+            composeRule.mainClock.advanceTimeBy(ROTATION_MS)
+        }
+
+        composeRule.runOnIdle { mode = SoundMode.ALL_ALOUD }
+        composeRule.onNodeWithTag("audible-badge-Play room", useUnmergedTree = true)
+            .assertIsDisplayed()
+        composeRule.onNodeWithTag("audible-badge-Nursery", useUnmergedTree = true)
+            .assertDoesNotExist()
+    }
+
+    /** Not being listened to by choice is not the camera's fault. */
+    @Test
+    fun `a paused camera is not reported as unmonitorable`() {
+        composeRule.setContent {
+            Screen(
+                cameras = listOf(nursery, playroom),
+                unmonitorable = listOf(nursery),
+                pausedCameraIds = setOf("a"),
+            )
+        }
+
+        composeRule.onNodeWithTag("unmonitorable-notice").assertDoesNotExist()
+    }
+
+    /**
+     * A reconnecting status with the age of its last frame is the longest a
+     * tile's status gets, and it must never run under the pause button — a
+     * button over "RECONNECTING" lets a frozen frame pass for a live one.
+     */
+    // Native graphics, because the claim is about real text: the legacy
+    // shadows measure a glyph at about a dp, and a status that short never
+    // reaches the far corner however the layout is wrong.
+    @Test
+    @Config(qualifiers = NARROW_PHONE)
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun `a long status never runs under the pause button`() {
+        controllers.clear()
+        composeRule.setContent { Screen(cameras = listOf(nursery)) }
+        composeRule.waitUntil { controllers.isNotEmpty() }
+        val player = controllerFor(nursery)
+        composeRule.runOnIdle {
+            player.listener?.invoke(PlayerEvent.Playing)
+            player.listener?.invoke(PlayerEvent.TimeChanged(1_000L))
+            player.listener?.invoke(PlayerEvent.Error)
+        }
+        composeRule.waitUntil {
+            composeRule.onAllNodes(
+                hasText("RECONNECTING", substring = true),
+                useUnmergedTree = true,
+            ).fetchSemanticsNodes().isNotEmpty()
+        }
+
+        val status = composeRule
+            .onNodeWithText("RECONNECTING", substring = true, useUnmergedTree = true)
+            .getBoundsInRoot()
+        val pause = composeRule
+            .onNodeWithTag("pause-camera-Nursery", useUnmergedTree = true)
+            .getBoundsInRoot()
+        assertTrue(
+            "status (ends at ${status.right}) runs under pause (starts at ${pause.left})",
+            status.right <= pause.left,
+        )
+    }
+
+    /** The fullscreen row gains a button; it still has to fit. */
+    @Test
+    @Config(qualifiers = NARROW_PHONE)
+    fun `the single camera controls still fit on a narrow phone`() {
+        composeRule.setContent { Screen(cameras = listOf(nursery)) }
+        composeRule.onNodeWithTag("camera-tile-Nursery").performClick()
+
+        val root = composeRule.onRoot().getBoundsInRoot()
+        for (tag in listOf("back-to-grid", "pause-fullscreen", "toggle-sound")) {
+            val bounds = composeRule.onNodeWithTag(tag).getBoundsInRoot()
+            assertTrue(tag, bounds.left >= root.left && bounds.right <= root.right)
         }
     }
 

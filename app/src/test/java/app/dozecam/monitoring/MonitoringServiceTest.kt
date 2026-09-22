@@ -1006,4 +1006,146 @@ class MonitoringServiceTest {
             alertNotification().extras.getString("android.title"),
         )
     }
+
+    // ---- Pausing ----
+
+    private fun alertCard() = shadowOf(context.getSystemService(NotificationManager::class.java))
+        .getNotification(MonitoringNotifications.ALERT_NOTIFICATION_ID)
+
+    /** Paused is not watched: its monitor goes, and comes back on resume. */
+    @Test
+    fun `a paused camera is not monitored until it is resumed`() = runTest {
+        container.cameras.upsert(Camera("a", "Nursery", "rtsp://127.0.0.1:1/a"))
+        container.cameras.upsert(Camera("b", "Hall", "rtsp://127.0.0.1:1/b"))
+        createService().get()
+        shadowOf(Looper.getMainLooper()).idle()
+        val state = container.monitoringState
+        assertTrue("a" in state.cameras.value)
+
+        state.pause("a")
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertFalse("a" in state.cameras.value)
+        assertTrue("b" in state.cameras.value)
+
+        state.resume("a")
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertTrue("a" in state.cameras.value)
+    }
+
+    /**
+     * Pausing the room that is alarming takes its alarm and card down: nobody
+     * is listening to it any more, and a card offering to open it would open
+     * a camera that is not there.
+     */
+    @Test
+    fun `pausing the alerting room takes its alert down`() = runTest {
+        container.appSettings.update { it.copy(alertChime = false, alertVibrate = false) }
+        container.cameras.upsert(Camera("a", "Nursery", "rtsp://127.0.0.1:1/a"))
+        createService().get()
+        shadowOf(Looper.getMainLooper()).idle()
+        val state = container.monitoringState
+        state.lastAlertCameraId.value = "a"
+        MonitoringNotifications.postAlert(context, "a", "Nursery")
+        container.alertSignaler.signal("a", container.appSettings.settings.first())
+        assertEquals("a", container.alertSignaler.alarmingCameraId.value)
+        assertTrue("a" in state.cameras.value)
+
+        state.pause("a")
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertNull(container.alertSignaler.alarmingCameraId.value)
+        assertNull(alertCard())
+    }
+
+    /** Any other room's alert is left exactly as it is. */
+    @Test
+    fun `pausing a quiet room leaves another room's alert alone`() = runTest {
+        container.appSettings.update { it.copy(alertChime = false, alertVibrate = false) }
+        container.cameras.upsert(Camera("a", "Nursery", "rtsp://127.0.0.1:1/a"))
+        container.cameras.upsert(Camera("b", "Hall", "rtsp://127.0.0.1:1/b"))
+        createService().get()
+        shadowOf(Looper.getMainLooper()).idle()
+        val state = container.monitoringState
+        state.lastAlertCameraId.value = "a"
+        MonitoringNotifications.postAlert(context, "a", "Nursery")
+        container.alertSignaler.signal("a", container.appSettings.settings.first())
+
+        state.pause("b")
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals("a", container.alertSignaler.alarmingCameraId.value)
+        assertNotNull(alertCard())
+        container.alertSignaler.stop()
+    }
+
+    /** The ongoing line counts the rooms set aside. */
+    @Test
+    fun `the ongoing notification owns up to a paused room`() = runTest {
+        container.cameras.upsert(Camera("a", "Nursery", "rtsp://127.0.0.1:1/a"))
+        container.cameras.upsert(Camera("b", "Hall", "rtsp://127.0.0.1:1/b"))
+        createService().get()
+        shadowOf(Looper.getMainLooper()).idle()
+
+        container.monitoringState.pause("b")
+        shadowOf(Looper.getMainLooper()).idle()
+
+        val status = shadowOf(context.getSystemService(NotificationManager::class.java))
+            .getNotification(MonitoringNotifications.STATUS_NOTIFICATION_ID)
+        val text = shadowOf(status).contentText.toString()
+        assertTrue(text, text.endsWith("· 1 paused"))
+    }
+
+    /**
+     * Pausing a room that was unreachable ends the failure — nobody is waiting
+     * for it any more — but it has not come back, and the ongoing line must
+     * not say it cleared.
+     */
+    @Test
+    fun `pausing an unreachable room ends its failure without claiming it recovered`() = runTest {
+        container.appSettings.update { it.copy(alertChime = false, alertVibrate = false) }
+        container.cameras.upsert(Camera("a", "Nursery", "rtsp://127.0.0.1:1/a"))
+        val grace = graceMs()
+        createService().get()
+        shadowOf(Looper.getMainLooper()).idle()
+        val state = container.monitoringState
+        state.update("a") { it.withConnection(ConnectionState.Offline) }
+        idleFor(grace + StatusHeartbeat.MIN_INTERVAL_MS)
+        assertEquals(AlertSignaler.MONITORING_FAILURE, container.alertSignaler.alarmingCameraId.value)
+
+        state.pause("a")
+        idleFor(StatusHeartbeat.MIN_INTERVAL_MS)
+
+        assertTrue(state.failures.value.isEmpty())
+        assertNull(container.alertSignaler.alarmingCameraId.value)
+        assertNull(failureCard())
+        assertNull(state.lastRecoveredFailure.value)
+    }
+
+    /**
+     * With every room paused there is nothing to play, and holding the
+     * speaker for nothing would duck every other app all night. The mode is
+     * kept, so resuming picks the mix back up.
+     */
+    @Test
+    fun `every room paused lets go of the speaker but keeps the mode`() = runTest {
+        container.cameras.upsert(Camera("a", "Nursery", "rtsp://127.0.0.1:1/a"))
+        createService().get()
+        listenAloud()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(container.audioFocus.granted.value)
+
+        val enabled = container.cameras.enabledCameras.first()
+        enabled.forEach { container.monitoringState.pause(it.id) }
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertFalse(container.audioFocus.granted.value)
+        assertEquals(SoundMode.ALL_ALOUD, soundMode())
+
+        container.monitoringState.resume("a")
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertTrue(container.audioFocus.granted.value)
+    }
 }

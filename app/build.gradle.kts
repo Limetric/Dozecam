@@ -109,6 +109,27 @@ android {
     }
 }
 
+// Robolectric reaches into OpenJDK internals — from 4.17, into
+// jdk.internal.access to back an API 36 application's shared memory with a
+// real file descriptor — and on Java 17+ the module system refuses that
+// unless the packages are opened to it. Without these every Robolectric test
+// dies in setUpApplicationState before it runs; the list is Robolectric's own
+// (https://robolectric.org/getting-started/), kept whole rather than trimmed
+// to today's failure so the next internal it reaches for is already open.
+tasks.withType<Test>().configureEach {
+    jvmArgs(
+        "--add-opens=java.base/java.lang=ALL-UNNAMED",
+        "--add-opens=java.base/java.util=ALL-UNNAMED",
+        "--add-opens=java.base/java.io=ALL-UNNAMED",
+        "--add-opens=java.base/java.net=ALL-UNNAMED",
+        "--add-opens=java.base/java.security=ALL-UNNAMED",
+        "--add-opens=java.base/java.text=ALL-UNNAMED",
+        "--add-opens=java.base/jdk.internal.access=ALL-UNNAMED",
+        "--add-opens=java.desktop/java.awt.font=ALL-UNNAMED",
+        "--add-opens=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED",
+    )
+}
+
 gradle.taskGraph.whenReady {
     val packagesRelease = allTasks.any { task ->
         task.name.matches(Regex("(assemble|bundle|package).*Release"))

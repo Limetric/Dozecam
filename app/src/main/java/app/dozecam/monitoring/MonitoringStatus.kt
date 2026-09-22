@@ -23,7 +23,10 @@ internal object MonitoringStatus {
         context: Context,
         anyMonitors: Boolean,
         states: Collection<CameraMonitorState>,
+        /** The cameras that should be heard: enabled, and not paused. */
         enabledCount: Int,
+        /** Enabled cameras paused from the viewer, and so heard by nobody. */
+        pausedCount: Int = 0,
         /** The cameras listen mode is playing out of the speaker, if any. */
         aloudCameraIds: Set<String> = emptySet(),
         /** Whether a loud room reaches anyone at all. */
@@ -42,8 +45,13 @@ internal object MonitoringStatus {
             status = noteRecovered(
                 context = context,
                 recovered = recovered,
-                status = failing(context, failures)
-                    ?: listening(context, anyMonitors, states, enabledCount),
+                status = failing(context, failures)?.let { status ->
+                    disclosePaused(context, pausedCount, status)
+                } ?: listening(context, anyMonitors, states, enabledCount, pausedCount).let { status ->
+                    // Every room paused is already the whole of the listening
+                    // line; saying it twice says nothing new.
+                    if (anyMonitors) disclosePaused(context, pausedCount, status) else status
+                },
             ),
         ),
     )
@@ -69,6 +77,24 @@ internal object MonitoringStatus {
             line
         }
         return Status(text, null)
+    }
+
+    /**
+     * A paused room is one nobody is listening to, and the line that says
+     * "listening to one camera" has to own up to the other: at a glance, one
+     * room heard reads as the whole house heard. Counted rather than named,
+     * like everything else here that might be more than one room.
+     */
+    private fun disclosePaused(
+        context: Context,
+        pausedCount: Int,
+        status: Status,
+    ): Status = if (pausedCount == 0) {
+        status
+    } else {
+        status.copy(
+            text = context.getString(R.string.monitoring_status_paused, status.text, pausedCount),
+        )
     }
 
     /**
@@ -145,8 +171,19 @@ internal object MonitoringStatus {
         anyMonitors: Boolean,
         states: Collection<CameraMonitorState>,
         enabledCount: Int,
+        pausedCount: Int,
     ): Status {
-        if (!anyMonitors) return Status(context.getString(R.string.monitoring_status_nothing), null)
+        if (!anyMonitors) {
+            // Every room set aside is a choice, not a camera missing, and says
+            // so: "no camera is switched on" would send someone to settings to
+            // switch on a camera that is on.
+            val nothing = if (pausedCount > 0 && enabledCount == 0) {
+                R.string.monitoring_status_all_paused
+            } else {
+                R.string.monitoring_status_nothing
+            }
+            return Status(context.getString(nothing), null)
+        }
         if (states.isEmpty()) {
             return Status(context.getString(R.string.monitoring_status_starting), null)
         }

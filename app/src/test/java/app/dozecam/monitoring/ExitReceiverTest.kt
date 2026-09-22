@@ -59,4 +59,19 @@ class ExitReceiverTest {
 
         assertEquals(0, shadowOf(manager).size())
     }
+
+    /**
+     * A pause is for tonight. Leaving is when it ends, so the next open
+     * watches every room again rather than a forgotten few.
+     */
+    @Test
+    fun `exiting brings every paused camera back`() {
+        val state = context.appContainer.monitoringState
+        state.pause("a")
+        state.pause("b")
+
+        ExitReceiver().onReceive(context, Intent())
+
+        assertTrue(state.pausedCameraIds.value.isEmpty())
+    }
 }

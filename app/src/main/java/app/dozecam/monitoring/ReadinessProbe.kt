@@ -78,7 +78,7 @@ class ReadinessProbe(
             .map { states -> states.mapValues { (_, it) -> it.isLive to it.lastAudioAtMs } }
             .distinctUntilChanged(),
         merge(ticks(), batteryChanges()),
-    ) { settings, (enabled, anyMonitorable), running, heard, _ ->
+    ) { settings, (enabled, anyMonitorable, paused), running, heard, _ ->
         Readiness.of(
             ReadinessFacts(
                 notificationsAllowed = notificationsAllowed(),
@@ -101,7 +101,10 @@ class ReadinessProbe(
                 monitoringRunning = running,
                 batteryOptimised = batteryOptimised(),
                 charging = charging(),
-                cameras = enabled.map { camera -> audibility(camera, heard) },
+                cameras = MonitoringState.active(enabled, paused)
+                    .map { camera -> audibility(camera, heard) },
+                pausedCameras = MonitoringState.paused(enabled, paused)
+                    .map { camera -> audibility(camera, heard) },
                 anyMonitorable = anyMonitorable,
                 localNetworkGranted = LocalNetworkPermission.isGranted(context),
                 nowMs = SystemClock.elapsedRealtime(),
@@ -110,8 +113,8 @@ class ReadinessProbe(
     }
 
     /**
-     * The switched-on cameras, and whether there is any way to listen to one of
-     * them — asked of the same rule the service and the viewer use, so the card
+     * The switched-on cameras, whether there is any way to listen to one of
+     * them, and which are paused — asked of the same rule the service and the viewer use, so the card
      * can never offer to start a monitor those two would refuse to arm.
      *
      * Its own flow because answering it means decrypting the credentials store
@@ -121,11 +124,16 @@ class ReadinessProbe(
      * changes the answer without touching the list, which is exactly what
      * [MonitoringState.consoleGeneration] exists to say.
      */
-    private fun enabledAndMonitorable(): Flow<Pair<List<Camera>, Boolean>> = combine(
+    private fun enabledAndMonitorable(): Flow<Triple<List<Camera>, Boolean, Set<String>>> = combine(
         cameras.enabledCameras,
         monitoringState.consoleGeneration,
     ) { enabled, _ -> enabled }
         .map { enabled -> enabled to monitorable(enabled, credentials).isNotEmpty() }
+        // After the credentials read, not before it: a pause changes which
+        // rooms are heard, never whether any of them could be.
+        .combine(monitoringState.pausedCameraIds) { (enabled, anyMonitorable), paused ->
+            Triple(enabled, anyMonitorable, paused)
+        }
 
     /**
      * An enabled camera the monitor has no entry for is not being heard — it is

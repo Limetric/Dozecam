@@ -1,5 +1,6 @@
 package app.dozecam.monitoring
 
+import org.junit.Assert.assertFalse
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import app.dozecam.audio.SoundDetector
@@ -244,5 +245,93 @@ class MonitoringStatusTest {
         )
 
         assertEquals("No camera is switched on", status.text)
+    }
+
+    // ---- Paused cameras ----
+
+    /** One room heard must not read as the whole house heard. */
+    @Test
+    fun `a paused camera is owned up to on the listening line`() {
+        val status = MonitoringStatus.of(
+            context,
+            anyMonitors = true,
+            states = listOf(live("a", level = 0.2f)),
+            enabledCount = 1,
+            pausedCount = 1,
+        )
+
+        assertEquals("Monitoring 1 camera · 1 paused", status.text)
+        assertEquals(0.2f, status.level)
+    }
+
+    /** Behind whatever else is said: a failure is still the more urgent half. */
+    @Test
+    fun `a failure keeps the paused count behind it`() {
+        val status = MonitoringStatus.of(
+            context,
+            anyMonitors = true,
+            states = listOf(live("b", name = "Nursery").copy(connection = ConnectionState.Offline)),
+            enabledCount = 1,
+            pausedCount = 2,
+            failures = listOf(
+                MonitoringFailure(
+                    FailureReason.CameraUnreachable("b", "Nursery", networkDown = false),
+                    sinceMs = 0L,
+                ),
+            ),
+        )
+
+        assertTrue(status.text, status.text.startsWith("Can't reach Nursery since "))
+        assertTrue(status.text, status.text.endsWith(" · 2 paused"))
+    }
+
+    @Test
+    fun `every camera paused says so rather than that none is switched on`() {
+        val status = MonitoringStatus.of(
+            context,
+            anyMonitors = false,
+            states = emptyList(),
+            enabledCount = 0,
+            pausedCount = 2,
+        )
+
+        assertEquals("Every camera is paused", status.text)
+        assertNull(status.level)
+    }
+
+    /**
+     * A paused room is not "not monitorable": the partial count is of rooms
+     * that should be heard and are not, and a pause is neither.
+     */
+    @Test
+    fun `a paused camera is not counted as unmonitorable`() {
+        val status = MonitoringStatus.of(
+            context,
+            anyMonitors = true,
+            states = listOf(live("a")),
+            enabledCount = 1,
+            pausedCount = 1,
+        )
+
+        assertFalse(status.text, status.text.contains("not monitorable"))
+    }
+
+    /**
+     * Every room paused with the battery running down: the failure is said
+     * first, and the paused rooms still behind it — otherwise the line would
+     * say nothing at all about no room being watched.
+     */
+    @Test
+    fun `a failure over every room paused still owns up to the pause`() {
+        val status = MonitoringStatus.of(
+            context,
+            anyMonitors = false,
+            states = emptyList(),
+            enabledCount = 0,
+            pausedCount = 2,
+            failures = listOf(MonitoringFailure(FailureReason.LowBattery(20), sinceMs = 0L)),
+        )
+
+        assertTrue(status.text, status.text.endsWith(" · 2 paused"))
     }
 }

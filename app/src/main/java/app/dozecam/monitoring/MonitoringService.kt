@@ -45,9 +45,10 @@ import kotlinx.coroutines.withContext
  * A camera is monitored if there is any way at all to hear it — see
  * [MonitorTransports] — and skipped, visibly, if there is not.
  *
- * The set of monitors follows [app.dozecam.data.CameraStore.enabledCameras]
- * live, so switching a camera on or off in settings takes effect without
- * restarting the service.
+ * The set of monitors follows [app.dozecam.AppContainer.monitoredCameras] —
+ * the enabled cameras, less any paused from the viewer — live, so switching a
+ * camera on or off in settings, or pausing one for the night, takes effect
+ * without restarting the service.
  *
  * Listen mode is the same decoding, turned up. Every monitor may play its
  * camera out of the speaker at once so the whole house stays audible with the
@@ -155,8 +156,10 @@ class MonitoringService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Which cameras are monitored is Camera.enabled, which is already
-        // durable, so a sticky restart after a process kill resumes exactly the
-        // same set — and a redelivered null intent is what makes the one action
+        // durable, so a sticky restart after a process kill resumes the same
+        // set — less nothing: a pause lives in memory, and a restart brings
+        // every paused room back, the safe way to lose it. A redelivered null
+        // intent is what makes the one action
         // below safe to carry here: a test alert is a thing a person asked for
         // once, and must never be replayed at 3am by a service coming back.
         // Raised here and now, from the same field and down the same call as a
@@ -217,7 +220,7 @@ class MonitoringService : Service() {
 
         scope.launch {
             combine(
-                container.cameras.enabledCameras,
+                container.monitoredCameras,
                 container.monitoringState.consoleGeneration,
             ) { cameras, _ -> cameras }
                 .map { cameras ->
@@ -233,8 +236,18 @@ class MonitoringService : Service() {
         // Listen mode's switch, and the speaker it needs. Asked for here rather
         // than in the viewer because the whole promise is that it outlives the
         // viewer.
-        val listenRequested = container.appSettings.settings
-            .map { it.soundMode == SoundMode.ALL_ALOUD }
+        //
+        // Every room paused stands it down as well: nothing is left to play,
+        // and a phone holding the speaker for nothing ducks every other app on
+        // it all night. The setting itself is left alone, so resuming a room
+        // picks the mix back up without being asked twice.
+        val listenRequested = combine(
+            container.appSettings.settings.map { it.soundMode == SoundMode.ALL_ALOUD },
+            combine(
+                container.cameras.enabledCameras,
+                container.monitoringState.pausedCameraIds,
+            ) { enabled, paused -> enabled.isNotEmpty() && enabled.all { it.id in paused } },
+        ) { aloud, allPaused -> aloud && !allPaused }
             .distinctUntilChanged()
         scope.launch {
             listenRequested.collect { wanted ->
@@ -284,7 +297,15 @@ class MonitoringService : Service() {
         scope.launch {
             combine(
                 container.monitoringState.cameras,
-                container.cameras.enabledCameras,
+                // How many rooms should be heard, and how many were set aside:
+                // one flow for the two, because combine takes five at most.
+                combine(
+                    container.cameras.enabledCameras,
+                    container.monitoringState.pausedCameraIds,
+                ) { enabled, paused ->
+                    MonitoringState.active(enabled, paused).size to
+                        MonitoringState.paused(enabled, paused).size
+                }.distinctUntilChanged(),
                 container.monitoringState.listeningCameraIds,
                 container.appSettings.settings.map { it.alertsEnabled }.distinctUntilChanged(),
                 // The failure record and the tick, folded together only
@@ -302,12 +323,13 @@ class MonitoringService : Service() {
                     container.monitoringState.lastRecoveredFailure,
                     heartbeatTicks(),
                 ) { failures, recovered, _ -> failures to recovered },
-            ) { states, enabled, aloudCameraIds, alertsEnabled, (failures, recovered) ->
+            ) { states, (monitoredCount, pausedCount), aloudCameraIds, alertsEnabled, (failures, recovered) ->
                 MonitoringStatus.of(
                     context = this@MonitoringService,
                     anyMonitors = monitors.isNotEmpty(),
                     states = states.values,
-                    enabledCount = enabled.size,
+                    enabledCount = monitoredCount,
+                    pausedCount = pausedCount,
                     // A phone quietly broadcasting a bedroom is exactly the
                     // thing a persistent notification exists to disclose, so
                     // the line says so whatever else it has to report — and so
@@ -364,7 +386,16 @@ class MonitoringService : Service() {
         val state = appContainer.monitoringState
         val update = ledger.evaluate(health, appSettings.failureGraceMs)
         state.failures.value = update.active
-        update.recovered.lastOrNull()?.let { state.lastRecoveredFailure.value = it }
+        // A camera that is no longer monitored — paused, switched off — has
+        // not come back just because nobody is waiting for it any more. Its
+        // failure ends here without the note that it cleared: "back" said of
+        // a room that may well still be dark is the wrong reassurance.
+        update.recovered
+            .lastOrNull { recovered ->
+                val reason = recovered.reason
+                reason !is FailureReason.CameraUnreachable || reason.cameraId in state.cameras.value
+            }
+            ?.let { state.lastRecoveredFailure.value = it }
         if (update.unplugged) {
             health.battery?.let { MonitoringNotifications.postUnplugged(this, it.percent) }
         }
@@ -444,6 +475,17 @@ class MonitoringService : Service() {
      */
     private fun reconcile(wanted: List<Camera>, transports: Map<String, List<StreamSource>>) {
         val state = appContainer.monitoringState
+
+        // A room that has left the set — paused, switched off, deleted — takes
+        // its alert with it. Nothing is listening to it any more, so an alarm
+        // still ringing for it could only be acknowledged, never explained,
+        // and a card offering to open it would open a camera that is not
+        // there. Worked out before anything is stopped, because a departed
+        // room is retired by whichever pass below reaches it first; and only
+        // the rooms actually gone — one merely rebuilt onto a new URL or
+        // transport is still being listened to.
+        val wantedIds = wanted.mapTo(mutableSetOf()) { it.id }
+        (monitors.keys - wantedIds).forEach(::withdrawAlert)
 
         // A camera can keep every field it has and still need a new monitor:
         // signing in to another console takes the livestream away from it, and
@@ -665,6 +707,21 @@ class MonitoringService : Service() {
         }
     }
 
+    /**
+     * Takes down [cameraId]'s alert, if it has the one alert card or the alarm;
+     * any other room's is left exactly as it is.
+     */
+    private fun withdrawAlert(cameraId: String) {
+        val state = appContainer.monitoringState
+        val signaler = appContainer.alertSignaler
+        if (signaler.alarmingCameraId.value == cameraId) signaler.stop()
+        if (state.lastAlertCameraId.value == cameraId) {
+            NotificationManagerCompat.from(this)
+                .cancel(MonitoringNotifications.ALERT_NOTIFICATION_ID)
+            state.lastAlertCameraId.value = null
+        }
+    }
+
     /** Silences whatever alert is up and takes its cards down. */
     private fun dropAlert() {
         appContainer.alertSignaler.stop()
@@ -777,6 +834,9 @@ class MonitoringService : Service() {
          */
         fun exit(context: Context) {
             context.appContainer.monitoringState.exitRequested.value = true
+            // A pause is for tonight. Leaving is the moment it ends, so the
+            // next open watches every room again rather than a forgotten few.
+            context.appContainer.monitoringState.resumeAll()
             stop(context)
             // After the stop, not before: the service takes its own alert and
             // failure cards down as it goes (see onDestroy), and this is what

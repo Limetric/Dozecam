@@ -367,4 +367,28 @@ class ReadinessProbeTest {
             finding(ReadinessCheck.MONITORING).remedy,
         )
     }
+
+    /**
+     * A paused room is reported as paused, and nowhere else: not as a room
+     * that is failing to be heard, which is what it would read as otherwise.
+     * Live, too — resuming from the checklist has to clear its own row.
+     */
+    @Test
+    fun `a paused camera is split out of the rooms that should be heard`() = runTest {
+        container.cameras.upsert(Camera("pause-a", "Nursery", "rtsp://cam/a"))
+        container.cameras.upsert(Camera("pause-b", "Play room", "rtsp://cam/b"))
+        val findings = probe().findings.stateIn(backgroundScope)
+        container.monitoringState.pause("pause-b")
+        runCurrent()
+
+        fun of(check: ReadinessCheck) = findings.value.single { it.check == check }
+        assertEquals(ReadinessState.WARN, of(ReadinessCheck.CAMERAS_PAUSED).state)
+        assertEquals(listOf("pause-b"), of(ReadinessCheck.CAMERAS_PAUSED).cameras.map { it.cameraId })
+        assertFalse(of(ReadinessCheck.CAMERAS_HEARD).cameras.any { it.cameraId == "pause-b" })
+
+        container.monitoringState.resumeAll()
+        runCurrent()
+
+        assertEquals(ReadinessState.PASS, of(ReadinessCheck.CAMERAS_PAUSED).state)
+    }
 }

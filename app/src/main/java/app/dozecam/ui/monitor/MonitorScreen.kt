@@ -177,7 +177,8 @@ private fun Modifier.edgeSwipeToLeave(enabled: () -> Boolean, onLeave: () -> Uni
     }
 
 /**
- * The viewer: every enabled camera, live, and nothing else. Arming the monitor
+ * The viewer: every enabled camera, live — or, where it has been paused for
+ * the night, a placeholder offering it back — and nothing else. Arming the monitor
  * and everything about how a camera is set up live in settings, so the only
  * chrome here is the way to get there.
  */
@@ -300,6 +301,14 @@ fun MonitorScreen(
     /** The screen came on for the bedtime test rather than for a room. */
     testAlertShowing: Boolean = false,
     onTestAlertDismissed: () -> Unit = {},
+    /**
+     * Cameras set aside for now — the room whose child is still up. Kept on
+     * the grid as placeholders rather than dropped from it, so the way back is
+     * where the room was, and a room nobody is watching is never simply absent.
+     */
+    pausedCameraIds: Set<String> = emptySet(),
+    onPauseCamera: (String) -> Unit = {},
+    onResumeCamera: (String) -> Unit = {},
 ) {
     val streams = rememberCameraStreams(
         controllerFactory,
@@ -308,15 +317,24 @@ fun MonitorScreen(
     val gridState = rememberLazyGridState()
 
     /**
+     * The cameras actually being watched. Everything that plays, opens, keeps
+     * warm or takes a turn at the speaker works from these; a paused room has
+     * no session at all, which is the point of pausing it.
+     */
+    val activeCameras = remember(cameras, pausedCameraIds) {
+        cameras.filter { it.id !in pausedCameraIds }
+    }
+
+    /**
      * Only tiles actually on screen take a turn. A camera scrolled out of the
      * grid has no player at all, so its turn would be ten seconds of silence
      * next to a badge nobody can see — the exact "is it broken or is the room
      * quiet?" doubt the badge exists to remove.
      */
-    val visibleCameraIds by remember(cameras) {
+    val visibleCameraIds by remember(activeCameras) {
         derivedStateOf {
             val onScreen = gridState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String }
-            cameras.map { it.id }.filter { it in onScreen }
+            activeCameras.map { it.id }.filter { it in onScreen }
         }
     }
 
@@ -343,9 +361,9 @@ fun MonitorScreen(
             // camera the grid had to reconnect on the way back.
             else -> warmIds + previous
         } - cameraId
-        // A room switched off or deleted meanwhile is not coming back, and its
-        // session is not worth holding open on the chance that it does.
-        warmIds = warm.intersect(cameras.mapTo(mutableSetOf()) { it.id })
+        // A room switched off, paused or deleted meanwhile is not coming back,
+        // and its session is not worth holding open on the chance that it does.
+        warmIds = warm.intersect(activeCameras.mapTo(mutableSetOf()) { it.id })
         streams.keepWarm(warmIds)
         fullscreenId = cameraId
     }
@@ -358,11 +376,11 @@ fun MonitorScreen(
     // the screen changes in that case, so without a signal of its own the new
     // alert would inherit however little was left of the old one's wait.
     var samePlaceAlerts by remember { mutableIntStateOf(0) }
-    val fullscreen = cameras.firstOrNull { it.id == fullscreenId }
+    val fullscreen = activeCameras.firstOrNull { it.id == fullscreenId }
 
-    // A camera that went away (switched off, deleted) must not strand the
-    // viewer on a blank fullscreen with nothing to show.
-    LaunchedEffect(cameras, fullscreenId) {
+    // A camera that went away (switched off, paused, deleted) must not strand
+    // the viewer on a blank fullscreen with nothing to show.
+    LaunchedEffect(activeCameras, fullscreenId) {
         if (fullscreenId != null && fullscreen == null) fullscreenId = null
     }
 
@@ -370,9 +388,9 @@ fun MonitorScreen(
     // camera is open is not one the grid will want back, and the warm set is
     // otherwise only worked out at the moment of opening — so without this its
     // session would be held until the viewer left the camera it is behind.
-    LaunchedEffect(cameras, fullscreen?.id) {
+    LaunchedEffect(activeCameras, fullscreen?.id) {
         if (fullscreen == null) return@LaunchedEffect
-        val present = cameras.mapTo(mutableSetOf()) { it.id }
+        val present = activeCameras.mapTo(mutableSetOf()) { it.id }
         val kept = warmIds.intersect(present)
         if (kept != warmIds) {
             warmIds = kept
@@ -382,9 +400,9 @@ fun MonitorScreen(
 
     // A wake alert names the camera that got loud; show that one, alone and
     // whole, because that is the entire reason the screen just came on.
-    LaunchedEffect(alertCameraId, cameras) {
+    LaunchedEffect(alertCameraId, activeCameras) {
         val id = alertCameraId ?: return@LaunchedEffect
-        if (cameras.any { it.id == id }) {
+        if (activeCameras.any { it.id == id }) {
             if (fullscreenId == id) {
                 // Already the camera on screen — locked while watching the very
                 // room that then got loud. No id change is coming, so the
@@ -397,8 +415,9 @@ fun MonitorScreen(
                 alertPendingShow = true
             }
         } else {
-            // Named a camera that is no longer here: there is nothing to show,
-            // so the alert ends now rather than leaving the grid up.
+            // Named a camera that is no longer here, or paused since: there is
+            // nothing to show, so the alert ends now rather than leaving the
+            // grid up.
             onAlertDismissed()
         }
         onAlertConsumed()
@@ -496,15 +515,15 @@ fun MonitorScreen(
                 // still reconnecting, or a monitor that never started plays on
                 // this screen and no further, and the confirmation says so.
                 SoundMode.ALL_ALOUD -> {
-                    val carried = cameras.filter { it.id in audioLevels }
+                    val carried = activeCameras.filter { it.id in audioLevels }
                     when {
                         carried.size == 1 ->
                             announce(R.string.viewer_listen_on_confirmed, carried.single().name)
                         carried.size > 1 ->
                             announce(R.string.viewer_listen_on_confirmed_rooms, carried.size)
-                        cameras.size == 1 ->
-                            announce(R.string.viewer_all_aloud_on_screen, cameras.single().name)
-                        else -> announce(R.string.viewer_all_aloud_on_screen_rooms, cameras.size)
+                        activeCameras.size == 1 ->
+                            announce(R.string.viewer_all_aloud_on_screen, activeCameras.single().name)
+                        else -> announce(R.string.viewer_all_aloud_on_screen_rooms, activeCameras.size)
                     }
                 }
                 SoundMode.OFF -> Unit
@@ -522,6 +541,16 @@ fun MonitorScreen(
             else R.string.viewer_alerts_off_confirmed,
         )
         onAlertsEnabledChange(enabled)
+    }
+    // Said in words because the tile changing is easy to miss from across a
+    // room — and pausing is the one press here that stops watching somebody.
+    val pauseAnnounced = { camera: Camera ->
+        announce(R.string.viewer_camera_paused_confirmed, camera.name)
+        onPauseCamera(camera.id)
+    }
+    val resumeAnnounced = { camera: Camera ->
+        announce(R.string.viewer_camera_resumed_confirmed, camera.name)
+        onResumeCamera(camera.id)
     }
 
     if (fullscreen != null) {
@@ -733,6 +762,16 @@ fun MonitorScreen(
                             },
                         )
                     }
+                    // Pausing the room on screen puts it out of view as well
+                    // as out of mind: there is no picture left to show, so the
+                    // grid comes back, with the room's placeholder in its slot.
+                    PauseCameraButton(
+                        cameraName = fullscreen.name,
+                        onClick = {
+                            pauseAnnounced(fullscreen)
+                            fullscreenId = null
+                        },
+                    )
                     SoundModeButton(
                         soundMode = soundMode,
                         // Reaching for the sound is as much a sign of someone
@@ -869,9 +908,12 @@ fun MonitorScreen(
                     onOpenOnboarding = onOpenOnboarding,
                 )
             } else {
-                if (unmonitorable.isNotEmpty()) {
+                // A paused room is not being listened to by choice; the
+                // placeholder already says so, and says it better.
+                val unmonitored = unmonitorable.filter { it.id !in pausedCameraIds }
+                if (unmonitored.isNotEmpty()) {
                     UnmonitorableNotice(
-                        cameras = unmonitorable,
+                        cameras = unmonitored,
                         modifier = Modifier.padding(
                             start = OverlayChrome.Margin,
                             end = OverlayChrome.Margin,
@@ -881,6 +923,9 @@ fun MonitorScreen(
                 }
                 CameraLayout(
                     cameras = cameras,
+                    pausedCameraIds = pausedCameraIds,
+                    onPause = pauseAnnounced,
+                    onResume = resumeAnnounced,
                     sources = sources,
                     streams = streams,
                     audibleCameraIds = audibleCameraIds,
@@ -1195,6 +1240,9 @@ private fun ToggleSnackbarHost(hostState: SnackbarHostState, modifier: Modifier 
 @Composable
 private fun CameraLayout(
     cameras: List<Camera>,
+    pausedCameraIds: Set<String>,
+    onPause: (Camera) -> Unit,
+    onResume: (Camera) -> Unit,
     sources: Map<String, StreamSource>,
     streams: CameraStreams,
     audibleCameraIds: Set<String>,
@@ -1220,6 +1268,16 @@ private fun CameraLayout(
                 .testTag("camera-list-$columns"),
         ) {
             items(cameras, key = { it.id }) { camera ->
+                if (camera.id in pausedCameraIds) {
+                    PausedTile(
+                        camera = camera,
+                        onResume = { onResume(camera) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(16f / 9f),
+                    )
+                    return@items
+                }
                 val audible = camera.id in audibleCameraIds
                 // Tiles keep a 16:9 box; the picture letterboxes inside it, so
                 // a 4:3 camera still shows its whole frame.
@@ -1236,6 +1294,7 @@ private fun CameraLayout(
                         audioLevel = audioLevels[camera.id],
                         audioThreshold = audioThreshold,
                         onClick = { onFullscreen(camera.id) },
+                        onPause = { onPause(camera) },
                         modifier = Modifier.fillMaxSize(),
                     )
                     // Drawn over the tile rather than around it: the tile paints
