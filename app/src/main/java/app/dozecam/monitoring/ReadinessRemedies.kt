@@ -90,6 +90,7 @@ object ReadinessRemedies {
         ReadinessRemedy.START_MONITORING,
         ReadinessRemedy.GRANT_LOCAL_NETWORK,
         ReadinessRemedy.CAMERA_SETTINGS,
+        ReadinessRemedy.RESUME_CAMERAS,
         -> emptyList()
     }
 

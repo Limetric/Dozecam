@@ -36,6 +36,8 @@
     <string name="monitoring_status_starting">Connecting to the cameras…</string>
     <string name="monitoring_status_alerting">Sound detected — %1$s</string>
     <string name="monitoring_status_nothing">No camera is switched on</string>
+    <string name="monitoring_status_all_paused">Every camera is paused</string>
+    <string name="monitoring_status_paused">%1$s · %2$d paused</string>
     <string name="monitoring_status_offline">Offline — waiting for network</string>
     <string name="monitoring_status_partial">%1$s · %2$d not monitorable</string>
     <string name="monitoring_status_checked">Checked %1$s</string>
@@ -285,6 +287,12 @@
     <string name="readiness_remedy_dnd">Do Not Disturb</string>
     <string name="readiness_remedy_start">Start</string>
     <string name="readiness_remedy_cameras">Cameras</string>
+    <string name="readiness_remedy_resume">Resume</string>
+    <string name="viewer_pause_camera">Pause %1$s</string>
+    <string name="viewer_resume_camera">Resume</string>
+    <string name="viewer_camera_paused">Paused · not being watched</string>
+    <string name="viewer_camera_paused_confirmed">%1$s paused. Nothing there raises an alert until you resume it.</string>
+    <string name="viewer_camera_resumed_confirmed">%1$s resumed</string>
     <string name="readiness_remedy_unavailable">This phone has no settings screen for that. Look for it in Android\'s settings under this app.</string>
 
     <string name="readiness_notifications_pass">Dozecam is allowed to notify you</string>
@@ -344,6 +352,9 @@
     <string name="readiness_cameras_unknown">The cameras cannot be checked yet</string>
     <string name="readiness_cameras_unknown_why">Nothing is listening, so there is no way to tell whether a room can be heard.</string>
     <string name="readiness_cameras_none_why">Add a camera, or switch one on, and there will be something to listen to.</string>
+    <string name="readiness_paused_pass">No camera is paused</string>
+    <string name="readiness_paused_fail">Some cameras are paused</string>
+    <string name="readiness_paused_why">Nothing in these rooms is watched, and nothing in them can raise an alert, until they are resumed or Dozecam is exited: %1$s</string>
     <string name="readiness_cameras_why">A camera can stream video perfectly and never send a sound. These are not being heard, so nothing in them could raise an alert: %1$s</string>
 
     <!--

@@ -1,8 +1,10 @@
 package app.dozecam.monitoring
 
 import app.dozecam.audio.SoundDetector
+import app.dozecam.data.Camera
 import app.dozecam.player.ConnectionState
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 
 /** What the monitor knows about one camera it is listening to. */
 data class CameraMonitorState(
@@ -111,6 +113,29 @@ class MonitoringState {
     val exitRequested = MutableStateFlow(false)
 
     /**
+     * Cameras set aside for now from the viewer — the room whose child is still
+     * up while the other one sleeps. A paused camera is not watched at all: no
+     * picture, no sound, no detector, and so no alert and no failure either.
+     *
+     * In memory only, and emptied by [MonitoringService.exit]. A pause is about
+     * tonight, and the one way it must never end is by being forgotten: the
+     * next time the app is opened, every room is back. Dying with the process
+     * errs the same safe way.
+     *
+     * Not [Camera.enabled], which is the durable "this camera takes part"
+     * switch in settings. Both hold at once: see [active].
+     */
+    val pausedCameraIds = MutableStateFlow<Set<String>>(emptySet())
+
+    fun pause(cameraId: String) = pausedCameraIds.update { it + cameraId }
+
+    fun resume(cameraId: String) = pausedCameraIds.update { it - cameraId }
+
+    fun resumeAll() {
+        pausedCameraIds.value = emptySet()
+    }
+
+    /**
      * The cameras actually coming out of the speaker right now, or none.
      *
      * Deliberately separate from the ask — [app.dozecam.data.SoundMode.ALL_ALOUD]
@@ -175,5 +200,19 @@ class MonitoringState {
         cameras.value = emptyMap()
         failures.value = emptyList()
         lastRecoveredFailure.value = null
+    }
+
+    companion object {
+        /**
+         * The enabled cameras that are not paused: what the monitor listens to.
+         * The viewer keeps the paused ones on screen, as placeholders, and
+         * reads the split itself.
+         */
+        fun active(enabled: List<Camera>, paused: Set<String>): List<Camera> =
+            enabled.filter { it.id !in paused }
+
+        /** The enabled cameras that are paused, in list order. */
+        fun paused(enabled: List<Camera>, paused: Set<String>): List<Camera> =
+            enabled.filter { it.id in paused }
     }
 }

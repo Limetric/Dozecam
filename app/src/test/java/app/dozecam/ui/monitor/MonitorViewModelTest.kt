@@ -403,6 +403,27 @@ class MonitorViewModelTest {
         assertTrue(model.canMonitor.value)
     }
 
+    /**
+     * A paused camera stays in the list the viewer shows — its slot is the way
+     * back — and the pause is the monitor's shared record, not the viewer's own.
+     */
+    @Test
+    fun `pausing keeps the camera on the grid and records the pause for the monitor`() = runTest {
+        val state = MonitoringState()
+        val nursery = Camera("a", "Nursery", "rtsp://cam/a")
+        val vm = viewModel(listOf(nursery), monitoringState = state)
+        runCurrent()
 
+        vm.pause("a")
+        runCurrent()
 
+        assertEquals(listOf(nursery), vm.cameras.value)
+        assertEquals(setOf("a"), vm.pausedCameraIds.value)
+        assertEquals(setOf("a"), state.pausedCameraIds.value)
+
+        vm.resume("a")
+        runCurrent()
+
+        assertTrue(vm.pausedCameraIds.value.isEmpty())
+    }
 }

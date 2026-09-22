@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import app.dozecam.audio.MediaAudioFocus
 import app.dozecam.data.AppSettingsRepository
+import app.dozecam.data.Camera
 import app.dozecam.data.CameraRepository
 import app.dozecam.data.DetectorSettingsRepository
 import app.dozecam.data.dozecamDataStore
@@ -16,6 +17,8 @@ import app.dozecam.protect.ProtectLivestreamProvider
 import app.dozecam.protect.ProtectPublicApiAccess
 import app.dozecam.protect.TofuTrustStore
 import app.dozecam.protect.securePreferences
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 
 class DozecamApp : Application() {
     lateinit var container: AppContainer
@@ -36,6 +39,16 @@ class AppContainer(context: Context) {
     val detectorSettings = DetectorSettingsRepository(dataStore)
     val appSettings = AppSettingsRepository(dataStore)
     val monitoringState = MonitoringState()
+
+    /**
+     * The cameras being watched right now: switched on in settings, and not
+     * paused from the viewer. What the monitor listens to.
+     */
+    val monitoredCameras: Flow<List<Camera>> = combine(
+        cameras.enabledCameras,
+        monitoringState.pausedCameraIds,
+        MonitoringState::active,
+    )
 
     /**
      * The bedtime check's facts. App-scoped because both screens ask it the

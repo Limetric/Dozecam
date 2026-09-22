@@ -53,6 +53,9 @@ enum class ReadinessRemedy {
     GRANT_LOCAL_NETWORK,
     BATTERY_SETTINGS,
     CAMERA_SETTINGS,
+
+    /** Ours outright: every paused camera comes back. */
+    RESUME_CAMERAS,
 }
 
 /**
@@ -137,6 +140,14 @@ enum class ReadinessCheck(val group: ReadinessGroup, val remedy: ReadinessRemedy
      * that has never produced one is monitored in name only.
      */
     CAMERAS_HEARD(ReadinessGroup.CAMERAS, ReadinessRemedy.CAMERA_SETTINGS),
+
+    /**
+     * Cameras paused from the viewer. A warning rather than a problem: it is a
+     * choice, made for tonight — but a room nobody is watching is exactly what
+     * this checklist exists to say out loud before bed, and a pause made at
+     * seven is easy to forget by ten.
+     */
+    CAMERAS_PAUSED(ReadinessGroup.CAMERAS, ReadinessRemedy.RESUME_CAMERAS),
 }
 
 /**
@@ -194,9 +205,14 @@ data class ReadinessFacts(
     /** True when Dozecam is *subject to* battery optimisation, i.e. not exempt. */
     val batteryOptimised: Boolean = false,
     val charging: Boolean = true,
-    /** Every switched-on camera, whether or not the monitor found a way to hear it. */
+    /**
+     * Every switched-on camera that is not paused, whether or not the monitor
+     * found a way to hear it.
+     */
     val cameras: List<CameraAudibility> =
         listOf(CameraAudibility(cameraId = "", name = "", live = true, lastAudioAtMs = 0L)),
+    /** Switched-on cameras paused from the viewer: not being heard, on purpose. */
+    val pausedCameras: List<CameraAudibility> = emptyList(),
     /**
      * Whether any switched-on camera has a transport the monitor could listen
      * over at all — see [monitorable]. A camera can be enabled and still have
@@ -360,6 +376,11 @@ object Readiness {
         ),
         finding(ReadinessCheck.LOCAL_NETWORK, facts.localNetworkGranted),
         cameras(facts),
+        ReadinessFinding(
+            check = ReadinessCheck.CAMERAS_PAUSED,
+            state = if (facts.pausedCameras.isEmpty()) ReadinessState.PASS else ReadinessState.WARN,
+            cameras = facts.pausedCameras,
+        ),
     )
 
     private fun dndFinding(facts: ReadinessFacts): ReadinessFinding = when {
@@ -385,6 +406,17 @@ object Readiness {
      * [ReadinessCheck.MONITORING] be the one row that says so.
      */
     private fun cameras(facts: ReadinessFacts): ReadinessFinding {
+        // Every camera switched on is paused. There is nothing to hear, but
+        // nothing is missing either — [ReadinessCheck.CAMERAS_PAUSED] names the
+        // rooms and carries the one button that helps, and a red row saying
+        // "no camera is switched on" over cameras that are would be a lie.
+        if (facts.cameras.isEmpty() && facts.pausedCameras.isNotEmpty()) {
+            return ReadinessFinding(
+                check = ReadinessCheck.CAMERAS_HEARD,
+                state = ReadinessState.PASS,
+                masked = true,
+            )
+        }
         if (facts.cameras.isEmpty()) {
             return ReadinessFinding(ReadinessCheck.CAMERAS_HEARD, ReadinessState.FAIL)
         }

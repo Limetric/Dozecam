@@ -1,5 +1,6 @@
 package app.dozecam.monitoring
 
+import app.dozecam.data.Camera
 import app.dozecam.audio.SoundDetector
 import app.dozecam.player.ConnectionState
 import org.junit.Assert.assertEquals
@@ -140,4 +141,54 @@ class MonitoringStateTest {
         assertEquals(5_000L, state.lastAudioAtMs)
         assertTrue(state.isLive)
     }
+
+    // ---- Pausing ----
+
+    @Test
+    fun `a paused camera leaves the active set and comes back on resume`() {
+        val cameras = listOf(camera("a"), camera("b"))
+
+        state.pause("a")
+        assertEquals(listOf("b"), MonitoringState.active(cameras, state.pausedCameraIds.value).map { it.id })
+        assertEquals(listOf("a"), MonitoringState.paused(cameras, state.pausedCameraIds.value).map { it.id })
+
+        state.resume("a")
+        assertEquals(listOf("a", "b"), MonitoringState.active(cameras, state.pausedCameraIds.value).map { it.id })
+        assertTrue(MonitoringState.paused(cameras, state.pausedCameraIds.value).isEmpty())
+    }
+
+    @Test
+    fun `resuming everything brings every room back`() {
+        state.pause("a")
+        state.pause("b")
+
+        state.resumeAll()
+
+        assertTrue(state.pausedCameraIds.value.isEmpty())
+    }
+
+    /**
+     * A pause remembered for a camera switched off since is not a room anyone
+     * is being told about: only enabled cameras count as paused.
+     */
+    @Test
+    fun `a pause for a camera no longer enabled counts for nothing`() {
+        state.pause("gone")
+
+        val cameras = listOf(camera("a"))
+        assertEquals(listOf("a"), MonitoringState.active(cameras, state.pausedCameraIds.value).map { it.id })
+        assertTrue(MonitoringState.paused(cameras, state.pausedCameraIds.value).isEmpty())
+    }
+
+    /** Clearing the monitor's record is not the user resuming anything. */
+    @Test
+    fun `clearing the monitor's record keeps the pauses`() {
+        state.pause("a")
+
+        state.clear()
+
+        assertEquals(setOf("a"), state.pausedCameraIds.value)
+    }
+
+    private fun camera(id: String) = Camera(id, id, "rtsp://cam/$id")
 }

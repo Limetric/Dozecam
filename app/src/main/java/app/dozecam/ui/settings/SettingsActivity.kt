@@ -247,6 +247,7 @@ class SettingsActivity : ComponentActivity() {
             // A refusal leaves the checklist visible. A subsequent explicit
             // tap opens app settings if Android cannot grant it by prompting.
             ReadinessRemedy.GRANT_LOCAL_NETWORK -> localNetwork.requestFromChecklist()
+            ReadinessRemedy.RESUME_CAMERAS -> appContainer.monitoringState.resumeAll()
             // Handled inside the settings screen, which owns its own navigation.
             ReadinessRemedy.CAMERA_SETTINGS, ReadinessRemedy.NONE -> Unit
             else -> if (!ReadinessRemedies.open(this, remedy)) {

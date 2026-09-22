@@ -75,6 +75,8 @@ fun readinessSentence(finding: ReadinessFinding): String {
                 finding.cameras.isEmpty() -> R.string.readiness_cameras_none
                 else -> R.string.readiness_cameras_fail
             }
+            ReadinessCheck.CAMERAS_PAUSED ->
+                if (passed) R.string.readiness_paused_pass else R.string.readiness_paused_fail
         },
     )
 }
@@ -112,6 +114,10 @@ fun readinessReason(finding: ReadinessFinding): String? {
                 finding.cameras.joinToString(", ") { it.name },
             )
         }
+        ReadinessCheck.CAMERAS_PAUSED -> stringResource(
+            R.string.readiness_paused_why,
+            finding.cameras.joinToString(", ") { it.name },
+        )
     }
 }
 
@@ -133,6 +139,7 @@ fun readinessRemedyLabel(remedy: ReadinessRemedy): String? = when (remedy) {
     ReadinessRemedy.START_MONITORING -> stringResource(R.string.readiness_remedy_start)
     ReadinessRemedy.GRANT_LOCAL_NETWORK -> stringResource(R.string.readiness_remedy_allow)
     ReadinessRemedy.CAMERA_SETTINGS -> stringResource(R.string.readiness_remedy_cameras)
+    ReadinessRemedy.RESUME_CAMERAS -> stringResource(R.string.readiness_remedy_resume)
 }
 
 /**

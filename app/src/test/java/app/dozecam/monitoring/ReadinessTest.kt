@@ -681,4 +681,50 @@ class ReadinessTest {
         assertEquals(ReadinessState.PASS, state(ReadinessCheck.MONITORING, facts))
         assertEquals(ReadinessState.FAIL, state(ReadinessCheck.LOCAL_NETWORK, facts))
     }
+
+    // ---- Paused cameras ----
+
+    private val nursery = CameraAudibility("nursery", "Nursery", live = true, lastAudioAtMs = 0L)
+    private val playRoom = CameraAudibility("play", "Play room", live = false, lastAudioAtMs = null)
+
+    @Test
+    fun `no paused camera passes`() {
+        val paused = finding(ReadinessCheck.CAMERAS_PAUSED, ReadinessFacts())
+
+        assertEquals(ReadinessState.PASS, paused.state)
+        assertEquals(ReadinessRemedy.NONE, paused.remedy)
+    }
+
+    /**
+     * A choice, so a warning — but a room nobody is watching, named, with the
+     * one button that brings it back.
+     */
+    @Test
+    fun `a paused camera is a warning that names it and offers to resume`() {
+        val facts = ReadinessFacts(cameras = listOf(nursery), pausedCameras = listOf(playRoom))
+
+        val paused = finding(ReadinessCheck.CAMERAS_PAUSED, facts)
+        assertEquals(ReadinessState.WARN, paused.state)
+        assertEquals(listOf(playRoom), paused.cameras)
+        assertEquals(ReadinessRemedy.RESUME_CAMERAS, paused.remedy)
+        assertEquals(ReadinessState.WARN, Readiness.of(facts).worstState())
+        // Not being heard on purpose is not "not being heard": the camera row
+        // judges only the rooms still being watched.
+        assertEquals(ReadinessState.PASS, state(ReadinessCheck.CAMERAS_HEARD, facts))
+    }
+
+    /**
+     * Every room paused is not "no camera is switched on" — that would be a
+     * red row sending someone to switch on cameras that are on.
+     */
+    @Test
+    fun `every camera paused leaves the camera row standing aside`() {
+        val facts = ReadinessFacts(cameras = emptyList(), pausedCameras = listOf(nursery, playRoom))
+
+        val cameras = finding(ReadinessCheck.CAMERAS_HEARD, facts)
+        assertEquals(ReadinessState.PASS, cameras.state)
+        assertTrue(cameras.masked)
+        assertEquals(ReadinessState.WARN, state(ReadinessCheck.CAMERAS_PAUSED, facts))
+        assertEquals(ReadinessState.WARN, Readiness.of(facts).worstState())
+    }
 }

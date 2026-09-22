@@ -32,16 +32,27 @@ import kotlin.math.roundToInt
 class MonitorViewModel(
     private val cameraStore: CameraStore,
     private val credentials: CredentialsStore,
-    monitoringState: MonitoringState,
+    private val monitoringState: MonitoringState,
     detectorSettings: DetectorSettingsStore,
     readinessFindings: Flow<List<ReadinessFinding>>,
     /** Where the credentials read happens; injectable so tests stay deterministic. */
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
-    /** The cameras the viewer shows — the same set the monitor listens to. */
+    /**
+     * The cameras the viewer shows: every enabled one, paused or not. The
+     * monitor listens to these less [pausedCameraIds]; a paused room keeps its
+     * place on the grid, so the way back to it is where it was left.
+     */
     val cameras: StateFlow<List<Camera>> = cameraStore.enabledCameras
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** Cameras set aside for now; see [MonitoringState.pausedCameraIds]. */
+    val pausedCameraIds: StateFlow<Set<String>> = monitoringState.pausedCameraIds
+
+    fun pause(cameraId: String) = monitoringState.pause(cameraId)
+
+    fun resume(cameraId: String) = monitoringState.resume(cameraId)
 
     /**
      * Whether the monitor is listening this instant.

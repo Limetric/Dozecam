@@ -6,6 +6,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -764,6 +765,31 @@ class SettingsScreenTest {
             .performClick()
 
         assertEquals(ReadinessRemedy.TURN_ALERTS_ON, remedy)
+    }
+
+    /** A paused room is named, and the row's one button brings it back. */
+    @Test
+    fun `a paused camera is named and can be resumed from the checklist`() {
+        val paused = Readiness.of(
+            ReadinessFacts(
+                pausedCameras = listOf(
+                    CameraAudibility("b", "Play room", live = false, lastAudioAtMs = null),
+                ),
+            ),
+        )
+        var remedy: ReadinessRemedy? = null
+        composeRule.setContent {
+            Screen(initialDestination = CHECKLIST_DESTINATION, readiness = paused, onReadinessRemedy = { remedy = it })
+        }
+
+        composeRule.onNodeWithText("Some cameras are paused").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Play room", substring = true).assertExists()
+        composeRule.onNodeWithTag("readiness-remedy-${ReadinessCheck.CAMERAS_PAUSED.name}")
+            .performScrollTo()
+            .assertTextEquals("Resume")
+            .performClick()
+
+        assertEquals(ReadinessRemedy.RESUME_CAMERAS, remedy)
     }
 
     @Test

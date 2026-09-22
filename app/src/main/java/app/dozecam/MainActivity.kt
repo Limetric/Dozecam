@@ -202,7 +202,9 @@ class MainActivity : ComponentActivity() {
                 try {
                     combine(
                         soundOn,
-                        appContainer.cameras.enabledCameras.map { it.isNotEmpty() },
+                        // Paused rooms play nothing, so a grid of nothing
+                        // but paused rooms has no sound to hold the speaker for.
+                        appContainer.monitoredCameras.map { it.isNotEmpty() },
                     ) { on, anyCameras -> on && anyCameras }
                         .distinctUntilChanged()
                         .collect { wanted ->
@@ -308,6 +310,7 @@ class MainActivity : ComponentActivity() {
                     ),
                 )
                 val cameras by viewModel.cameras.collectAsStateWithLifecycle()
+                val pausedCameraIds by viewModel.pausedCameraIds.collectAsStateWithLifecycle()
                 val sources by viewModel.sources.collectAsStateWithLifecycle()
                 val unmonitorable by viewModel.unmonitorable.collectAsStateWithLifecycle()
                 val disabledOnly by viewModel.hasDisabledOnly.collectAsStateWithLifecycle()
@@ -332,8 +335,10 @@ class MainActivity : ComponentActivity() {
 
                 // Watching a camera holds the display, unless the user has
                 // switched that off; an empty viewer pointing at console setup
-                // has no business doing so either way.
-                val keepAwake = cameras.isNotEmpty() && appSettings.keepScreenOn
+                // has no business doing so either way — and nor does a grid
+                // of nothing but paused rooms, which has nothing to watch.
+                val keepAwake = cameras.any { it.id !in pausedCameraIds } &&
+                    appSettings.keepScreenOn
                 LaunchedEffect(keepAwake) {
                     if (keepAwake) {
                         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -344,6 +349,9 @@ class MainActivity : ComponentActivity() {
 
                 MonitorScreen(
                     cameras = cameras,
+                    pausedCameraIds = pausedCameraIds,
+                    onPauseCamera = viewModel::pause,
+                    onResumeCamera = viewModel::resume,
                     sources = sources,
                     controllerFactory = ::controllerFor,
                     networkReach = reach,
