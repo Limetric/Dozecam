@@ -1,44 +1,41 @@
-# AGENTS.md
+# AGENTS.md — Android
 
-This file provides guidance to coding agents working in this repository.
+Guidance for coding agents working on the Android app in `android/`. The repo-wide file (product, naming, layout) is `../AGENTS.md`. Paths below are relative to the repo root; Gradle commands run from `android/`.
 
-## What this is
-
-Dozecam is a native Android baby monitor for UniFi Protect cameras: low-latency libVLC RTSP live view, a wake-on-sound foreground service, honest connection state, and Protect console onboarding. Everything is LAN-only — no cloud, no accounts.
-
-Naming: the product is "Dozecam". Store copy must not lead with "UniFi" (Ubiquiti trademark) — describe compatibility as "for UniFi Protect cameras".
+The Android app is a native Android baby monitor for UniFi Protect cameras: low-latency libVLC RTSP live view, a wake-on-sound foreground service, honest connection state, and Protect console onboarding. Until the shared spec exists (#61), this app and this file are the reference for how Dozecam behaves.
 
 ## Commands
 
-Requires the Android SDK (`local.properties` with `sdk.dir`, or `ANDROID_HOME`). Kotlin/Java target is 17.
+Requires the Android SDK (`android/local.properties` with `sdk.dir`, or `ANDROID_HOME`). Kotlin/Java target is 17.
 
 ```sh
+cd android
 ./gradlew :app:testProductionDebugUnitTest   # all unit tests (Robolectric + Compose)
 ./gradlew :app:testProductionDebugUnitTest --tests "app.dozecam.audio.SoundDetectorTest"   # one test class
 ./gradlew :app:assembleDevDebug              # dev APK (app.dozecam.dev, installs beside the Play app)
 ./gradlew :app:bundleProductionRelease       # Play bundle, upload-signed
 ```
 
-Signing: every build is signed with the upload key, which lives in the repo encrypted. Decrypt once per checkout with `LIMETRIC_ENCRYPTION_SECRET` in the environment: `./tools/signing.sh decrypt`. Without it, debug builds fall back to the default Android debug key and any release packaging task fails on purpose.
+Signing: every build is signed with the upload key, which lives in the repo encrypted. Decrypt once per checkout with `LIMETRIC_ENCRYPTION_SECRET` in the environment: `android/tools/signing.sh decrypt`. Without it, debug builds fall back to the default Android debug key and any release packaging task fails on purpose.
 
-Verifying changes end-to-end needs no UniFi hardware: `tools/testbed.sh` serves synthetic RTSP cameras (mediamtx + ffmpeg) that the dev build plays on an emulator, including triggering wake-on-sound. The full workflow — unit tests first, then the testbed run — is the `test-app-changes` skill in `.claude/skills/`.
+Verifying changes end-to-end needs no UniFi hardware: `tools/testbed.sh` serves synthetic RTSP cameras (mediamtx + ffmpeg) that the dev build plays on an emulator, including triggering wake-on-sound. The full workflow — unit tests first, then the testbed run — is the `test-app-changes` skill in `.claude/skills/` at the repo root.
 
 ## Build variants
 
-Single Gradle module `:app`. One flavor dimension, `environment`:
+Single Gradle module `:app` (`android/app`). One flavor dimension, `environment`:
 
 - `production` → `app.dozecam`, what Play ships (only ever `productionRelease`).
 - `dev` → `app.dozecam.dev`, labelled "Dozecam Dev", versioned `-dev`.
 
-Release-build unit tests are deliberately disabled (Compose-rule Robolectric tests need `ui-test-manifest`, which is debug-only); `testProductionDebugUnitTest` is the canonical test task. All tests live in `app/src/test` and run on the JVM — Robolectric with Android resources enabled, including Compose UI tests via `createComposeRule`.
+Release-build unit tests are deliberately disabled (Compose-rule Robolectric tests need `ui-test-manifest`, which is debug-only); `testProductionDebugUnitTest` is the canonical test task. All tests live in `android/app/src/test` and run on the JVM — Robolectric with Android resources enabled, including Compose UI tests via `createComposeRule`.
 
 Versions are never edited by hand. `buildSrc`'s `AppVersioning` reads `APP_VERSION_NAME` and `APP_VERSION_CODE`, which the release workflow fills with the release tag and `git rev-list --count HEAD`; a local checkout falls back to `git describe` and code 1.
 
-Releasing is publishing a SemVer GitHub release: `android-release.yml` then builds the signed bundle, attaches the APK and AAB to the release, lifts the approved Play copy out of the release body (`tools/release/extract_play_store_notes.py`, which reads the `play-store-release-notes` markers) into `distribution/whatsnew/`, and uploads the bundle to Google Play's **internal testing** track. Promotion to any wider track is a manual step in the Play Console. The `create-github-release` and `play-store-changelog` skills in `.claude/skills/` write the release body and the Play "What's new" copy.
+Releasing is publishing a SemVer GitHub release: `android-release.yml` then builds the signed bundle, attaches the APK and AAB to the release, lifts the approved Play copy out of the release body (`tools/release/extract_play_store_notes.py`, which reads the `play-store-release-notes` markers) into `android/distribution/whatsnew/`, and uploads the bundle to Google Play's **internal testing** track. Promotion to any wider track is a manual step in the Play Console. The `create-github-release` and `play-store-changelog` skills in `.claude/skills/` write the release body and the Play "What's new" copy.
 
 ## Architecture
 
-Kotlin + Jetpack Compose, minSdk 31 / targetSdk 37, all under `app/src/main/java/app/dozecam/`. Three activities (`MainActivity` for the monitor, `OnboardingActivity`, `SettingsActivity`), each with a ViewModel in `ui/`.
+Kotlin + Jetpack Compose, minSdk 31 / targetSdk 37, all under `android/app/src/main/java/app/dozecam/`. Three activities (`MainActivity` for the monitor, `OnboardingActivity`, `SettingsActivity`), each with a ViewModel in `ui/`.
 
 Two independent media stacks consume the same cameras:
 
@@ -57,4 +54,4 @@ Supporting layers:
 - **`ui/monitor/`** — camera grid, the control row (exit, sound mode, alerts, keep screen awake, night checklist, settings), status overlay, inactivity return. The checklist button reports OK, warning, or problem; it stays on the grid and is absent in fullscreen.
 - **Night checklist** — a dedicated page hosted by `SettingsActivity`, opened directly from the viewer or through the Settings shortcut. `Readiness` supplies live checks, explanations and remedies. Intentional alerts-off/screen-only choices and unplugged power are warnings; blocked monitoring or alert capabilities are problems. Permission fixes are user initiated; automatic arming shows no setup dialogs.
 
-Two dependency quirks are load-bearing comments in `app/build.gradle.kts`: libVLC pins an ancient `androidx.fragment` (a modern version is forced), and the release-unit-test disablement above.
+Two dependency quirks are load-bearing comments in `android/app/build.gradle.kts`: libVLC pins an ancient `androidx.fragment` (a modern version is forced), and the release-unit-test disablement above.

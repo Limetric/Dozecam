@@ -61,9 +61,20 @@ says so again when it wakes the screen.
 If a check starts failing later, Dozecam says so once, the next time you open
 the viewer, and then leaves it to the card in settings.
 
-## Building
+## Repository layout
 
-Requires the Android SDK (`local.properties` with `sdk.dir`, or
+```
+android/        the Android app (Gradle project)
+tools/          shared tooling: the RTSP testbed, release-note extraction
+store-listing/  store copy, per platform
+```
+
+A native iOS app is on its way (#56); it will live in `ios/`, with the rules
+both apps share in `shared/`.
+
+## Building (Android)
+
+Requires the Android SDK (`android/local.properties` with `sdk.dir`, or
 `ANDROID_HOME`). Android 12+ (minSdk 31).
 
 Two flavors: `production` (`app.dozecam`, what Play ships) and `dev`
@@ -75,13 +86,14 @@ decrypt it once per checkout with `LIMETRIC_ENCRYPTION_SECRET` in your
 environment:
 
 ```sh
-./tools/signing.sh decrypt
+android/tools/signing.sh decrypt
 ```
 
 Without it, debug builds fall back to the default Android debug key and release
 builds refuse to run.
 
 ```sh
+cd android
 ./gradlew :app:assembleDevDebug              # dev APK (app.dozecam.dev)
 ./gradlew :app:testProductionDebugUnitTest   # unit tests (Robolectric + Compose)
 ./gradlew :app:bundleProductionRelease       # Play bundle, upload-signed

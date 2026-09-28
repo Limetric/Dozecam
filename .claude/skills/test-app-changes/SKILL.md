@@ -9,16 +9,19 @@ The standard verification ladder for this repository. No UniFi hardware is
 required at any rung; the parts that would need a real Protect console are
 listed at the end so their absence is stated rather than discovered.
 
+This covers the Android app. Commands run from the repo root; Gradle runs
+inside `android/`.
+
 ## Gate 1 — unit tests (always)
 
 ```sh
-./gradlew :app:testProductionDebugUnitTest
+(cd android && ./gradlew :app:testProductionDebugUnitTest)
 ```
 
-When sources under `app/src/dev` or `app/src/testDev` changed, also:
+When sources under `android/app/src/dev` or `android/app/src/testDev` changed, also:
 
 ```sh
-./gradlew :app:testDevDebugUnitTest --tests "app.dozecam.dev.*"
+(cd android && ./gradlew :app:testDevDebugUnitTest --tests "app.dozecam.dev.*")
 ```
 
 Stop here for changes with no runtime surface (docs, build plumbing,
@@ -46,8 +49,8 @@ emulator -avd Pixel_8a -port 5554 -no-window -no-audio -no-boot-anim -no-snapsho
 adb -s emulator-5554 wait-for-device
 # poll until: adb -s emulator-5554 shell getprop sys.boot_completed → 1
 
-./gradlew :app:assembleDevDebug
-adb -s emulator-5554 install -r app/build/outputs/apk/dev/debug/app-dev-debug.apk
+(cd android && ./gradlew :app:assembleDevDebug)
+adb -s emulator-5554 install -r android/app/build/outputs/apk/dev/debug/app-dev-debug.apk
 adb -s emulator-5554 shell pm grant app.dozecam.dev android.permission.POST_NOTIFICATIONS
 # API 37+ images gate LAN access behind a runtime permission; without this the
 # streams never connect. Older images (≤36) reject the grant — that's fine.
@@ -105,7 +108,7 @@ adb -s emulator-5554 emu kill
 ## What this cannot verify
 
 Needs a real Protect console, so it stays covered by MockWebServer unit tests
-(`app/src/test/java/app/dozecam/protect/`) instead: console onboarding and
+(`android/app/src/test/java/app/dozecam/protect/`) instead: console onboarding and
 credential flows, the Protect livestream WebSocket player, rtsps/TLS with
 TOFU certificate pinning, and real camera codecs/latency. Say so in the
 verification report rather than implying full coverage.
