@@ -44,3 +44,11 @@ distribution/
 
 # Talk-back spike credentials (see tools/talkback-spike/)
 tools/talkback-spike/talkback-spike.properties
+
+# iOS spikes: generated project and build output
+spikes/*/build/
+spikes/*/*.xcodeproj/
+spikes/*/spike.log
+# XcodeGen writes these from project.yml
+spikes/*/*/Info.plist
+spikes/*/*/*.entitlements

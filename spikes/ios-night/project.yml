@@ -1,0 +1,71 @@
+# Throwaway spike for issue #58: does an iOS app survive a locked night, and
+# what can wake a sleeping parent? Not product code — see README.md.
+name: NightSpike
+options:
+  bundleIdPrefix: app.dozecam
+  deploymentTarget:
+    iOS: "26.1"
+  createIntermediateGroups: true
+settings:
+  base:
+    DEVELOPMENT_TEAM: 2NBQ276R8F
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    MARKETING_VERSION: "0.0.1"
+    CURRENT_PROJECT_VERSION: "1"
+    TARGETED_DEVICE_FAMILY: "1,2"
+targets:
+  NightSpike:
+    type: application
+    platform: iOS
+    sources:
+      - App
+      - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.dozecam.dev
+        PRODUCT_NAME: NightSpike
+        CODE_SIGN_ENTITLEMENTS: App/NightSpike.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Night Spike
+        UILaunchScreen: {}
+        UIBackgroundModes: [audio]
+        NSLocalNetworkUsageDescription: The spike probes the testbed on your Mac every heartbeat to see whether the LAN stays reachable while locked.
+        NSAlarmKitUsageDescription: The spike fires alarms to test whether AlarmKit can wake a sleeping parent.
+        NSSupportsLiveActivities: true
+        NSSupportsLiveActivitiesFrequentUpdates: true
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UIApplicationSupportsIndirectInputEvents: true
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    entitlements:
+      path: App/NightSpike.entitlements
+      properties:
+        com.apple.developer.usernotifications.time-sensitive: true
+    dependencies:
+      - target: NightSpikeWidget
+  NightSpikeWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Widget
+      - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.dozecam.dev.widget
+        PRODUCT_NAME: NightSpikeWidget
+    info:
+      path: Widget/Info.plist
+      properties:
+        CFBundleDisplayName: Night Spike
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
