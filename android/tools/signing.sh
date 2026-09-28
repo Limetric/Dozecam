@@ -15,7 +15,7 @@ ARTIFACTS=(
 
 usage() {
 	cat >&2 <<'USAGE'
-Usage: tools/signing.sh <encrypt|decrypt>
+Usage: android/tools/signing.sh <encrypt|decrypt>
 
   encrypt  Re-encrypt the plaintext signing artifacts into their .enc files
            (run after rotating the key, then commit the .enc files).

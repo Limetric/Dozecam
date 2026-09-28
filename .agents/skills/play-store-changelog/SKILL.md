@@ -16,12 +16,14 @@ Produce short, user-facing release notes from the actual release diff. Treat dra
 
 ## 2. Find important user-facing changes
 
-Inspect the commit list and diff summary first:
+Inspect the commit list and diff summary first. Google Play ships only the Android app, so limit both to the paths that reach it: `android/`, the shared spec and fixtures in `shared/`, and `app/`, where the Android app lived before it moved into `android/` (so a range that starts before the move keeps those commits, and the move shows as renames). iOS-only changes never belong in Play copy:
 
 ```sh
-git log --reverse --pretty='%h %s' <baseline>..HEAD
-git diff --stat <baseline>..HEAD
+git log --reverse --pretty='%h %s' <baseline>..HEAD -- android shared app
+git diff --stat <baseline>..HEAD -- android shared app
 ```
+
+The move itself is not user-facing.
 
 Inspect ambiguous commits or relevant diffs until their user-visible effect is clear. Follow the repository's agent instructions when present; use CodeGraph for structural questions such as definitions, call paths, or impact when it is available.
 

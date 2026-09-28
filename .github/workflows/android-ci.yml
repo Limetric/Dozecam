@@ -1,13 +1,18 @@
-name: CI
+name: Android CI
 
 on:
   pull_request:
+    # A PR that touches only iOS must not run the Android suite.
+    paths:
+      - android/**
+      - shared/**
+      - .github/workflows/android-*
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: android-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -15,6 +20,9 @@ jobs:
     name: Unit tests and debug build
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: android
 
     steps:
       - name: Check out repository
@@ -58,5 +66,5 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: test-reports
-          path: app/build/reports/
+          path: android/app/build/reports/
           if-no-files-found: ignore

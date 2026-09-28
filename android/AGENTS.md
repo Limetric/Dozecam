@@ -1,0 +1,57 @@
+# AGENTS.md — Android
+
+Guidance for coding agents working on the Android app in `android/`. The repo-wide file (product, naming, layout) is `../AGENTS.md`. Paths below are relative to the repo root; Gradle commands run from `android/`.
+
+The Android app is a native Android baby monitor for UniFi Protect cameras: low-latency libVLC RTSP live view, a wake-on-sound foreground service, honest connection state, and Protect console onboarding. Until the shared spec exists (#61), this app and this file are the reference for how Dozecam behaves.
+
+## Commands
+
+Requires the Android SDK (`android/local.properties` with `sdk.dir`, or `ANDROID_HOME`). Kotlin/Java target is 17.
+
+```sh
+cd android
+./gradlew :app:testProductionDebugUnitTest   # all unit tests (Robolectric + Compose)
+./gradlew :app:testProductionDebugUnitTest --tests "app.dozecam.audio.SoundDetectorTest"   # one test class
+./gradlew :app:assembleDevDebug              # dev APK (app.dozecam.dev, installs beside the Play app)
+./gradlew :app:bundleProductionRelease       # Play bundle, upload-signed
+```
+
+Signing: every build is signed with the upload key, which lives in the repo encrypted. Decrypt once per checkout with `LIMETRIC_ENCRYPTION_SECRET` in the environment: `android/tools/signing.sh decrypt`. Without it, debug builds fall back to the default Android debug key and any release packaging task fails on purpose.
+
+Verifying changes end-to-end needs no UniFi hardware: `tools/testbed.sh` serves synthetic RTSP cameras (mediamtx + ffmpeg) that the dev build plays on an emulator, including triggering wake-on-sound. The full workflow — unit tests first, then the testbed run — is the `test-app-changes` skill in `.claude/skills/` at the repo root.
+
+## Build variants
+
+Single Gradle module `:app` (`android/app`). One flavor dimension, `environment`:
+
+- `production` → `app.dozecam`, what Play ships (only ever `productionRelease`).
+- `dev` → `app.dozecam.dev`, labelled "Dozecam Dev", versioned `-dev`.
+
+Release-build unit tests are deliberately disabled (Compose-rule Robolectric tests need `ui-test-manifest`, which is debug-only); `testProductionDebugUnitTest` is the canonical test task. All tests live in `android/app/src/test` and run on the JVM — Robolectric with Android resources enabled, including Compose UI tests via `createComposeRule`.
+
+Versions are never edited by hand. `buildSrc`'s `AppVersioning` reads `APP_VERSION_NAME` and `APP_VERSION_CODE`, which the release workflow fills with the release tag and `git rev-list --count HEAD`; a local checkout falls back to `git describe` and code 1.
+
+Releasing is publishing a SemVer GitHub release: `android-release.yml` then builds the signed bundle, attaches the APK and AAB to the release, lifts the approved Play copy out of the release body (`tools/release/extract_play_store_notes.py`, which reads the `play-store-release-notes` markers) into `android/distribution/whatsnew/`, and uploads the bundle to Google Play's **internal testing** track. Promotion to any wider track is a manual step in the Play Console. The `create-github-release` and `play-store-changelog` skills in `.claude/skills/` write the release body and the Play "What's new" copy.
+
+## Architecture
+
+Kotlin + Jetpack Compose, minSdk 31 / targetSdk 37, all under `android/app/src/main/java/app/dozecam/`. Three activities (`MainActivity` for the monitor, `OnboardingActivity`, `SettingsActivity`), each with a ViewModel in `ui/`.
+
+Two independent media stacks consume the same cameras:
+
+- **Live view (`player/`)** — `VideoPlayerController` is the abstraction; `VlcVideoPlayerController` (libVLC, tuned for sub-second latency) plays `rtsp://`/`rtsps://` URLs, and `LivestreamVideoPlayerController` + `LivestreamPipe`/`LivestreamConnection` play Protect's WebSocket livestream. `PlaybackWatchdog` detects stalls at the frame level and drives reconnection with capped backoff; `ConnectionState` is the LIVE / RECONNECTING / OFFLINE model. Core invariant: a frozen frame must never pretend to be live. rtsps self-signed-cert prompts are auto-answered via libVLC `Dialog` callbacks.
+- **Wake-on-sound (`monitoring/` + `audio/`)** — `MonitoringService` is a foreground service (mediaPlayback type) that plays the monitored camera's audio track only, via Media3 (`CameraAudioMonitor`, transports in `MonitorTransports`). `SoundDetector` applies RMS threshold / sustain / re-arm logic (`PcmRms`); `AlertSignaler` + `MainActivity` wake the screen over the lock screen with a full-screen intent. Media3 has no RTSP TLS, so wake-on-sound deliberately refuses `rtsps://` sources.
+  - **Always on** — monitoring has no switch. The viewer arms it on every resume (`MonitoringState.shouldAutoArm`), and it ends only when the app is exited: the viewer's exit button and the notification's "Exit" action (`ExitReceiver`), both of which go through `MonitoringService.exit` — the service stopped, `MonitoringState.exitRequested` set for the other screens to finish themselves on, and every card monitoring posted taken out of the shade (`MonitoringNotifications.cancelAll`), since nothing it posted may outlive the app. The viewer's only word about monitoring is the "Not monitoring" badge, shown when a start never landed; tapping it retries, opening the night checklist when local-network access is missing.
+  - **Alerts** — `AppSettings.alertsEnabled` gates the whole alert: off, the detector still runs (meters move, the status line says the room is loud) but nothing wakes the screen, chimes, or vibrates, and the ongoing notification says "Alerts off". The viewer's alerts button and the Alerts settings' master switch are the same stored value.
+  - **Sound modes** — `AppSettings.soundMode` is one persisted setting for the one speaker: `OFF`, `ROTATING` (the viewer's one-tile-at-a-time round, `SoundRotation`, viewer only), and `ALL_ALOUD`. All aloud is listen mode: every tile on screen plays with the audible border and badge, and the service carries the same mix on with the display off. Persisted on purpose — opening the app is the ask, and there is no boot start, so a reboot alone never broadcasts anything.
+  - **Failure alerts** — the monitor fails loud. `FailureLedger` (pure, `MonitoringFailure.kt`) keeps the book on every way Dozecam can stop being a baby monitor while armed: a monitored camera not live (with "no network" as the reason when the phone has none), the battery low on no charger (`BatteryStatus`, with hysteresis), notifications blocked, or full-screen-intent access withdrawn (`AlertAccess`). Two rules are the whole design: nothing counts until it has lasted the grace period (`AppSettings.failureGraceMs`, a minute by default, settable under Alerts), and what counts is announced exactly once for as long as it lasts. The announcement rides the sound alert's delivery path — its own card (`MonitoringNotifications.postFailure`, full-screen intent to `MainActivity.failureIntent`, which opens no camera) and the latched `AlertSignaler` alarm under `AlertSignaler.MONITORING_FAILURE` — but with its own bundled tone (`res/raw/monitoring_failure.wav`) and wording (`FailureWording`), so it is never mistaken for a room getting loud. It is gated by `alertsEnabled` like any alert; the condition itself is always in `MonitoringState.failures`, which the ongoing notification's status line and the viewer's failure notice both read, and a cleared failure leaves a note (`MonitoringState.lastRecoveredFailure`) on the status line. Unplugging while armed is a milder notice on the quiet status channel.
+  - **Listen mode** — the monitor's decoding, turned up: every monitored camera plays aloud at once, mixed out of the one speaker, so the whole house stays audible with the display off. There is no picker — `ListenTarget` yields the whole monitored set or nothing; a quiet room adds nothing to the mix, so it follows whoever is making noise. The service reads `soundMode == ALL_ALOUD` as the switch; `MonitoringState.listeningCameraIds` is what is actually audible (live monitors with decoded audio only — a room that is offline, reconnecting, or on a transport that yields no samples is not claimed), and everything that discloses listen mode reads that. `MediaAudioFocus` is the app-wide focus owner shared by the viewer and the service, since two requests from one process arrive at each other as losses. Rules that are load-bearing: a refused or lost focus request writes the sound mode back to off (from the viewer and the service alike); listen mode stands down while the viewer is audible; and listen mode assumes an awake listener: an alert for a room that is playing aloud never sounds the alarm (`ListenTarget.alertSounds`), and it lights the screen only when several rooms are in the mix, to name the one the mix cannot (`ListenTarget.alertWakesScreen`). A room nobody can hear always alarms and wakes the screen — "heard" meaning aloud with the media stream above zero and unmuted (`ListenTarget.heard`); a room that stops being heard while its detector is still triggered has its withheld alarm raised then (`MonitoringService.escalateUnheard`, on aloud-set and volume changes); and a withheld alert never displaces the one alert card while an alarm sounds for another room (`ListenTarget.alertYields`).
+
+Supporting layers:
+
+- **`protect/`** — UniFi Protect console clients. `ProtectPublicApiClient` (public Integration API, Protect 5.3+) is preferred; `ProtectApiClient` (legacy private API) is the fallback. Both yield the same camera ids so a console switching APIs updates entries rather than duplicating them. `TofuTrust` does trust-on-first-use certificate pinning; credentials sit in encrypted storage (`SecurePrefs`, `ProtectCredentialsStore`). `ProtectLivestreamProvider`/`ProtectLivestreamSocket` feed the livestream player.
+- **`data/`** — DataStore-backed repositories (`CameraRepository`, `AppSettingsRepository`, `DetectorSettingsRepository`) and `StreamUrlValidator` for manual URL entry.
+- **`ui/monitor/`** — camera grid, the control row (exit, sound mode, alerts, keep screen awake, night checklist, settings), status overlay, inactivity return. The checklist button reports OK, warning, or problem; it stays on the grid and is absent in fullscreen.
+- **Night checklist** — a dedicated page hosted by `SettingsActivity`, opened directly from the viewer or through the Settings shortcut. `Readiness` supplies live checks, explanations and remedies. Intentional alerts-off/screen-only choices and unplugged power are warnings; blocked monitoring or alert capabilities are problems. Permission fixes are user initiated; automatic arming shows no setup dialogs.
+
+Two dependency quirks are load-bearing comments in `android/app/build.gradle.kts`: libVLC pins an ancient `androidx.fragment` (a modern version is forced), and the release-unit-test disablement above.
