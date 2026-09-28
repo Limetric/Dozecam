@@ -21,6 +21,9 @@ jobs:
     name: Build signed APK and AAB
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: android
     env:
       ARTIFACT_VERSION: ${{ github.event.release.tag_name || github.ref_name }}
       APP_VERSION_NAME: ${{ github.event.release.tag_name || github.ref_name }}
@@ -96,7 +99,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: dozecam-release-artifacts
-          path: release-artifacts/*
+          path: android/release-artifacts/*
           if-no-files-found: error
 
       - name: Attach artifacts to GitHub Release
@@ -117,7 +120,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          printf '%s' "${RELEASE_BODY}" | python3 tools/release/extract_play_store_notes.py \
+          printf '%s' "${RELEASE_BODY}" | python3 ../tools/release/extract_play_store_notes.py \
             --output-dir distribution/whatsnew
 
       - name: Publish AAB to Google Play
@@ -126,9 +129,9 @@ jobs:
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: app.dozecam
-          releaseFiles: app/build/outputs/bundle/productionRelease/app-production-release.aab
+          releaseFiles: android/app/build/outputs/bundle/productionRelease/app-production-release.aab
           releaseName: ${{ github.event.release.tag_name }}
-          mappingFile: app/build/outputs/mapping/productionRelease/mapping.txt
-          whatsNewDirectory: distribution/whatsnew
+          mappingFile: android/app/build/outputs/mapping/productionRelease/mapping.txt
+          whatsNewDirectory: android/distribution/whatsnew
           track: internal
           status: completed

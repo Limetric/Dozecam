@@ -7,7 +7,7 @@ plugins {
 }
 
 // Every build is signed with the upload key, which lives in the repo encrypted
-// (tools/signing.sh, decrypted in CI before release builds). A checkout without
+// (android/tools/signing.sh, decrypted in CI before release builds). A checkout without
 // the decryption secret still builds and tests: debug falls back to the default
 // debug key, and release packaging fails loudly rather than shipping unsigned.
 val signingPropertiesFile = rootProject.file("keystore_dozecam_upload.properties")
@@ -137,7 +137,7 @@ gradle.taskGraph.whenReady {
     if (packagesRelease && !hasSigningProperties) {
         throw org.gradle.api.GradleException(
             "Missing ${signingPropertiesFile.name}. " +
-                "Run tools/signing.sh decrypt before building release artifacts.",
+                "Run android/tools/signing.sh decrypt before building release artifacts.",
         )
     }
 }
