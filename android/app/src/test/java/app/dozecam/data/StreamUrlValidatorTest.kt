@@ -51,7 +51,7 @@ class StreamUrlValidatorTest {
     // A stale pre-normalization rtsps entry; normalize() prevents new ones.
     @Test
     fun `only plain rtsp urls are monitorable`() =
-        checkMonitorable("plain rtsp url", "stale pre-normalization rtsps url", "empty input", "http url")
+        checkMonitorable("plain rtsp url", "stale pre-normalization rtsps url", "empty input is not monitorable", "http url")
 
     @Test
     fun `normalize rewrites Protect's rtsps console link to its playable rtsp alias`() =

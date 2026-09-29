@@ -11,7 +11,8 @@ import org.junit.Test
 /**
  * Tests pick shared fixture cases by name, so a case added to a fixture that
  * no test names would silently never run. Every named case must appear, as a
- * string literal, in some Android test.
+ * string literal, in some Android test, and names are unique across all
+ * fixtures, so a literal can only stand for the one case it names.
  *
  * A case is an object with a string `name` in a top-level array of a fixture
  * file. Verbatim console responses (`protect-api/public`, `protect-api/legacy`)
@@ -34,13 +35,17 @@ class FixtureCoverageTest {
             }
 
     @Test
-    fun `every named fixture case is run by an Android test`() {
+    fun `every named fixture case is unique and run by an Android test`() {
         val sources = File(Fixtures.root.parentFile.parentFile, "android/app/src/test/java")
             .walkTopDown()
             .filter { it.isFile && it.extension == "kt" }
             .joinToString("\n") { it.readText() }
         val names = caseNames()
         assertTrue("found no named fixture cases under ${Fixtures.root}", names.values.flatten().isNotEmpty())
+        val duplicates = names.flatMap { (path, cases) -> cases.map { it to path } }
+            .groupBy({ it.first }, { it.second })
+            .filterValues { it.size > 1 }
+        assertTrue("fixture case names used more than once: $duplicates", duplicates.isEmpty())
         val unused = names.flatMap { (path, cases) ->
             cases.filterNot { "\"$it\"" in sources }.map { "$path: \"$it\"" }
         }

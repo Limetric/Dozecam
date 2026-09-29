@@ -21,8 +21,8 @@ implementation: every fixture here was first proven against its tests.
   failure. A case is an object with a `name` in a top-level array of a fixture
   file (the verbatim console responses in `protect-api/public` and
   `protect-api/legacy` are not cases).
-- Tests pick cases by name, so every case must be run by name on each
-  platform. Android's `FixtureCoverageTest` fails when a case appears in no
+- Tests pick cases by name, so names are unique across all fixtures and every
+  case must be run by name on each platform. Android's `FixtureCoverageTest` fails when a case appears in no
   Android test; iOS gets the same guard with its first fixture-driven tests.
 - Changing a fixture changes the rule for both apps: say so in the PR, and
   update `shared/spec` when the rule itself moves.
