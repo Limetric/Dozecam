@@ -1,0 +1,128 @@
+# The Xcode project is generated from this file (XcodeGen) and never committed:
+# run ios/tools/generate.sh. See ios/AGENTS.md.
+name: Dozecam
+options:
+  bundleIdPrefix: app.dozecam
+  deploymentTarget:
+    # 26.1, not 26.0: AlarmKit's Alert(title:secondaryButton:…) — the alert
+    # path #58 chose — starts there.
+    iOS: "26.1"
+  createIntermediateGroups: true
+  groupSortPosition: top
+  generateEmptyDirectories: true
+configs:
+  Debug: debug
+  Release: release
+  # The dev variant, app.dozecam.dev ("Dozecam Dev"), installs beside the
+  # app relied on at night.
+  Dev: debug
+configFiles:
+  Debug: Config/Version.xcconfig
+  Release: Config/Version.xcconfig
+  Dev: Config/Version.xcconfig
+settings:
+  base:
+    DEVELOPMENT_TEAM: 2NBQ276R8F
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    # Deliberately not SWIFT_DEFAULT_ACTOR_ISOLATION=MainActor: realtime audio
+    # and libVLC callbacks must never inherit MainActor isolation (#58).
+    TARGETED_DEVICE_FAMILY: "1,2"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+targets:
+  Dozecam:
+    type: application
+    platform: iOS
+    sources:
+      - Dozecam
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        CODE_SIGN_ENTITLEMENTS: Dozecam/Dozecam.entitlements
+      configs:
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: app.dozecam
+          APP_DISPLAY_NAME: Dozecam
+        Release:
+          PRODUCT_BUNDLE_IDENTIFIER: app.dozecam
+          APP_DISPLAY_NAME: Dozecam
+        Dev:
+          PRODUCT_BUNDLE_IDENTIFIER: app.dozecam.dev
+          APP_DISPLAY_NAME: Dozecam Dev
+    info:
+      path: Dozecam/Info.plist
+      properties:
+        CFBundleDisplayName: $(APP_DISPLAY_NAME)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        # Keeps monitoring alive with the screen locked (#58: .playback with
+        # .mixWithOthers).
+        UIBackgroundModes: [audio]
+        NSLocalNetworkUsageDescription: Dozecam plays your cameras and talks to your UniFi Protect console on your local network.
+        NSMicrophoneUsageDescription: Dozecam uses the microphone when you talk to the room through a camera.
+        NSAlarmKitUsageDescription: Dozecam sounds an alarm when a room gets loud or monitoring stops, even in silent mode and Sleep Focus.
+        # iPad: every orientation, so Split View and Stage Manager can resize
+        # the app freely.
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+    entitlements:
+      path: Dozecam/Dozecam.entitlements
+      properties:
+        # Critical Alerts needs Apple's approval and comes with a public
+        # release (#71); automatic signing syncs this one to the App ID.
+        com.apple.developer.usernotifications.time-sensitive: true
+  DozecamTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - DozecamTests
+    dependencies:
+      - target: Dozecam
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.dozecam.tests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  Dozecam:
+    build:
+      targets:
+        Dozecam: all
+        DozecamTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets: [DozecamTests]
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+  Dozecam Dev:
+    build:
+      targets:
+        Dozecam: all
+        DozecamTests: [test]
+    run:
+      config: Dev
+    test:
+      config: Dev
+      targets: [DozecamTests]
+    profile:
+      config: Dev
+    analyze:
+      config: Dev
+    archive:
+      config: Dev
