@@ -92,23 +92,29 @@ class TransportFallbackTest {
     /** Plays the fixture case called [name] against a fresh fallback. */
     private fun play(name: String) {
         val case = table.cases.singleOrNull { it.name == name } ?: error("no fixture case \"$name\"")
-        // The production default, not the fixture's number: the steps below
-        // encode restartsBeforeFallback, so a default that drifts from the
-        // shared rule fails here.
-        val fallback = TransportFallback(case.transportCount)
-        case.steps.forEachIndexed { i, step ->
-            val where = "${case.name}, step ${i + 1}"
-            repeat(step.times) { n ->
-                when (step.event) {
-                    "restart" -> {
-                        val movedOn = fallback.onRestart()
-                        step.movesOn?.let { assertEquals("$where: restart ${n + 1} moved on", it, movedOn) }
+        // Played twice: against the production default and against the
+        // fixture's stated threshold. The steps encode that threshold, so a
+        // default or a stated number that drifts from them fails.
+        val fallbacks = listOf(
+            "default" to TransportFallback(case.transportCount),
+            "restartsBeforeFallback=${table.restartsBeforeFallback}" to
+                TransportFallback(case.transportCount, table.restartsBeforeFallback),
+        )
+        for ((label, fallback) in fallbacks) {
+            case.steps.forEachIndexed { i, step ->
+                val where = "${case.name} ($label), step ${i + 1}"
+                repeat(step.times) { n ->
+                    when (step.event) {
+                        "restart" -> {
+                            val movedOn = fallback.onRestart()
+                            step.movesOn?.let { assertEquals("$where: restart ${n + 1} moved on", it, movedOn) }
+                        }
+                        "audioDecoded" -> fallback.onAudioDecoded()
+                        else -> error("$where: unknown event ${step.event}")
                     }
-                    "audioDecoded" -> fallback.onAudioDecoded()
-                    else -> error("$where: unknown event ${step.event}")
                 }
+                step.index?.let { assertEquals("$where: index", it, fallback.index) }
             }
-            step.index?.let { assertEquals("$where: index", it, fallback.index) }
         }
     }
 
