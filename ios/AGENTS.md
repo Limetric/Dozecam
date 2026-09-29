@@ -2,7 +2,7 @@
 
 Guidance for coding agents working on the iPhone and iPad app in `ios/`. The repo-wide file (product, naming, layout, product rules) is `../AGENTS.md`. Paths below are relative to the repo root.
 
-The iOS app is a native Swift/SwiftUI counterpart of the Android app, which stays the reference for behaviour until the shared spec exists (#61). The plan and its order are in #56; the platform findings that shape the design are on #58 (background survival, alerts) and #59 (media stack).
+The iOS app is a native Swift/SwiftUI counterpart of the Android app. The product rules it must meet are in `shared/spec`, which wins over this file; where the spec leaves a detail open, the Android app is the reference. The plan and its order are in #56; the platform findings that shape the design are on #58 (background survival, alerts) and #59 (media stack).
 
 ## Commands
 
