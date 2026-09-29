@@ -1,6 +1,6 @@
 ---
 name: test-app-changes
-description: Verify Dozecam changes without a UniFi Protect console. Use when asked to test, verify, smoke-test, or demonstrate app changes end-to-end, or to see the app running — unit tests first, then a live run on an emulator against the local RTSP testbed (tools/testbed.sh) for changes that affect runtime behavior.
+description: Verify Dozecam changes without a UniFi Protect console. Use when asked to test, verify, smoke-test, or demonstrate app changes end-to-end, or to see the app running — unit tests first, then a live run against the local RTSP testbed (tools/testbed.sh) for changes that affect runtime behavior: an Android emulator for android/, an iOS simulator for ios/.
 ---
 
 # Test App Changes
@@ -9,8 +9,9 @@ The standard verification ladder for this repository. No UniFi hardware is
 required at any rung; the parts that would need a real Protect console are
 listed at the end so their absence is stated rather than discovered.
 
-This covers the Android app. Commands run from the repo root; Gradle runs
-inside `android/`.
+The gates below cover the Android app; the iOS app has its own path in
+"iOS" further down. Commands run from the repo root; Gradle runs inside
+`android/`.
 
 ## Gate 1 — unit tests (always)
 
@@ -104,6 +105,55 @@ adb -s emulator-5554 emu kill
   TestbedSeed`; the receiver logs what it seeded or why it refused.
 - Re-seeding after a testbed restart is safe: camera ids are stable, so
   entries update in place instead of duplicating.
+
+## iOS
+
+Needs Xcode and `brew install xcodegen`. Details: `ios/AGENTS.md`.
+
+### Gate 1 — lint and unit tests (always)
+
+```sh
+ios/tools/lint.sh                 # --fix rewrites
+ios/tools/test.sh                 # iPhone and iPad simulators; `iphone` or `ipad` for one
+```
+
+`test.sh` prints little on success; a failure names the test. Swift Testing
+results land in `ios/build/DerivedData/Logs/Test/*.xcresult`
+(`xcrun xcresulttool get test-results summary --path <bundle>`).
+
+### Gate 2 — the dev build on a simulator
+
+The simulator shares the Mac's network, so the testbed is at
+`rtsp://127.0.0.1:18554/<camera>` with no port mapping.
+
+```sh
+tools/testbed.sh start
+SIM=$(xcrun simctl list devices available | grep -m1 'iPad Pro' | grep -oE '[0-9A-F-]{36}')
+xcrun simctl boot "$SIM" 2>/dev/null; open -a Simulator
+xcodebuild build -project ios/Dozecam.xcodeproj -scheme "Dozecam Dev" \
+  -destination "id=$SIM" -derivedDataPath ios/build/DerivedData -quiet CODE_SIGNING_ALLOWED=NO
+xcrun simctl install "$SIM" "ios/build/DerivedData/Build/Products/Dev-iphonesimulator/Dozecam.app"
+xcrun simctl launch --terminate-running-process "$SIM" app.dozecam.dev
+xcrun simctl io "$SIM" screenshot shot.png
+tools/testbed.sh stop
+```
+
+(`ios/tools/test.sh` has already generated the project.) Launch arguments
+after the bundle id reach the app's `UserDefaults`. Nothing can tap in a
+simulator, so debug builds (`Dev`, `Debug`) take `-startOn monitor` or
+`-startOn settings` to open a destination directly; onboarding is the default.
+
+### Only a real device shows
+
+Background audio and suspension with the screen locked, AlarmKit alarms,
+time-sensitive notifications, the local-network permission prompt, and
+hardware video decoding. The simulator decodes video in software, so it also
+hides that **VideoToolbox on a device rejects the testbed's x264 streams**
+(`kVTVideoDecoderBadDataErr`); device tests of live view need camera-like
+streams (`spikes/ios-media/tools/streams.sh` publishes some from the Mac's
+hardware encoder). Install on a device with `ios/tools/device.sh install`,
+launch with `ios/tools/device.sh launch` (the device must be unlocked), and
+say in the report which of these went untested.
 
 ## What this cannot verify
 

@@ -1,0 +1,51 @@
+name: iOS CI
+
+on:
+  pull_request:
+    # A PR that touches only Android must not run the iOS suite.
+    paths:
+      - ios/**
+      - shared/**
+      - .github/workflows/ios-*
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Lint and unit tests on iPhone and iPad simulators
+    runs-on: macos-26
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: ios
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Show Xcode
+        run: xcodebuild -version
+
+      # No signing secrets on purpose: simulator builds need none, so
+      # Dependabot and fork PRs run this too.
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Lint
+        run: tools/lint.sh
+
+      - name: Unit tests
+        run: tools/test.sh
+
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-test-results
+          path: ios/build/DerivedData/Logs/Test/
+          if-no-files-found: ignore

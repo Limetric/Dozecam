@@ -13,9 +13,10 @@ Naming: the product is "Dozecam". Store copy must not lead with "UniFi" (Ubiquit
 A monorepo with one native app per platform:
 
 - `android/` — the Android app (Kotlin, Jetpack Compose, Gradle). Guidance: `android/AGENTS.md`.
-- `ios/` — the iPhone and iPad app (Swift, SwiftUI), arriving with #62. Guidance will live in `ios/AGENTS.md`.
+- `ios/` — the iPhone and iPad app (Swift, SwiftUI, XcodeGen). Guidance: `ios/AGENTS.md`.
 - `shared/` — the platform-neutral product spec and the golden test fixtures both apps' tests read, arriving with #61.
 - `tools/` — shared tooling: `testbed.sh` (synthetic RTSP cameras for testing without a Protect console), `release/` (Play copy extraction), and the talk-back spike.
+- `spikes/` — throwaway iOS spikes whose findings are on #58 and #59; not product code.
 - `store-listing/<platform>/` — store copy.
 
 The two apps share no code. Shared behaviour is enforced through the spec and fixtures in `shared/`, with the Android app as the reference implementation. Until `shared/spec` exists (#61), `android/AGENTS.md` is where the product rules are written down.
@@ -31,6 +32,6 @@ These hold on every platform. Where a platform cannot do what another does, it i
 
 ## CI and releases
 
-Each platform has its own workflows, prefixed with its name (`.github/workflows/android-*.yml`), and path-filtered so a change to one platform does not run the other's suite. Changes under `shared/` run every platform.
+Each platform has its own workflows, prefixed with its name (`.github/workflows/android-*.yml`, `ios-*.yml`), and path-filtered so a change to one platform does not run the other's suite. Changes under `shared/` run every platform.
 
 Releases are Android-only for now: see "Build variants" in `android/AGENTS.md`. Per-platform release tags arrive with iOS releases (#63).
