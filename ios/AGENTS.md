@@ -47,7 +47,7 @@ Versions are never edited by hand. `generate.sh` writes `CURRENT_PROJECT_VERSION
 
 ## iOS mechanics behind the product rules
 
-These are the decisions from the spikes; the shared spec (#61) will state each rule once for both platforms.
+These are the decisions from the spikes; the rules themselves are in `shared/spec`.
 
 - **Always-on monitoring** stays alive with the screen locked through an `AVAudioSession` in `.playback` **with `.mixWithOthers`** and a running `AVAudioEngine`. Without mixing, the session cannot be reactivated from the background, so any alarm or a relaunch in the background ends monitoring (#58).
 - **Waking the parent:** AlarmKit is the only path that rings through silent mode and Sleep Focus, so it is the primary alert. The fallback is the app's own tone at media volume plus a time-sensitive notification (#58).

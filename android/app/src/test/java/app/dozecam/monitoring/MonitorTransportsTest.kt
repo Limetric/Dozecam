@@ -92,7 +92,10 @@ class TransportFallbackTest {
     /** Plays the fixture case called [name] against a fresh fallback. */
     private fun play(name: String) {
         val case = table.cases.singleOrNull { it.name == name } ?: error("no fixture case \"$name\"")
-        val fallback = TransportFallback(case.transportCount, table.restartsBeforeFallback)
+        // The production default, not the fixture's number: the steps below
+        // encode restartsBeforeFallback, so a default that drifts from the
+        // shared rule fails here.
+        val fallback = TransportFallback(case.transportCount)
         case.steps.forEachIndexed { i, step ->
             val where = "${case.name}, step ${i + 1}"
             repeat(step.times) { n ->

@@ -14,3 +14,7 @@ and `expected`.
   on `rtsp` port 7447. So any `rtsps` URL becomes `rtsp` with the same host
   and path and no query, port 7441 becoming 7447 and any other port kept;
   anything else is only trimmed. `expected`: the stored URL.
+
+The rejections of `rtsp://`, `rtsp:token` and a host with spaces are the rule,
+not an accident of Java's URL parser, which the Android reference happens to
+rely on. A platform whose parser accepts one of them must reject it anyway.

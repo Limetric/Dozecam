@@ -18,6 +18,11 @@ implementation: every fixture here was first proven against its tests.
 - Loaders reject unknown keys, so a typo in a fixture fails loudly instead of
   silently testing nothing.
 - A case has a short `name` that says what it proves; tests report it on
-  failure.
+  failure. A case is an object with a `name` in a top-level array of a fixture
+  file (the verbatim console responses in `protect-api/public` and
+  `protect-api/legacy` are not cases).
+- Tests pick cases by name, so every case must be run by name on each
+  platform. Android's `FixtureCoverageTest` fails when a case appears in no
+  Android test; iOS gets the same guard with its first fixture-driven tests.
 - Changing a fixture changes the rule for both apps: say so in the PR, and
   update `shared/spec` when the rule itself moves.
