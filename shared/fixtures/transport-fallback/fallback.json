@@ -1,0 +1,53 @@
+{
+  "restartsBeforeFallback": 3,
+  "cases": [
+    {
+      "name": "a transport is given several restarts before being abandoned",
+      "transportCount": 2,
+      "steps": [
+        { "event": "restart", "times": 2, "movesOn": false, "index": 0 },
+        { "event": "restart", "movesOn": true, "index": 1 }
+      ]
+    },
+    {
+      "name": "restarts are counted here rather than read off the watchdog",
+      "transportCount": 2,
+      "steps": [
+        { "event": "restart", "times": 3, "index": 1 }
+      ]
+    },
+    {
+      "name": "a transport that has ever decoded is kept through any later trouble",
+      "transportCount": 2,
+      "steps": [
+        { "event": "audioDecoded" },
+        { "event": "restart", "times": 20, "movesOn": false, "index": 0 }
+      ]
+    },
+    {
+      "name": "a lone transport is never abandoned, because there is nowhere to go",
+      "transportCount": 1,
+      "steps": [
+        { "event": "restart", "times": 10, "movesOn": false, "index": 0 }
+      ]
+    },
+    {
+      "name": "a fallback that is no better itself hands the turn back",
+      "transportCount": 2,
+      "steps": [
+        { "event": "restart", "times": 3, "index": 1 },
+        { "event": "restart", "times": 3, "index": 0 }
+      ]
+    },
+    {
+      "name": "each transport gets its own run of restarts rather than the tail of the last",
+      "transportCount": 3,
+      "steps": [
+        { "event": "restart", "times": 3, "index": 1 },
+        { "event": "restart", "times": 2, "movesOn": false },
+        { "event": "restart", "movesOn": true, "index": 2 },
+        { "event": "restart", "times": 3, "index": 0 }
+      ]
+    }
+  ]
+}
