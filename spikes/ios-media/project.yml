@@ -1,0 +1,57 @@
+# Throwaway spike for issue #59: the iOS media stack for live view (RTSP /
+# rtsps via VLCKit 4) and wake-on-sound (PCM from libVLC's audio callbacks).
+# Not product code — see README.md.
+name: MediaSpike
+options:
+  bundleIdPrefix: app.dozecam
+  deploymentTarget:
+    iOS: "26.1"
+  createIntermediateGroups: true
+settings:
+  base:
+    DEVELOPMENT_TEAM: 2NBQ276R8F
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    MARKETING_VERSION: "0.0.1"
+    CURRENT_PROJECT_VERSION: "1"
+    TARGETED_DEVICE_FAMILY: "1,2"
+packages:
+  VLCKit:
+    url: https://code.videolan.org/videolan/VLCKit.git
+    revision: 6cbc4e7b248aa51ec0906697abb30ecae47194b7 # "Distribute 4.0.0a24 via cocoapods and SPM"
+targets:
+  MediaSpike:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+        excludes:
+          - libvlc/**
+    dependencies:
+      - package: VLCKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.dozecam.dev
+        PRODUCT_NAME: MediaSpike
+        SWIFT_OBJC_BRIDGING_HEADER: App/Bridging.h
+        # libVLC's C headers ship inside VLCKit.framework but outside its
+        # module map; a copy from the same 4.0.0a24 binary lives here.
+        HEADER_SEARCH_PATHS: $(SRCROOT)/App/libvlc
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Media Spike
+        UILaunchScreen: {}
+        UIBackgroundModes: [audio]
+        NSLocalNetworkUsageDescription: The spike plays the testbed's RTSP cameras from your Mac.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UIApplicationSupportsIndirectInputEvents: true
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
