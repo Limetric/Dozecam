@@ -1,215 +1,182 @@
 package app.dozecam.monitoring
 
 import app.dozecam.player.ConnectionState
+import app.dozecam.testing.Fixtures
+import kotlinx.serialization.Serializable
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
  * The two rules that keep the failure alarm from crying wolf: nothing counts
  * until it has lasted the grace period, and what does count is announced
  * exactly once.
+ *
+ * The timelines live in `shared/fixtures/failure-ledger/timelines.json`; this
+ * class supplies the clocks and turns each step into a [MonitoringHealth].
  */
 class FailureLedgerTest {
 
-    private var nowMs = 100_000L
-    private var wallMs = 1_700_000_000_000L
-    private val ledger = FailureLedger(monotonicClock = { nowMs }, wallClock = { wallMs })
-
-    private val grace = 60_000L
-
-    private fun advance(ms: Long) {
-        nowMs += ms
-        wallMs += ms
-    }
-
-    private fun camera(id: String, connection: ConnectionState, name: String = id) =
-        CameraMonitorState(cameraId = id, name = name, level = 0f, connection = connection)
-
-    private fun health(
-        vararg cameras: CameraMonitorState,
-        online: Boolean = true,
-        battery: BatteryStatus? = BatteryStatus(percent = 80, plugged = true),
-        notifications: Boolean = true,
-        screenWake: Boolean = true,
-    ) = MonitoringHealth(
-        cameras = cameras.toList(),
-        networkOnline = online,
-        battery = battery,
-        notificationsAllowed = notifications,
-        screenWakeAllowed = screenWake,
+    @Serializable
+    private data class Camera(
+        val id: String,
+        val name: String,
+        val connection: String,
+        val reconnectAttempt: Int? = null,
     )
 
-    private fun evaluate(health: MonitoringHealth) = ledger.evaluate(health, grace)
+    @Serializable
+    private data class Battery(val percent: Int, val plugged: Boolean)
 
-    @Test
-    fun `a healthy monitor has nothing to say`() {
-        val update = evaluate(health(camera("a", ConnectionState.Live)))
+    @Serializable
+    private data class Health(
+        val cameras: List<Camera>,
+        val networkOnline: Boolean,
+        val battery: Battery?,
+        val notificationsAllowed: Boolean,
+        val screenWakeAllowed: Boolean,
+    )
 
-        assertTrue(update.active.isEmpty())
-        assertTrue(update.announce.isEmpty())
-        assertTrue(update.recovered.isEmpty())
+    /** A failure as the fixture spells it; times are relative to the case's start. */
+    @Serializable
+    private data class Failure(
+        val reason: String,
+        val cameraId: String? = null,
+        val name: String? = null,
+        val networkDown: Boolean? = null,
+        val percent: Int? = null,
+        val sinceMs: Long,
+        val clearedAtMs: Long? = null,
+    )
+
+    @Serializable
+    private data class Expect(
+        val active: List<Failure>? = null,
+        val announce: List<Failure>? = null,
+        val recovered: List<Failure>? = null,
+        val unplugged: Boolean? = null,
+    )
+
+    @Serializable
+    private data class Step(val atMs: Long, val health: Health, val expect: Expect? = null)
+
+    @Serializable
+    private data class Case(val name: String, val steps: List<Step>)
+
+    @Serializable
+    private data class Fixture(val graceMs: Long, val cases: List<Case>)
+
+    private val fixture = Fixtures.decode<Fixture>("failure-ledger/timelines.json")
+
+    // Neither clock starts at zero, so a ledger that confused the two, or
+    // measured from zero, would show.
+    private val monotonicStartMs = 100_000L
+    private val wallStartMs = 1_700_000_000_000L
+
+    private fun connection(camera: Camera): ConnectionState = when (camera.connection) {
+        "connecting" -> ConnectionState.Connecting
+        "live" -> ConnectionState.Live
+        "reconnecting" -> ConnectionState.Reconnecting(
+            checkNotNull(camera.reconnectAttempt) { "reconnecting needs reconnectAttempt" },
+        )
+        "offline" -> ConnectionState.Offline
+        else -> error("unknown connection \"${camera.connection}\"")
     }
 
-    @Test
-    fun `a camera crossing the grace period is announced exactly once`() {
-        evaluate(health(camera("a", ConnectionState.Reconnecting(1), name = "Nursery")))
-        val since = wallMs
+    private fun Health.toMonitoringHealth() = MonitoringHealth(
+        cameras = cameras.map {
+            CameraMonitorState(cameraId = it.id, name = it.name, level = 0f, connection = connection(it))
+        },
+        networkOnline = networkOnline,
+        battery = battery?.let { BatteryStatus(percent = it.percent, plugged = it.plugged) },
+        notificationsAllowed = notificationsAllowed,
+        screenWakeAllowed = screenWakeAllowed,
+    )
 
-        advance(grace - 1)
-        assertTrue(evaluate(health(camera("a", ConnectionState.Reconnecting(3)))).active.isEmpty())
+    private fun describe(reason: FailureReason, sinceMs: Long, clearedAtMs: Long? = null): Failure {
+        val since = sinceMs - wallStartMs
+        val cleared = clearedAtMs?.minus(wallStartMs)
+        return when (reason) {
+            is FailureReason.CameraUnreachable -> Failure(
+                "cameraUnreachable", reason.cameraId, reason.name, reason.networkDown,
+                sinceMs = since, clearedAtMs = cleared,
+            )
+            is FailureReason.LowBattery ->
+                Failure("lowBattery", percent = reason.percent, sinceMs = since, clearedAtMs = cleared)
+            FailureReason.NotificationsBlocked ->
+                Failure("notificationsBlocked", sinceMs = since, clearedAtMs = cleared)
+            FailureReason.ScreenWakeBlocked -> Failure("screenWakeBlocked", sinceMs = since, clearedAtMs = cleared)
+        }
+    }
 
-        advance(1)
-        val crossed = evaluate(health(camera("a", ConnectionState.Reconnecting(4), name = "Nursery")))
-        assertEquals(1, crossed.announce.size)
-        assertEquals(
-            MonitoringFailure(FailureReason.CameraUnreachable("a", "Nursery", networkDown = false), since),
-            crossed.announce.single(),
+    private fun play(name: String) {
+        val case = fixture.cases.singleOrNull { it.name == name } ?: error("no fixture case \"$name\"")
+        var atMs = 0L
+        val ledger = FailureLedger(
+            monotonicClock = { monotonicStartMs + atMs },
+            wallClock = { wallStartMs + atMs },
         )
-        assertEquals(crossed.announce, crossed.active)
-
-        // Still failing an hour later: still active, never announced again.
-        repeat(3) {
-            advance(20 * 60_000L)
-            val later = evaluate(health(camera("a", ConnectionState.Offline, name = "Nursery")))
-            assertEquals(1, later.active.size)
-            assertTrue(later.announce.isEmpty())
+        case.steps.forEachIndexed { index, step ->
+            check(step.atMs >= atMs) { "${case.name}: step $index goes back in time" }
+            atMs = step.atMs
+            val update = ledger.evaluate(step.health.toMonitoringHealth(), fixture.graceMs)
+            val expect = step.expect ?: return@forEachIndexed
+            val at = "${case.name}: step $index at ${step.atMs}ms"
+            val active = update.active.map { describe(it.reason, it.sinceMs) }
+            val announce = update.announce.map { describe(it.reason, it.sinceMs) }
+            val recovered = update.recovered.map { describe(it.reason, it.sinceMs, it.clearedAtMs) }
+            expect.active?.let { assertEquals("$at active", it, active) }
+            expect.announce?.let { assertEquals("$at announce", it, announce) }
+            expect.recovered?.let { assertEquals("$at recovered", it, recovered) }
+            expect.unplugged?.let { assertEquals("$at unplugged", it, update.unplugged) }
         }
     }
 
     @Test
-    fun `a flap inside the grace period fires nothing and leaves no trace`() {
-        evaluate(health(camera("a", ConnectionState.Reconnecting(1))))
-        advance(grace / 2)
-        evaluate(health(camera("a", ConnectionState.Reconnecting(2))))
-
-        advance(1_000)
-        val back = evaluate(health(camera("a", ConnectionState.Live)))
-
-        assertTrue(back.active.isEmpty())
-        assertTrue(back.announce.isEmpty())
-        assertTrue(back.recovered.isEmpty())
-
-        // And the next drop starts its own clock rather than inheriting the
-        // last one's: a second flap is still a flap.
-        advance(1_000)
-        evaluate(health(camera("a", ConnectionState.Reconnecting(1))))
-        advance(grace - 1)
-        assertTrue(evaluate(health(camera("a", ConnectionState.Reconnecting(2)))).announce.isEmpty())
-    }
+    fun `a healthy monitor has nothing to say`() = play("a healthy monitor has nothing to say")
 
     @Test
-    fun `recovery clears the failure and leaves a note`() {
-        evaluate(health(camera("a", ConnectionState.Offline, name = "Nursery")))
-        val since = wallMs
-        advance(grace)
-        evaluate(health(camera("a", ConnectionState.Offline, name = "Nursery")))
+    fun `a camera crossing the grace period is announced exactly once`() =
+        play("a camera crossing the grace period is announced exactly once")
 
-        advance(5 * 60_000L)
-        val back = evaluate(health(camera("a", ConnectionState.Live, name = "Nursery")))
+    // The second drop starts its own clock rather than inheriting the last
+    // one's: a second flap is still a flap.
+    @Test
+    fun `a flap inside the grace period fires nothing and leaves no trace`() =
+        play("a flap inside the grace period fires nothing and leaves no trace")
 
-        assertTrue(back.active.isEmpty())
-        assertEquals(
-            RecoveredFailure(
-                FailureReason.CameraUnreachable("a", "Nursery", networkDown = false),
-                sinceMs = since,
-                clearedAtMs = wallMs,
-            ),
-            back.recovered.single(),
-        )
-
-        // A drop after recovery is a new failure, and is announced afresh.
-        advance(1_000)
-        evaluate(health(camera("a", ConnectionState.Offline, name = "Nursery")))
-        advance(grace)
-        assertEquals(1, evaluate(health(camera("a", ConnectionState.Offline, name = "Nursery"))).announce.size)
-    }
+    // A drop after recovery is a new failure, and is announced afresh.
+    @Test
+    fun `recovery clears the failure and leaves a note`() = play("recovery clears the failure and leaves a note")
 
     /**
      * Every camera goes with the network. One alarm, naming them all, rather
      * than one per room — and the reason is the network, not the cameras.
      */
     @Test
-    fun `cameras lost together are announced together with the network as the reason`() {
-        val down = health(
-            camera("a", ConnectionState.Offline, name = "Nursery"),
-            camera("b", ConnectionState.Offline, name = "Hall"),
-            online = false,
-        )
-        evaluate(down)
-        advance(grace)
+    fun `cameras lost together are announced together with the network as the reason`() =
+        play("cameras lost together are announced together with the network as the reason")
 
-        val crossed = evaluate(down)
-
-        assertEquals(2, crossed.announce.size)
-        assertTrue(crossed.announce.all { (it.reason as FailureReason.CameraUnreachable).networkDown })
-    }
-
+    // Renamed and now offline: the same failure, under its current name.
     @Test
-    fun `the failure's start does not move as the reason is refreshed`() {
-        evaluate(health(camera("a", ConnectionState.Reconnecting(1), name = "Nursery")))
-        val since = wallMs
-        advance(grace)
+    fun `the failure's start does not move as the reason is refreshed`() =
+        play("the failure's start does not move as the reason is refreshed")
 
-        // Renamed and now offline: the same failure, under its current name.
-        val update = evaluate(health(camera("a", ConnectionState.Offline, name = "Baby's room")))
-
-        val failure = update.announce.single()
-        assertEquals(since, failure.sinceMs)
-        assertEquals("Baby's room", (failure.reason as FailureReason.CameraUnreachable).name)
-    }
-
+    // Hovering just over the line does not clear it; a charger does.
     @Test
-    fun `a low battery on no charger is a failure with hysteresis`() {
-        val plugged = health(battery = BatteryStatus(percent = 24, plugged = true))
-        assertTrue(evaluate(plugged).active.isEmpty())
+    fun `a low battery on no charger is a failure with hysteresis`() =
+        play("a low battery on no charger is a failure with hysteresis")
 
-        evaluate(health(battery = BatteryStatus(percent = 25, plugged = false)))
-        advance(grace)
-        val low = evaluate(health(battery = BatteryStatus(percent = 25, plugged = false)))
-        assertEquals(FailureReason.LowBattery(25), low.announce.single().reason)
-
-        // Hovering just over the line does not clear it.
-        val hovering = evaluate(health(battery = BatteryStatus(percent = 27, plugged = false)))
-        assertEquals(FailureReason.LowBattery(27), hovering.active.single().reason)
-        assertTrue(hovering.recovered.isEmpty())
-
-        // A charger does.
-        val charging = evaluate(health(battery = BatteryStatus(percent = 27, plugged = true)))
-        assertTrue(charging.active.isEmpty())
-        assertEquals(1, charging.recovered.size)
-    }
-
+    // Starting unplugged is not being unplugged: a fresh ledger's first reading.
     @Test
     fun `unplugging while armed is reported once, on the transition`() {
-        assertFalse(evaluate(health(battery = BatteryStatus(80, plugged = true))).unplugged)
-
-        assertTrue(evaluate(health(battery = BatteryStatus(80, plugged = false))).unplugged)
-        assertFalse(evaluate(health(battery = BatteryStatus(79, plugged = false))).unplugged)
-
-        // Starting unplugged is not being unplugged.
-        val fresh = FailureLedger({ nowMs }, { wallMs })
-        assertFalse(fresh.evaluate(health(battery = BatteryStatus(80, plugged = false)), grace).unplugged)
+        play("unplugging while armed is reported once, on the transition")
+        play("starting unplugged is not being unplugged")
     }
 
     @Test
-    fun `withdrawn grants are failures after the same grace`() {
-        evaluate(health(notifications = false, screenWake = false))
-        assertTrue(evaluate(health(notifications = false, screenWake = false)).active.isEmpty())
-
-        advance(grace)
-        val update = evaluate(health(notifications = false, screenWake = false))
-
-        assertEquals(
-            listOf(FailureReason.NotificationsBlocked, FailureReason.ScreenWakeBlocked),
-            update.announce.map { it.reason },
-        )
-    }
+    fun `withdrawn grants are failures after the same grace`() =
+        play("withdrawn grants are failures after the same grace")
 
     @Test
-    fun `an unknown battery is not a failure`() {
-        assertNull(evaluate(health(battery = null)).active.firstOrNull())
-    }
+    fun `an unknown battery is not a failure`() = play("an unknown battery is not a failure")
 }

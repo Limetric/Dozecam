@@ -1,0 +1,94 @@
+{
+  "graceMs": 60000,
+  "cases": [
+    {
+      "name": "a healthy monitor has nothing to say",
+      "steps": [
+        {"atMs": 0, "health": {"cameras": [{"id": "a", "name": "a", "connection": "live"}], "networkOnline": true, "battery": {"percent": 80, "plugged": true}, "notificationsAllowed": true, "screenWakeAllowed": true}, "expect": {"active": [], "announce": [], "recovered": []}}
+      ]
+    },
+    {
+      "name": "a camera crossing the grace period is announced exactly once",
+      "steps": [
+        {"atMs": 0, "health": {"cameras": [{"id": "a", "name": "Nursery", "connection": "reconnecting", "reconnectAttempt": 1}], "networkOnline": true, "battery": {"percent": 80, "plugged": true}, "notificationsAllowed": true, "screenWakeAllowed": true}},
+        {"atMs": 59999, "health": {"cameras": [{"id": "a", "name": "a", "connection": "reconnecting", "reconnectAttempt": 3}], "networkOnline": true, "battery": {"percent": 80, "plugged": true}, "notificationsAllowed": true, "screenWakeAllowed": true}, "expect": {"active": []}},
+        {"atMs": 60000, "health": {"cameras": [{"id": "a", "name": "Nursery", "connection": "reconnecting", "reconnectAttempt": 4}], "networkOnline": true, "battery": {"percent": 80, "plugged": true}, "notificationsAllowed": true, "screenWakeAllowed": true}, "expect": {"active": [{"reason": "cameraUnreachable", "cameraId": "a", "name": "Nursery", "networkDown": false, "sinceMs": 0}], "announce": [{"reason": "cameraUnreachable", "cameraId": "a", "name": "Nursery", "networkDown": false, "sinceMs": 0}]}},
+        {"atMs": 1260000, "health": {"cameras": [{"id": "a", "name": "Nursery", "connection": "offline"}], "networkOnline": true, "battery": {"percent": 80, "plugged": true}, "notificationsAllowed": true, "screenWakeAllowed": true}, "expect": {"active": [{"reason": "cameraUnreachable", "cameraId": "a", "name": "Nursery", "networkDown": false, "sinceMs": 0}], "announce": []}},
+        {"atMs": 2460000, "health": {"cameras": [{"id": "a", "name": "Nursery", "connection": "offline"}], "networkOnline": true, "battery": {"percent": 80, "plugged": true}, "notificationsAllowed": true, "screenWakeAllowed": true}, "expect": {"active": [{"reason": "cameraUnreachable", "cameraId": "a", "name": "Nursery", "networkDown": false, "sinceMs": 0}], "announce": []}},
+        {"atMs": 3660000, "health": {"cameras": [{"id": "a", "name": "Nursery", "connection": "offline"}], "networkOnline": true, "battery": {"percent": 80, "plugged": true}, "notificationsAllowed": true, "screenWakeAllowed": true}, "expect": {"active": [{"reason": "cameraUnreachable", "cameraId": "a", "name": "Nursery", "networkDown": false, "sinceMs": 0}], "announce": []}}
+      ]
+    },
+    {
+      "name": "a flap inside the grace period fires nothing and leaves no trace",
+      "steps": [
+        {"atMs": 0, "health": {"cameras": [{"id": "a", "name": "a", "connection": "reconnecting", "reconnectAttempt": 1}], "networkOnline": true, "battery": {"percent": 80, "plugged": true}, "notificationsAllowed": true, "screenWakeAllowed": true}},
+        {"atMs": 30000, "health": {"cameras": [{"id": "a", "name": "a", "connection": "reconnecting", "reconnectAttempt": 2}], "networkOnline": true, "battery": {"percent": 80, "plugged": true}, "notificationsAllowed": true, "screenWakeAllowed": true}},
+        {"atMs": 31000, "health": {"cameras": [{"id": "a", "name": "a", "connection": "live"}], "networkOnline": true, "battery": {"percent": 80, "plugged": true}, "notificationsAllowed": true, "screenWakeAllowed": true}, "expect": {"active": [], "announce": [], "recovered": []}},
+        {"atMs": 32000, "health": {"cameras": [{"id": "a", "name": "a", "connection": "reconnecting", "reconnectAttempt": 1}], "networkOnline": true, "battery": {"percent": 80, "plugged": true}, "notificationsAllowed": true, "screenWakeAllowed": true}},
+        {"atMs": 91999, "health": {"cameras": [{"id": "a", "name": "a", "connection": "reconnecting", "reconnectAttempt": 2}], "networkOnline": true, "battery": {"percent": 80, "plugged": true}, "notificationsAllowed": true, "screenWakeAllowed": true}, "expect": {"announce": []}}
+      ]
+    },
+    {
+      "name": "recovery clears the failure and leaves a note",
+      "steps": [
+        {"atMs": 0, "health": {"cameras": [{"id": "a", "name": "Nursery", "connection": "offline"}], "networkOnline": true, "battery": {"percent": 80, "plugged": true}, "notificationsAllowed": true, "screenWakeAllowed": true}},
+        {"atMs": 60000, "health": {"cameras": [{"id": "a", "name": "Nursery", "connection": "offline"}], "networkOnline": true, "battery": {"percent": 80, "plugged": true}, "notificationsAllowed": true, "screenWakeAllowed": true}},
+        {"atMs": 360000, "health": {"cameras": [{"id": "a", "name": "Nursery", "connection": "live"}], "networkOnline": true, "battery": {"percent": 80, "plugged": true}, "notificationsAllowed": true, "screenWakeAllowed": true}, "expect": {"active": [], "recovered": [{"reason": "cameraUnreachable", "cameraId": "a", "name": "Nursery", "networkDown": false, "sinceMs": 0, "clearedAtMs": 360000}]}},
+        {"atMs": 361000, "health": {"cameras": [{"id": "a", "name": "Nursery", "connection": "offline"}], "networkOnline": true, "battery": {"percent": 80, "plugged": true}, "notificationsAllowed": true, "screenWakeAllowed": true}},
+        {"atMs": 421000, "health": {"cameras": [{"id": "a", "name": "Nursery", "connection": "offline"}], "networkOnline": true, "battery": {"percent": 80, "plugged": true}, "notificationsAllowed": true, "screenWakeAllowed": true}, "expect": {"announce": [{"reason": "cameraUnreachable", "cameraId": "a", "name": "Nursery", "networkDown": false, "sinceMs": 361000}]}}
+      ]
+    },
+    {
+      "name": "cameras lost together are announced together with the network as the reason",
+      "steps": [
+        {"atMs": 0, "health": {"cameras": [{"id": "a", "name": "Nursery", "connection": "offline"}, {"id": "b", "name": "Hall", "connection": "offline"}], "networkOnline": false, "battery": {"percent": 80, "plugged": true}, "notificationsAllowed": true, "screenWakeAllowed": true}},
+        {"atMs": 60000, "health": {"cameras": [{"id": "a", "name": "Nursery", "connection": "offline"}, {"id": "b", "name": "Hall", "connection": "offline"}], "networkOnline": false, "battery": {"percent": 80, "plugged": true}, "notificationsAllowed": true, "screenWakeAllowed": true}, "expect": {"announce": [{"reason": "cameraUnreachable", "cameraId": "a", "name": "Nursery", "networkDown": true, "sinceMs": 0}, {"reason": "cameraUnreachable", "cameraId": "b", "name": "Hall", "networkDown": true, "sinceMs": 0}]}}
+      ]
+    },
+    {
+      "name": "the failure's start does not move as the reason is refreshed",
+      "steps": [
+        {"atMs": 0, "health": {"cameras": [{"id": "a", "name": "Nursery", "connection": "reconnecting", "reconnectAttempt": 1}], "networkOnline": true, "battery": {"percent": 80, "plugged": true}, "notificationsAllowed": true, "screenWakeAllowed": true}},
+        {"atMs": 60000, "health": {"cameras": [{"id": "a", "name": "Baby's room", "connection": "offline"}], "networkOnline": true, "battery": {"percent": 80, "plugged": true}, "notificationsAllowed": true, "screenWakeAllowed": true}, "expect": {"announce": [{"reason": "cameraUnreachable", "cameraId": "a", "name": "Baby's room", "networkDown": false, "sinceMs": 0}]}}
+      ]
+    },
+    {
+      "name": "a low battery on no charger is a failure with hysteresis",
+      "steps": [
+        {"atMs": 0, "health": {"cameras": [], "networkOnline": true, "battery": {"percent": 24, "plugged": true}, "notificationsAllowed": true, "screenWakeAllowed": true}, "expect": {"active": []}},
+        {"atMs": 0, "health": {"cameras": [], "networkOnline": true, "battery": {"percent": 25, "plugged": false}, "notificationsAllowed": true, "screenWakeAllowed": true}},
+        {"atMs": 60000, "health": {"cameras": [], "networkOnline": true, "battery": {"percent": 25, "plugged": false}, "notificationsAllowed": true, "screenWakeAllowed": true}, "expect": {"announce": [{"reason": "lowBattery", "percent": 25, "sinceMs": 0}]}},
+        {"atMs": 60000, "health": {"cameras": [], "networkOnline": true, "battery": {"percent": 27, "plugged": false}, "notificationsAllowed": true, "screenWakeAllowed": true}, "expect": {"active": [{"reason": "lowBattery", "percent": 27, "sinceMs": 0}], "recovered": []}},
+        {"atMs": 60000, "health": {"cameras": [], "networkOnline": true, "battery": {"percent": 27, "plugged": true}, "notificationsAllowed": true, "screenWakeAllowed": true}, "expect": {"active": [], "recovered": [{"reason": "lowBattery", "percent": 27, "sinceMs": 0, "clearedAtMs": 60000}]}}
+      ]
+    },
+    {
+      "name": "unplugging while armed is reported once, on the transition",
+      "steps": [
+        {"atMs": 0, "health": {"cameras": [], "networkOnline": true, "battery": {"percent": 80, "plugged": true}, "notificationsAllowed": true, "screenWakeAllowed": true}, "expect": {"unplugged": false}},
+        {"atMs": 0, "health": {"cameras": [], "networkOnline": true, "battery": {"percent": 80, "plugged": false}, "notificationsAllowed": true, "screenWakeAllowed": true}, "expect": {"unplugged": true}},
+        {"atMs": 0, "health": {"cameras": [], "networkOnline": true, "battery": {"percent": 79, "plugged": false}, "notificationsAllowed": true, "screenWakeAllowed": true}, "expect": {"unplugged": false}}
+      ]
+    },
+    {
+      "name": "starting unplugged is not being unplugged",
+      "steps": [
+        {"atMs": 0, "health": {"cameras": [], "networkOnline": true, "battery": {"percent": 80, "plugged": false}, "notificationsAllowed": true, "screenWakeAllowed": true}, "expect": {"unplugged": false}}
+      ]
+    },
+    {
+      "name": "withdrawn grants are failures after the same grace",
+      "steps": [
+        {"atMs": 0, "health": {"cameras": [], "networkOnline": true, "battery": {"percent": 80, "plugged": true}, "notificationsAllowed": false, "screenWakeAllowed": false}},
+        {"atMs": 0, "health": {"cameras": [], "networkOnline": true, "battery": {"percent": 80, "plugged": true}, "notificationsAllowed": false, "screenWakeAllowed": false}, "expect": {"active": []}},
+        {"atMs": 60000, "health": {"cameras": [], "networkOnline": true, "battery": {"percent": 80, "plugged": true}, "notificationsAllowed": false, "screenWakeAllowed": false}, "expect": {"announce": [{"reason": "notificationsBlocked", "sinceMs": 0}, {"reason": "screenWakeBlocked", "sinceMs": 0}]}}
+      ]
+    },
+    {
+      "name": "an unknown battery is not a failure",
+      "steps": [
+        {"atMs": 0, "health": {"cameras": [], "networkOnline": true, "battery": null, "notificationsAllowed": true, "screenWakeAllowed": true}, "expect": {"active": []}}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "cases": [
+    {"name": "Protect's rtsps console link becomes its playable rtsp alias", "url": "rtsps://192.168.1.1:7441/EwjjtVc000xWicJ?enableSrtp", "expected": "rtsp://192.168.1.1:7447/EwjjtVc000xWicJ"},
+    {"name": "rtsps on a non-standard port changes only the scheme", "url": "rtsps://192.168.1.1:9999/token", "expected": "rtsp://192.168.1.1:9999/token"},
+    {"name": "plain rtsp is only trimmed", "url": "  rtsp://192.168.1.1:7447/token  ", "expected": "rtsp://192.168.1.1:7447/token"}
+  ]
+}

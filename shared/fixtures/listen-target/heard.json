@@ -1,0 +1,6 @@
+{
+  "cases": [
+    {"name": "a mix playing into a silenced media stream is heard by nobody", "aloud": ["a", "b"], "mediaSilenced": true, "expected": []},
+    {"name": "a mix playing into an audible media stream is heard", "aloud": ["a", "b"], "mediaSilenced": false, "expected": ["a", "b"]}
+  ]
+}
