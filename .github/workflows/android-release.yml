@@ -102,14 +102,15 @@ jobs:
           path: android/release-artifacts/*
           if-no-files-found: error
 
-      - name: Attach artifacts to GitHub Release
+      - name: Attach APK to GitHub Release
         if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
-          gh release upload "${{ github.event.release.tag_name }}" release-artifacts/* \
+          # The AAB goes to Google Play only; the release carries the installable APK.
+          gh release upload "${{ github.event.release.tag_name }}" release-artifacts/*.apk \
             --repo "${{ github.repository }}" \
             --clobber
 
