@@ -1,6 +1,8 @@
 package app.dozecam.protect
 
+import app.dozecam.testing.Fixtures
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.Serializable
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import okhttp3.tls.HandshakeCertificates
@@ -13,6 +15,62 @@ import org.junit.Before
 import org.junit.Test
 
 class ProtectPublicApiClientTest {
+
+    /**
+     * `shared/fixtures/protect-api/cameras.expected.json`, which the legacy
+     * client's test reads too: both clients must yield the same camera ids.
+     */
+    @Serializable
+    private data class CamerasExpected(
+        val name: String,
+        val responses: Responses,
+        val cameras: List<Camera>,
+    ) {
+        @Serializable
+        data class Responses(val publicApi: String, val legacyApi: String)
+
+        @Serializable
+        data class Camera(val id: String, val publicApi: PublicApi, val legacyApi: LegacyApi)
+
+        @Serializable
+        data class PublicApi(val name: String?, val hasSpeaker: Boolean)
+
+        @Serializable
+        data class LegacyApi(val name: String, val preferredChannel: Channel?)
+
+        @Serializable
+        data class Channel(val name: String, val rtspAlias: String?)
+    }
+
+    /** `shared/fixtures/protect-api/public/expected.json`. */
+    @Serializable
+    private data class Expected(
+        val rtspsStream: Streams,
+        val rtspsStreamCreated: Streams,
+        val talkbackSession: Talkback,
+    ) {
+        @Serializable
+        data class Streams(val name: String, val response: String, val streams: Map<String, String>)
+
+        @Serializable
+        data class Talkback(
+            val name: String,
+            val response: String,
+            val url: String,
+            val codec: String,
+            val samplingRate: Int,
+            val bitsPerSample: Int,
+        )
+    }
+
+    private val camerasExpected =
+        Fixtures.decode<CamerasExpected>("protect-api/cameras.expected.json")
+    private val expected = Fixtures.decode<Expected>("protect-api/public/expected.json")
+
+    private fun camerasResponse(): String =
+        Fixtures.text("protect-api/${camerasExpected.responses.publicApi}")
+
+    private fun response(file: String): String = Fixtures.text("protect-api/public/$file")
 
     private lateinit var server: MockWebServer
     private lateinit var heldCertificate: HeldCertificate
@@ -53,40 +111,22 @@ class ProtectPublicApiClientTest {
 
     @Test
     fun `cameras are read from the integration endpoint with the api key`() = runTest {
-        server.enqueue(
-            jsonResponse(
-                """
-                [
-                  {"id": "cam1", "name": "Nursery", "unknownField": true},
-                  {"id": "cam2", "name": null}
-                ]
-                """.trimIndent(),
-            ),
-        )
+        server.enqueue(jsonResponse(camerasResponse()))
 
         val cameras = client().cameras("key-1")
 
         val request = server.takeRequest()
         assertEquals("/proxy/protect/integration/v1/cameras", request.url.encodedPath)
         assertEquals("key-1", request.headers["X-API-KEY"])
-        assertEquals(listOf("cam1", "cam2"), cameras.map { it.id })
-        assertEquals("Nursery", cameras.first().name)
-        assertNull(cameras.last().name)
+        // The same ids the legacy client reads from its bootstrap.
+        val case = camerasExpected
+        assertEquals(case.name, case.cameras.map { it.id }, cameras.map { it.id })
+        assertEquals(case.name, case.cameras.map { it.publicApi.name }, cameras.map { it.name })
     }
 
     @Test
     fun `active streams are returned by quality and inactive ones dropped`() = runTest {
-        server.enqueue(
-            jsonResponse(
-                """
-                {
-                  "high": "rtsps://192.168.1.1:7441/aliasH?enableSrtp",
-                  "medium": "rtsps://192.168.1.1:7441/aliasM?enableSrtp",
-                  "low": null
-                }
-                """.trimIndent(),
-            ),
-        )
+        server.enqueue(jsonResponse(response(expected.rtspsStream.response)))
 
         val streams = client().rtspsStreams("key-1", "cam1")
 
@@ -96,12 +136,12 @@ class ProtectPublicApiClientTest {
             "/proxy/protect/integration/v1/cameras/cam1/rtsps-stream",
             request.url.encodedPath,
         )
-        assertEquals(setOf("high", "medium"), streams.keys)
+        assertEquals(expected.rtspsStream.name, expected.rtspsStream.streams, streams)
     }
 
     @Test
     fun `creating a stream posts the requested qualities`() = runTest {
-        server.enqueue(jsonResponse("""{"medium": "rtsps://192.168.1.1:7441/aliasM?enableSrtp"}"""))
+        server.enqueue(jsonResponse(response(expected.rtspsStreamCreated.response)))
 
         val streams = client().createRtspsStreams("key-1", "cam1", listOf("medium"))
 
@@ -112,44 +152,28 @@ class ProtectPublicApiClientTest {
             request.url.encodedPath,
         )
         assertTrue(request.body!!.utf8().contains("\"qualities\":[\"medium\"]"))
-        assertEquals("rtsps://192.168.1.1:7441/aliasM?enableSrtp", streams["medium"])
+        assertEquals(expected.rtspsStreamCreated.name, expected.rtspsStreamCreated.streams, streams)
     }
 
     @Test
     fun `cameras report whether they carry a speaker`() = runTest {
-        server.enqueue(
-            jsonResponse(
-                """
-                [
-                  {"id": "cam1", "featureFlags": {"hasSpeaker": true, "hasMic": true}},
-                  {"id": "cam2", "featureFlags": {"hasSpeaker": false}},
-                  {"id": "cam3"}
-                ]
-                """.trimIndent(),
-            ),
-        )
+        server.enqueue(jsonResponse(camerasResponse()))
 
         val cameras = client().cameras("key-1")
 
-        // A camera whose flags never arrived is treated as having no speaker:
-        // offering talk-back and failing is worse than not offering it.
-        assertEquals(listOf(true, false, false), cameras.map { it.hasSpeaker })
+        // A camera whose flags never arrived (cam3) is treated as having no
+        // speaker: offering talk-back and failing is worse than not offering it.
+        val case = camerasExpected
+        assertEquals(
+            case.name,
+            case.cameras.map { it.publicApi.hasSpeaker },
+            cameras.map { it.hasSpeaker },
+        )
     }
 
     @Test
     fun `a talkback session is posted without a body and parsed`() = runTest {
-        server.enqueue(
-            jsonResponse(
-                """
-                {
-                  "url": "rtp://192.168.1.12:7004",
-                  "codec": "opus",
-                  "samplingRate": 24000,
-                  "bitsPerSample": 16
-                }
-                """.trimIndent(),
-            ),
-        )
+        server.enqueue(jsonResponse(response(expected.talkbackSession.response)))
 
         val session = client().talkbackSession("key-1", "cam1")
 
@@ -161,9 +185,11 @@ class ProtectPublicApiClientTest {
         )
         assertEquals("key-1", request.headers["X-API-KEY"])
         assertEquals("", request.body?.utf8() ?: "")
-        assertEquals("opus", session.codec)
-        assertEquals(24000, session.samplingRate)
-        assertEquals(16, session.bitsPerSample)
+        val case = expected.talkbackSession
+        assertEquals(case.name, case.url, session.url)
+        assertEquals(case.name, case.codec, session.codec)
+        assertEquals(case.name, case.samplingRate, session.samplingRate)
+        assertEquals(case.name, case.bitsPerSample, session.bitsPerSample)
     }
 
     /**

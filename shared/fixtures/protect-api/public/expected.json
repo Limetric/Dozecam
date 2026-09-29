@@ -1,0 +1,25 @@
+{
+  "rtspsStream": {
+    "name": "active streams are kept by quality and a null one is dropped",
+    "response": "rtsps-stream.json",
+    "streams": {
+      "high": "rtsps://192.168.1.1:7441/aliasH?enableSrtp",
+      "medium": "rtsps://192.168.1.1:7441/aliasM?enableSrtp"
+    }
+  },
+  "rtspsStreamCreated": {
+    "name": "the created stream comes back by quality",
+    "response": "rtsps-stream-created.json",
+    "streams": {
+      "medium": "rtsps://192.168.1.1:7441/aliasM?enableSrtp"
+    }
+  },
+  "talkbackSession": {
+    "name": "the talk-back session is read as sent",
+    "response": "talkback-session.json",
+    "url": "rtp://192.168.1.12:7004",
+    "codec": "opus",
+    "samplingRate": 24000,
+    "bitsPerSample": 16
+  }
+}

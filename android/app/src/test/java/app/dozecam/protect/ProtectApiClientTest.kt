@@ -1,7 +1,9 @@
 package app.dozecam.protect
 
+import app.dozecam.testing.Fixtures
 import javax.net.ssl.SSLHandshakeException
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.Serializable
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import okhttp3.tls.HandshakeCertificates
@@ -14,6 +16,60 @@ import org.junit.Before
 import org.junit.Test
 
 class ProtectApiClientTest {
+
+    /**
+     * `shared/fixtures/protect-api/cameras.expected.json`, which the public
+     * client's test reads too: both clients must yield the same camera ids.
+     */
+    @Serializable
+    private data class CamerasExpected(
+        val name: String,
+        val responses: Responses,
+        val cameras: List<Camera>,
+    ) {
+        @Serializable
+        data class Responses(val publicApi: String, val legacyApi: String)
+
+        @Serializable
+        data class Camera(val id: String, val publicApi: PublicApi, val legacyApi: LegacyApi)
+
+        @Serializable
+        data class PublicApi(val name: String?, val hasSpeaker: Boolean)
+
+        @Serializable
+        data class LegacyApi(val name: String, val preferredChannel: Channel?)
+
+        @Serializable
+        data class Channel(val name: String, val rtspAlias: String?)
+    }
+
+    /** `shared/fixtures/protect-api/legacy/expected.json`. */
+    @Serializable
+    private data class Expected(
+        val livestream: Livestream,
+        val rtspEnabled: RtspEnabled,
+        val apiKey: ApiKey,
+    ) {
+        @Serializable
+        data class Livestream(val name: String, val response: String, val url: String)
+
+        @Serializable
+        data class RtspEnabled(val name: String, val response: String, val rtspAlias: String)
+
+        @Serializable
+        data class ApiKey(val name: String, val response: String, val apiKey: String)
+    }
+
+    private val camerasExpected =
+        Fixtures.decode<CamerasExpected>("protect-api/cameras.expected.json")
+    private val expected = Fixtures.decode<Expected>("protect-api/legacy/expected.json")
+
+    private fun jsonResponse(body: String): MockResponse = MockResponse.Builder()
+        .code(200)
+        .body(body)
+        .build()
+
+    private fun response(file: String): String = Fixtures.text("protect-api/legacy/$file")
 
     private lateinit var server: MockWebServer
     private lateinit var heldCertificate: HeldCertificate
@@ -57,18 +113,13 @@ class ProtectApiClientTest {
     @Test
     fun `livestream url is negotiated and re-pointed at the console address`() = runTest {
         server.enqueue(loginResponse())
-        server.enqueue(
-            MockResponse.Builder()
-                .code(200)
-                .body("""{"url":"wss://unifi.internal:7443/ws/livestream?token=abc123"}""")
-                .build(),
-        )
+        server.enqueue(jsonResponse(response(expected.livestream.response)))
         val api = client()
         val session = api.login("user", "pass")
 
         val url = api.livestreamUrl(session, "cam-1", channel = 1)
 
-        assertEquals("wss://127.0.0.1:7443/ws/livestream?token=abc123", url)
+        assertEquals(expected.livestream.name, expected.livestream.url, url)
         server.takeRequest()
         val request = server.takeRequest()
         val target = request.target
@@ -133,29 +184,8 @@ class ProtectApiClientTest {
     @Test
     fun `bootstrap parses cameras and sends the session headers`() = runTest {
         server.enqueue(loginResponse())
-        server.enqueue(
-            MockResponse.Builder()
-                .code(200)
-                .body(
-                    """
-                    {
-                      "unknownTopLevel": {"x": 1},
-                      "cameras": [
-                        {
-                          "id": "cam1",
-                          "name": "Nursery",
-                          "unknownField": true,
-                          "channels": [
-                            {"id": 0, "name": "High", "isRtspEnabled": false, "rtspAlias": null},
-                            {"id": 1, "name": "Medium", "isRtspEnabled": true, "rtspAlias": "aliasM"}
-                          ]
-                        }
-                      ]
-                    }
-                    """.trimIndent(),
-                )
-                .build(),
-        )
+        val bootstrapResponse = Fixtures.text("protect-api/${camerasExpected.responses.legacyApi}")
+        server.enqueue(jsonResponse(bootstrapResponse))
 
         val api = client()
         val session = api.login("babycam", "secret")
@@ -166,32 +196,30 @@ class ProtectApiClientTest {
         assertEquals("TOKEN=abc123", request.headers["Cookie"])
         assertEquals("csrf-token-1", request.headers["X-CSRF-Token"])
 
-        assertEquals(1, bootstrap.cameras.size)
-        val camera = bootstrap.cameras.first()
-        assertEquals("Nursery", camera.name)
-        assertEquals("Medium", camera.preferredChannel?.name)
-        assertEquals("aliasM", camera.preferredChannel?.rtspAlias)
+        val case = camerasExpected
+        // The same ids the public client reads from its camera list.
+        assertEquals(case.name, case.cameras.map { it.id }, bootstrap.cameras.map { it.id })
+        assertEquals(
+            case.name,
+            case.cameras.map { it.legacyApi.name },
+            bootstrap.cameras.map { it.name },
+        )
+        assertEquals(
+            case.name,
+            case.cameras.map { it.legacyApi.preferredChannel?.name },
+            bootstrap.cameras.map { it.preferredChannel?.name },
+        )
+        assertEquals(
+            case.name,
+            case.cameras.map { it.legacyApi.preferredChannel?.rtspAlias },
+            bootstrap.cameras.map { it.preferredChannel?.rtspAlias },
+        )
     }
 
     @Test
     fun `enableRtsp patches the channel and returns the updated camera`() = runTest {
         server.enqueue(loginResponse())
-        server.enqueue(
-            MockResponse.Builder()
-                .code(200)
-                .body(
-                    """
-                    {
-                      "id": "cam1",
-                      "name": "Nursery",
-                      "channels": [
-                        {"id": 1, "name": "Medium", "isRtspEnabled": true, "rtspAlias": "newAlias"}
-                      ]
-                    }
-                    """.trimIndent(),
-                )
-                .build(),
-        )
+        server.enqueue(jsonResponse(response(expected.rtspEnabled.response)))
 
         val api = client()
         val session = api.login("babycam", "secret")
@@ -202,18 +230,17 @@ class ProtectApiClientTest {
         assertEquals("PATCH", request.method)
         assertEquals("/proxy/protect/api/cameras/cam1", request.url.encodedPath)
         assertTrue(request.body!!.utf8().contains("\"isRtspEnabled\":true"))
-        assertEquals("newAlias", updated.channels.first().rtspAlias)
+        assertEquals(
+            expected.rtspEnabled.name,
+            expected.rtspEnabled.rtspAlias,
+            updated.channels.first().rtspAlias,
+        )
     }
 
     @Test
     fun `createApiKey posts the key name and unwraps the minted key`() = runTest {
         server.enqueue(loginResponse())
-        server.enqueue(
-            MockResponse.Builder()
-                .code(200)
-                .body("""{"data": {"full_api_key": "abcdef123456", "id": "k1"}}""")
-                .build(),
-        )
+        server.enqueue(jsonResponse(response(expected.apiKey.response)))
 
         val api = client()
         val session = api.login("babycam", "secret")
@@ -225,7 +252,7 @@ class ProtectApiClientTest {
         assertEquals("/proxy/users/api/v2/user/self/keys", request.url.encodedPath)
         assertEquals("TOKEN=abc123", request.headers["Cookie"])
         assertTrue(request.body!!.utf8().contains("\"name\":\"Dozecam\""))
-        assertEquals("abcdef123456", key)
+        assertEquals(expected.apiKey.name, expected.apiKey.apiKey, key)
     }
 
     /** Pre-5.3 consoles have no such endpoint; non-owner accounts are refused. */

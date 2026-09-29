@@ -1,0 +1,6 @@
+{
+  "url": "rtp://192.168.1.12:7004",
+  "codec": "opus",
+  "samplingRate": 24000,
+  "bitsPerSample": 16
+}

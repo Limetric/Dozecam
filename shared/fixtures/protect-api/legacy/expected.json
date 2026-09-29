@@ -1,0 +1,17 @@
+{
+  "livestream": {
+    "name": "the advertised host is swapped for the address the console answered on",
+    "response": "livestream.json",
+    "url": "wss://127.0.0.1:7443/ws/livestream?token=abc123"
+  },
+  "rtspEnabled": {
+    "name": "the patched camera comes back with its channel's new alias",
+    "response": "camera-rtsp-enabled.json",
+    "rtspAlias": "newAlias"
+  },
+  "apiKey": {
+    "name": "the minted key is unwrapped from its envelope",
+    "response": "api-key.json",
+    "apiKey": "abcdef123456"
+  }
+}
