@@ -179,6 +179,17 @@ struct PinnedSessionDelegateTests {
         }
     }
 
+    @Test(arguments: [
+        ("https://192.168.1.1/api/cameras", "https://192.168.1.1/proxy/protect/api/cameras", true),
+        ("https://192.168.1.1/api", "https://192.168.1.1:443/other", true),
+        ("https://192.168.1.1/api", "https://192.168.1.2/api", false),
+        ("https://192.168.1.1/api", "https://192.168.1.1:7443/api", false),
+        ("https://192.168.1.1/api", "http://192.168.1.1/api", false),
+    ])
+    func redirectsStayOnTheConsole(from: String, to: String, allowed: Bool) {
+        #expect(PinnedSessionDelegate.allowsRedirect(from: URL(string: from), to: URL(string: to)) == allowed)
+    }
+
     @Test func surfacingTrustFailuresRethrowsTheRefusal() async throws {
         let session = PinnedSessionFactory(store: TofuTrustStore(fileURL: nil)).consoleSession()
         defer { session.invalidate() }

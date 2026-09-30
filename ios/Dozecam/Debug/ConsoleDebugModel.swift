@@ -60,7 +60,8 @@
                 refreshPin()
             }
             pendingTrust = nil
-            let access = await localNetwork.requestAccess(probing: endpoint.host, port: UInt16(endpoint.port))
+            let access = await localNetwork.requestAccess(
+                probing: endpoint.host, port: UInt16(clamping: endpoint.port))
             note("Local network access: \(access.rawValue)")
 
             let session = PinnedSessionFactory(store: trust).consoleSession(confirming: fingerprint)

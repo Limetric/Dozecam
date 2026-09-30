@@ -348,6 +348,9 @@ struct ProtectApiClientTests {
         #expect(ProtectApiClient.baseURL(for: "192.168.1.1")?.absoluteString == "https://192.168.1.1/")
         #expect(ProtectApiClient.baseURL(for: " console.local:8443/ ")?.absoluteString == "https://console.local:8443/")
         #expect(ProtectApiClient.baseURL(for: "") == nil)
+        #expect(ProtectApiClient.baseURL(for: "console.local:65536") == nil)
+        #expect(ProtectApiClient.baseURL(for: "console.local:0") == nil)
+        #expect(ProtectApiClient.baseURL(for: "console.local:65535")?.port == 65535)
         #expect(ProtectApiClient.baseURL(for: "not a host") == nil)
         // Credentials must never bypass the TOFU TLS flow.
         #expect(ProtectApiClient.baseURL(for: "http://console.local") == nil)

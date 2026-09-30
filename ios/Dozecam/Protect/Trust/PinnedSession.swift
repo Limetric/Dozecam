@@ -150,6 +150,30 @@ final class PinnedSessionDelegate: NSObject, URLSessionTaskDelegate, Sendable {
         }
     }
 
+    /// Whether a redirect may be followed: only within the endpoint the
+    /// request was made to. Requests to a console carry its credentials
+    /// (cookie, CSRF token, API key) as headers, which URLSession would replay
+    /// to wherever a redirect points; pinning proves the destination's
+    /// certificate, not that it is the console those credentials are for
+    /// (shared/spec/protect.md: they are sent only to that console).
+    static func allowsRedirect(from original: URL?, to destination: URL?) -> Bool {
+        guard let original, let destination,
+            let from = TofuEndpoint(url: original), let to = TofuEndpoint(url: destination)
+        else { return false }
+        return from == to && original.scheme?.lowercased() == destination.scheme?.lowercased()
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        // nil hands the redirect response itself back to the caller.
+        completionHandler(Self.allowsRedirect(from: task.originalRequest?.url, to: request.url) ? request : nil)
+    }
+
     func urlSession(
         _ session: URLSession,
         didReceive challenge: URLAuthenticationChallenge,
