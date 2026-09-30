@@ -78,7 +78,7 @@ struct CamerasPage: View {
             titleVisibility: .visible,
             presenting: model.pendingRemoval
         ) { camera in
-            Button("Remove \(camera.name)", role: .destructive) { model.confirmRemoval() }
+            Button("Remove \(camera.name)", role: .destructive) { model.confirmRemoval(of: camera) }
             Button("Cancel", role: .cancel) { model.cancelRemoval() }
         } message: { _ in
             Text("It will no longer be shown or listened to. You can add it again later.")

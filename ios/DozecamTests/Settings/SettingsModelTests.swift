@@ -230,7 +230,7 @@ struct SettingsModelTests {
         #expect(dependencies.cameras.cameras.count == 2)
 
         model.requestRemoval(of: nursery)
-        model.confirmRemoval()
+        model.confirmRemoval(of: nursery)
         #expect(model.pendingRemoval == nil)
         #expect(model.cameras == [playroom])
         await model.flush()
@@ -238,12 +238,17 @@ struct SettingsModelTests {
         #expect(makeModel().cameras == [playroom])
     }
 
-    @Test func confirmingWithNothingPendingRemovesNothing() async throws {
+    /// SwiftUI's order when "Remove" is tapped: the dialog is dismissed first
+    /// (its binding clears the pending camera), then the button runs. The
+    /// camera the dialog was presented for is still removed.
+    @Test func removalSurvivesTheDialogClearingThePendingCameraFirst() async throws {
         try await dependencies.cameras.upsert(nursery)
         let model = makeModel()
-        model.confirmRemoval()
+        model.requestRemoval(of: nursery)
+        model.cancelRemoval()
+        model.confirmRemoval(of: nursery)
         await model.flush()
-        #expect(dependencies.cameras.cameras == [nursery])
+        #expect(dependencies.cameras.cameras.isEmpty)
     }
 
     // MARK: Search

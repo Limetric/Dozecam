@@ -169,8 +169,10 @@ final class SettingsModel {
         pendingRemoval = nil
     }
 
-    func confirmRemoval() {
-        guard let camera = pendingRemoval else { return }
+    /// Removes the camera the dialog was presented for. It is passed in rather
+    /// than read back from `pendingRemoval`: SwiftUI dismisses a dialog, and
+    /// so clears the pending camera, before it runs the tapped button.
+    func confirmRemoval(of camera: Camera) {
         pendingRemoval = nil
         cameras.removeAll { $0.id == camera.id }
         let store = dependencies.cameras
