@@ -435,6 +435,22 @@ struct MonitorModelTests {
         await harness.hide()
     }
 
+    /// Switching sound on again is the moment to try a failed speaker again,
+    /// rather than refusing on its old answer.
+    @Test func switchingSoundOnRetriesAFailedSpeaker() async throws {
+        let harness = try await Harness { $0.soundMode = .rotating }
+        harness.hardware.refuseActivation = true
+        await harness.show()
+        #expect(await eventually { harness.model.settings.soundMode == .off })
+
+        harness.hardware.refuseActivation = false
+        harness.model.cycleSoundMode()
+        #expect(harness.model.settings.soundMode == .rotating)
+        #expect(harness.speaker.isGranted)
+        #expect(harness.requested() == ["nursery"])
+        await harness.hide()
+    }
+
     @Test(arguments: [false, true])
     func unpluggingLeavesTheSettingAloneWhenTheViewerHoldsNoSpeaker(allPaused: Bool) async throws {
         let harness = try await Harness { $0.soundMode = .rotating }

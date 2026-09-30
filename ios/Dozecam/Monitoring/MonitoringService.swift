@@ -174,6 +174,18 @@ final class MonitoringService {
         reconcile()
     }
 
+    /// Tries a speaker that was refused or never came back again: when sound
+    /// is switched on, and when the app comes back. Returns whether the
+    /// speaker is ours now.
+    @discardableResult
+    func retrySpeaker() -> Bool {
+        guard isRunning else { return false }
+        guard !speaker.isGranted else { return true }
+        let granted = speaker.start()
+        applySpeaker()
+        return granted
+    }
+
     /// The app went to the background: the speaker must be ours, mixing, for
     /// the night (#58).
     func enteredBackground() {

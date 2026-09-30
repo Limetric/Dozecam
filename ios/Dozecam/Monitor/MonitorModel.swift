@@ -219,6 +219,7 @@ final class MonitorModel {
             // The viewer arms on every resume, not only on launch.
             monitoring.refreshConsole()
             monitoring.arm()
+            if case .failed = monitoring.speaker.status { monitoring.retrySpeaker() }
         } else {
             monitoring.enteredBackground()
         }
@@ -303,7 +304,7 @@ final class MonitorModel {
         switch next {
         case .off:
             announce("Sound off")
-        case _ where !monitoring.speaker.isGranted:
+        case _ where !monitoring.retrySpeaker():
             // The sound comes out of the monitor's speaker; without it there is
             // nothing to play through, and a sound button left on would lie.
             settings.soundMode = .off
