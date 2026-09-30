@@ -140,6 +140,43 @@ struct MonitoringAlertsTests {
             return next
         }
         #expect(await eventually { harness.alarms.ringing == nil })
+        await harness.service.alerts.flushNotices()
+        #expect(harness.center.showing[MonitoringNotices.alertId] == nil)
+    }
+
+    /// With alerts off the app dying wakes nobody either; back on, the
+    /// dead-man is pushed back again.
+    @Test func theDeadManFollowsTheAlertsSwitch() async throws {
+        let harness = try await Harness()
+        harness.service.arm()
+        await harness.settle()
+        #expect(await eventually { harness.deadMan.heartbeats == 1 })
+        await harness.dependencies.appSettings.update { current in
+            var next = current
+            next.alertsEnabled = false
+            return next
+        }
+        #expect(await eventually { harness.deadMan.disarms == 1 })
+        harness.pass(seconds: 30)
+        await harness.settle()
+        #expect(harness.deadMan.heartbeats == 1, "no heartbeat arms it while alerts are off")
+
+        await harness.dependencies.appSettings.update { current in
+            var next = current
+            next.alertsEnabled = true
+            return next
+        }
+        #expect(await eventually { harness.deadMan.heartbeats == 2 })
+    }
+
+    /// A card withdrawn before its post has gone out does not appear after.
+    @Test func aCardWithdrawnWhileBeingPostedStaysDown() async throws {
+        let harness = try await Harness()
+        harness.service.arm()
+        harness.allLive()
+        harness.nurseryCries()
+        harness.service.pause("nursery")
+        await harness.service.alerts.flushNotices()
         #expect(harness.center.showing[MonitoringNotices.alertId] == nil)
     }
 
@@ -215,6 +252,7 @@ struct MonitoringAlertsTests {
         #expect(await eventually { harness.center.showing[MonitoringNotices.alertId] != nil })
         harness.service.pause("nursery")
         #expect(!harness.service.alerts.isAlarming)
+        await harness.service.alerts.flushNotices()
         #expect(harness.center.showing[MonitoringNotices.alertId] == nil)
     }
 
@@ -265,6 +303,7 @@ struct MonitoringAlertsTests {
         }
         #expect(harness.service.failures.isEmpty)
         #expect(harness.service.recovered != nil)
+        await harness.service.alerts.flushNotices()
         #expect(harness.center.showing[MonitoringNotices.failureId] == nil)
     }
 
@@ -282,6 +321,7 @@ struct MonitoringAlertsTests {
         harness.service.exit()
         #expect(harness.alarms.ringing == nil)
         #expect(await eventually { harness.deadMan.disarms == 1 })
+        await harness.service.alerts.flushNotices()
         #expect(harness.center.showing.isEmpty)
     }
 }

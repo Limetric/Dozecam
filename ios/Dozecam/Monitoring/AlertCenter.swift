@@ -45,6 +45,7 @@ final class AlertCenter {
     /// Bumped whenever the alarm stops, so a raise queued before the stop
     /// cannot ring after it.
     @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var lastNotice: Task<Void, Never>?
 
     private static let log = Logger(subsystem: "app.dozecam", category: "alerts")
 
@@ -64,7 +65,7 @@ final class AlertCenter {
         names[cameraId] = name
         cardCameraId = cameraId
         let notices = delivery.notices
-        Task { _ = await notices.postSoundAlert(cameraId: cameraId, roomName: name, prominent: prominent) }
+        enqueue { _ = await notices.postSoundAlert(cameraId: cameraId, roomName: name, prominent: prominent) }
         guard sounds else { return }
         signal(cameraId, settings: settings)
     }
@@ -75,7 +76,8 @@ final class AlertCenter {
         perform(signaler.stop(ifAlarming: cameraId))
         if cardCameraId == cameraId {
             cardCameraId = nil
-            delivery.notices.removeSoundAlert()
+            let notices = delivery.notices
+            enqueue { notices.removeSoundAlert() }
         }
     }
 
@@ -102,7 +104,8 @@ final class AlertCenter {
             failureTitle = wording.cardTitle(failures)
             post(failures, wording: wording, announce: false)
         case .clear:
-            delivery.notices.removeFailure()
+            let notices = delivery.notices
+            enqueue { notices.removeFailure() }
             perform(signaler.stopFailure())
         }
     }
@@ -111,13 +114,13 @@ final class AlertCenter {
         let notices = delivery.notices
         let title = wording.cardTitle(failures)
         let lines = failures.map(wording.detail)
-        Task { _ = await notices.postFailure(title: title, lines: lines, announce: announce) }
+        enqueue { _ = await notices.postFailure(title: title, lines: lines, announce: announce) }
     }
 
     /// Charger pulled while armed: a quiet notice, never an alarm.
     func unplugged(percent: Int) {
         let notices = delivery.notices
-        Task { _ = await notices.postUnplugged(percent: percent) }
+        enqueue { _ = await notices.postUnplugged(percent: percent) }
     }
 
     // MARK: - Everything
@@ -127,22 +130,50 @@ final class AlertCenter {
     func dropAll() {
         perform(signaler.stop())
         cardCameraId = nil
-        delivery.notices.removeSoundAlert()
-        delivery.notices.removeFailure()
+        let notices = delivery.notices
+        enqueue {
+            notices.removeSoundAlert()
+            notices.removeFailure()
+        }
+        // The dead-man is an announcement too: nothing may wake anyone.
+        disarmDeadMan()
     }
 
     /// Exit: nothing monitoring posted may outlive it, the dead-man included.
     func exit() {
         perform(signaler.stop())
         cardCameraId = nil
-        delivery.notices.removeAll()
+        let notices = delivery.notices
+        enqueue { notices.removeAll() }
+        disarmDeadMan()
+    }
+
+    /// Pushes the dead-man back, only while alerts may reach anyone: with
+    /// them off, the app dying must not wake anyone either.
+    func heartbeat(alertsEnabled: Bool) {
+        guard alertsEnabled else { return disarmDeadMan() }
+        let deadMan = delivery.deadMan
+        Task { await deadMan.heartbeat() }
+    }
+
+    private func disarmDeadMan() {
         let deadMan = delivery.deadMan
         Task { await deadMan.disarm() }
     }
 
-    func heartbeat() {
-        let deadMan = delivery.deadMan
-        Task { await deadMan.heartbeat() }
+    /// Posts and removals, one after another in the order asked: a card
+    /// withdrawn while its post is still on its way must not appear after.
+    private func enqueue(_ operation: @escaping @MainActor () async -> Void) {
+        let previous = lastNotice
+        lastNotice = Task {
+            await previous?.value
+            await operation()
+        }
+    }
+
+    /// Waits for every card operation asked so far; tests read the result.
+    func flushNotices() async {
+        await lastNotice?.value
     }
 
     // MARK: - The alarm

@@ -307,7 +307,7 @@ final class MonitoringService {
             if next.alertsEnabled != alertsWere {
                 // Off: nothing may reach anyone, so what is up comes down.
                 // On: a failure owed its announcement gets it now.
-                if !next.alertsEnabled { alerts.dropAll() }
+                if next.alertsEnabled { alerts.heartbeat(alertsEnabled: true) } else { alerts.dropAll() }
                 alerts.apply(
                     announcer.alertsChanged(enabled: next.alertsEnabled, active: failures), wording: wording,
                     settings: next)
@@ -528,7 +528,7 @@ final class MonitoringService {
     private func heartbeat() {
         beating = nil
         guard isRunning else { return }
-        alerts.heartbeat()
+        alerts.heartbeat(alertsEnabled: settings.alertsEnabled)
         beating = scheduler.schedule(after: Self.heartbeatIntervalMs) { [weak self] in self?.heartbeat() }
     }
 
