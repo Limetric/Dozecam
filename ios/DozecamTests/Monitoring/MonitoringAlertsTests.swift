@@ -238,6 +238,24 @@ struct MonitoringAlertsTests {
         #expect(!harness.tone.calls.contains { if case .start = $0 { true } else { false } })
     }
 
+    /// An alarm that fell back to the tone stays on it for its run: another
+    /// room's trigger does not add AlarmKit beside the tone.
+    @Test func anAlarmOnTheToneStaysOnItForItsRun() async throws {
+        let harness = try await Harness()
+        harness.alarms.refuse = true
+        harness.service.arm()
+        harness.allLive()
+        harness.nurseryCries()
+        #expect(await eventually { harness.tone.isPlaying })
+        harness.alarms.refuse = false
+        let start = harness.scheduler.nowMs
+        harness.hear("twins", rms: 0.3, atMs: start)
+        harness.hear("twins", rms: 0.3, atMs: start + 1_600)
+        await harness.settle()
+        #expect(harness.alarms.raised.isEmpty)
+        #expect(harness.service.alerts.alarmingCameraId == "twins")
+    }
+
     /// Two rooms while AlarmKit is still answering: a refusal of the first
     /// cannot take delivery away from the second.
     @Test func aLateRefusalForAReplacedRoomLeavesTheNewRoomOnAlarmKit() async throws {

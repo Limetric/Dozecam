@@ -197,7 +197,10 @@ final class AlertCenter {
     // MARK: - The alarm
 
     private func signal(_ cameraId: String, settings: AppSettings) {
-        viaAlarmKit = delivery.access.alarms == .authorized
+        // Delivery is chosen when an alarm starts and kept for its run: an
+        // alarm that fell back to the tone stays on it, rather than a later
+        // trigger scheduling AlarmKit beside a tone still sounding.
+        if !signaler.isAlarming { viaAlarmKit = delivery.access.alarms == .authorized }
         perform(signaler.signal(cameraId: cameraId, settings: settings, nowMs: scheduler.nowMs))
         ringAlarmKit()
         startTicking()
