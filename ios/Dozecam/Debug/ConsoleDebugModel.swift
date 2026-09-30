@@ -50,7 +50,13 @@
         }
 
         func signIn(includingPublicAPI: Bool, confirming fingerprint: String? = nil) async {
-            guard let baseURL = ProtectApiClient.baseURL(for: host), let endpoint else {
+            // The fields stay editable while this runs; everything below uses
+            // this snapshot, so one console's credentials never meet another's
+            // address.
+            let host = host
+            let username = username
+            let password = password
+            guard let baseURL = ProtectApiClient.baseURL(for: host), let endpoint = TofuEndpoint(url: baseURL) else {
                 note("Not a console address: \(host)")
                 return
             }
