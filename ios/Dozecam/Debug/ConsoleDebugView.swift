@@ -39,7 +39,8 @@
                         Button("Trust this certificate and sign in") {
                             Task {
                                 await model.signIn(
-                                    includingPublicAPI: false, confirming: pending.presentedFingerprint)
+                                    includingPublicAPI: model.pendingIncludesPublicAPI,
+                                    confirming: pending.presentedFingerprint)
                             }
                         }
                     }

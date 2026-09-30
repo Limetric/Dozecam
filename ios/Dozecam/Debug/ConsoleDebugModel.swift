@@ -22,6 +22,9 @@
         private(set) var busy = false
         private(set) var log: [String] = []
         private(set) var pendingTrust: TofuTrustError?
+        /// The API choice of the sign-in that stopped at the certificate
+        /// prompt, so confirming carries it through.
+        private(set) var pendingIncludesPublicAPI = false
         private(set) var listings: [Listing] = []
         private(set) var pinned: String?
 
@@ -118,6 +121,7 @@
                 }
             } catch let failure as TofuTrustError where failure.needsConfirmation {
                 pendingTrust = failure
+                pendingIncludesPublicAPI = includingPublicAPI
                 note("Certificate needs confirming: \(failure)")
             } catch {
                 note("Failed: \(error)")
