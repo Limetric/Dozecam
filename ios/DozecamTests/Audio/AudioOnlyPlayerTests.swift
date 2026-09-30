@@ -151,4 +151,31 @@ struct AudioOnlyPlayerTests {
         let before = log.levels.count
         #expect(await play(Self.nursery, on: player, log: log) { $0.levels.count > before + 5 })
     }
+
+    /// The whole chain on the real player and clock: the monitor goes live
+    /// and audible off decoded buffers.
+    @Test func aMonitorOnTheTestbedBecomesAudible() async {
+        let monitor = CameraAudioMonitor(cameraId: "nursery", transports: [.rtsp(url: Self.nursery)]) {
+            AudioOnlyPlayer(sink: nil)
+        }
+        defer { monitor.stop() }
+        let batches = Locked(0)
+        monitor.onLevels = { _ in batches.value += 1 }
+        monitor.start()
+
+        let deadline = ContinuousClock.now + .seconds(20)
+        while ContinuousClock.now < deadline, !monitor.isAudible {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(monitor.isAudible)
+        #expect(monitor.connection == .live)
+        #expect(monitor.level != nil)
+        #expect(batches.value > 0)
+
+        // Past the first burst libVLC hands over, buffers keep coming in
+        // real time: longer than a stall, and it is still live.
+        try? await Task.sleep(for: .seconds(4))
+        #expect(monitor.connection == .live)
+        #expect(monitor.isAudible)
+    }
 }
