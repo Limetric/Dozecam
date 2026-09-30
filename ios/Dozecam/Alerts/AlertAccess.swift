@@ -97,7 +97,9 @@ final class SystemAlertAccess: AlertAccess {
     private nonisolated static func requestNotificationCenter() async -> NotificationGrant {
         // Sound is asked for with the card: the fallback's card is the one
         // surface left when AlarmKit is not authorised. No badge: nothing
-        // Dozecam posts is a count.
+        // Dozecam posts is a count. Not `.timeSensitive`: that option was
+        // deprecated in iOS 15.0 itself ("Use time-sensitive entitlement");
+        // the entitlement in project.yml is what allows the level.
         _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
         return await readNotifications()
     }
