@@ -15,14 +15,18 @@ final class AppModel {
     private(set) var destination: Destination
     var isShowingSettings = false
 
+    let dependencies: AppDependencies
     let monitor = MonitorModel()
-    let onboarding = OnboardingModel()
-    let settings = SettingsModel()
+    let onboarding: OnboardingModel
+    let settings: SettingsModel
 
     /// With no cameras there is nothing to monitor, so the app opens on
     /// onboarding, as Android's viewer does.
-    init(hasCameras: Bool = false) {
-        destination = hasCameras ? .monitor : .onboarding
+    init(dependencies: AppDependencies, destination: Destination? = nil) {
+        self.dependencies = dependencies
+        onboarding = OnboardingModel(dependencies: dependencies)
+        settings = SettingsModel(dependencies: dependencies)
+        self.destination = destination ?? (dependencies.cameras.cameras.isEmpty ? .onboarding : .monitor)
     }
 
     func finishOnboarding() {
@@ -44,9 +48,15 @@ final class AppModel {
         /// Debug builds only: `-startOn monitor` or `-startOn settings` as a launch
         /// argument opens that destination directly, since nothing can tap
         /// through onboarding in a simulator run by an agent.
-        static func forLaunch(defaults: UserDefaults = .standard) -> AppModel {
+        static func forLaunch(dependencies: AppDependencies, defaults: UserDefaults = .standard) -> AppModel {
             let startOn = defaults.string(forKey: "startOn")
-            let model = AppModel(hasCameras: startOn == "monitor" || startOn == "settings")
+            let destination: Destination? =
+                switch startOn {
+                case "monitor", "settings": .monitor
+                case "onboarding": .onboarding
+                default: nil
+                }
+            let model = AppModel(dependencies: dependencies, destination: destination)
             if startOn == "settings" { model.openSettings() }
             return model
         }
