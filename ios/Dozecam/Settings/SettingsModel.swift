@@ -4,9 +4,11 @@ import Observation
 @MainActor
 @Observable
 final class SettingsModel {
+    let dependencies: AppDependencies
     let buildInfo: BuildInfo
 
-    init(buildInfo: BuildInfo = .current) {
+    init(dependencies: AppDependencies, buildInfo: BuildInfo = .current) {
+        self.dependencies = dependencies
         self.buildInfo = buildInfo
     }
 }

@@ -5,22 +5,30 @@ import Testing
 
 @MainActor
 struct AppModelTests {
-    @Test func withoutCamerasTheAppOpensOnOnboarding() {
-        #expect(AppModel(hasCameras: false).destination == .onboarding)
+    private func dependencies(cameras: [Camera] = []) async throws -> AppDependencies {
+        let dependencies = AppDependencies.isolated()
+        for camera in cameras { try await dependencies.cameras.upsert(camera) }
+        return dependencies
     }
 
-    @Test func withCamerasTheAppOpensOnTheMonitor() {
-        #expect(AppModel(hasCameras: true).destination == .monitor)
+    private let nursery = Camera(id: "manual-1", name: "Nursery", url: "rtsp://127.0.0.1:18554/nursery")
+
+    @Test func withoutCamerasTheAppOpensOnOnboarding() async throws {
+        #expect(AppModel(dependencies: try await dependencies()).destination == .onboarding)
     }
 
-    @Test func finishingOnboardingShowsTheMonitor() {
-        let model = AppModel(hasCameras: false)
+    @Test func withCamerasTheAppOpensOnTheMonitor() async throws {
+        #expect(AppModel(dependencies: try await dependencies(cameras: [nursery])).destination == .monitor)
+    }
+
+    @Test func finishingOnboardingShowsTheMonitor() async throws {
+        let model = AppModel(dependencies: try await dependencies())
         model.finishOnboarding()
         #expect(model.destination == .monitor)
     }
 
-    @Test func addingCamerasFromSettingsClosesSettingsAndOpensOnboarding() {
-        let model = AppModel(hasCameras: true)
+    @Test func addingCamerasFromSettingsClosesSettingsAndOpensOnboarding() async throws {
+        let model = AppModel(dependencies: try await dependencies(cameras: [nursery]))
         model.openSettings()
         #expect(model.isShowingSettings)
         model.addCameras()
@@ -32,14 +40,17 @@ struct AppModelTests {
         (nil, AppModel.Destination.onboarding, false),
         ("monitor", .monitor, false),
         ("settings", .monitor, true),
+        ("onboarding", .onboarding, false),
         ("bogus", .onboarding, false),
     ])
-    func launchArgumentOpensADestination(startOn: String?, destination: AppModel.Destination, settings: Bool) throws {
+    func launchArgumentOpensADestination(startOn: String?, destination: AppModel.Destination, settings: Bool)
+        async throws
+    {
         let suite = "AppModelTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(startOn, forKey: "startOn")
-        let model = AppModel.forLaunch(defaults: defaults)
+        let model = AppModel.forLaunch(dependencies: try await dependencies(), defaults: defaults)
         #expect(model.destination == destination)
         #expect(model.isShowingSettings == settings)
     }
