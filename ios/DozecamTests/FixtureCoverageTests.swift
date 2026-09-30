@@ -9,7 +9,16 @@ import Testing
 /// A fixture is adopted once an iOS test reads it; add it to `adopted` in the
 /// same change. Areas arrive with their features (#64, #67, #68).
 struct FixtureCoverageTests {
-    static let adopted: [String] = []
+    static let adopted: [String] = [
+        "livestream/av1-config-repair.json",
+        "livestream/decoder.json",
+        "protect-api/cameras.expected.json",
+        "protect-api/legacy/expected.json",
+        "protect-api/public/expected.json",
+        "stream-url/monitorable.json",
+        "stream-url/normalize.json",
+        "stream-url/valid.json",
+    ]
 
     @Test func everyCaseOfAnAdoptedFixtureIsRunByAnIOSTest() throws {
         let testSources = Fixtures.root

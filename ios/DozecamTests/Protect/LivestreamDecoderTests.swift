@@ -7,22 +7,22 @@ import Testing
 /// `shared/fixtures/livestream` (see its README for the wire format). One test
 /// per Android `LivestreamDecoderTest` test, playing the same named case.
 struct LivestreamDecoderTests {
-    private struct Table: Decodable {
+    private struct Table: Codable {
         let cases: [Case]
     }
 
-    private struct Case: Decodable {
+    private struct Case: Codable {
         let name: String
         let messages: [Message]
     }
 
-    private struct Message: Decodable {
+    private struct Message: Codable {
         let file: String
         let segments: [Segment]?
         let error: String?
     }
 
-    private struct Segment: Decodable {
+    private struct Segment: Codable {
         let type: String
         let codec: String?
         let text: String?

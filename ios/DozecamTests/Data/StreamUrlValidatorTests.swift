@@ -7,17 +7,17 @@ import Testing
 /// question. One test per Android `StreamUrlValidatorTest` test, running the
 /// same named cases.
 struct StreamUrlValidatorTests {
-    private struct Case<Expected: Decodable & Equatable & Sendable>: Decodable {
+    private struct Case<Expected: Codable & Equatable & Sendable>: Codable {
         let name: String
         let url: String
         let expected: Expected
     }
 
-    private struct Table<Expected: Decodable & Equatable & Sendable>: Decodable {
+    private struct Table<Expected: Codable & Equatable & Sendable>: Codable {
         let cases: [Case<Expected>]
     }
 
-    private func check<Expected: Decodable & Equatable & Sendable>(
+    private func check<Expected: Codable & Equatable & Sendable>(
         _ name: String, in path: String, _ actual: (String) -> Expected
     ) throws {
         let cases = try Fixtures.decode(Table<Expected>.self, from: path).cases.filter { $0.name == name }

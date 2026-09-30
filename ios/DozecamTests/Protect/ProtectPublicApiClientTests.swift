@@ -7,14 +7,14 @@ import Testing
 /// trust layer.
 struct ProtectPublicApiClientTests {
     /// `shared/fixtures/protect-api/public/expected.json`.
-    struct Expected: Decodable {
-        struct Streams: Decodable {
+    struct Expected: Codable {
+        struct Streams: Codable {
             let name: String
             let response: String
             let streams: [String: String]
         }
 
-        struct Talkback: Decodable {
+        struct Talkback: Codable {
             let name: String
             let response: String
             let url: String

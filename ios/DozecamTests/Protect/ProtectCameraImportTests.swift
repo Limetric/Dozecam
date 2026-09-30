@@ -17,12 +17,18 @@ struct ProtectCameraImportTests {
 
     func publicCameras() throws -> [PublicCamera] {
         let expected = try CamerasExpected.load()
-        return try Fixtures.decode([PublicCamera].self, from: "protect-api/\(expected.responses.publicApi)")
+        // A verbatim console response: not a strict fixture decode.
+        return try JSONDecoder().decode(
+            [PublicCamera].self, from: Fixtures.data("protect-api/\(expected.responses.publicApi)"))
     }
 
     func legacyCameras() throws -> [ProtectCamera] {
         let expected = try CamerasExpected.load()
-        return try Fixtures.decode(ProtectBootstrap.self, from: "protect-api/\(expected.responses.legacyApi)").cameras
+        // A verbatim console response: the client ignores fields it does not use,
+        // so this is not a strict fixture decode.
+        return try JSONDecoder().decode(
+            ProtectBootstrap.self, from: Fixtures.data("protect-api/\(expected.responses.legacyApi)")
+        ).cameras
     }
 
     @Test func thePublicApiStoresEveryCameraOnTheMediumChannel() async throws {

@@ -9,12 +9,12 @@ import Testing
 /// in `shared/fixtures/livestream/av1-config-repair.json`. One test per
 /// Android `Av1ConfigRepairTest` test.
 struct Av1ConfigRepairTests {
-    private struct Table: Decodable {
+    private struct Table: Codable {
         let repair: Repair
         let unchanged: [Unchanged]
     }
 
-    private struct Repair: Decodable {
+    private struct Repair: Codable {
         let name: String
         let input: String
         let output: String
@@ -25,7 +25,7 @@ struct Av1ConfigRepairTests {
         let untouchedBoxes: [String]
     }
 
-    private struct Unchanged: Decodable {
+    private struct Unchanged: Codable {
         let name: String
         let input: String
     }

@@ -76,6 +76,11 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
+        # Consoles are LAN hosts with self-signed certificates, trusted by
+        # pinning (shared/spec/protect.md); ATS's CA rules do not apply to
+        # them, including .local names.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
     entitlements:
       path: Dozecam/Dozecam.entitlements
       properties:

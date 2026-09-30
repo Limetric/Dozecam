@@ -5,29 +5,29 @@ import Testing
 
 /// `shared/fixtures/protect-api/cameras.expected.json`, which the public
 /// client's tests read too: both clients must yield the same camera ids.
-struct CamerasExpected: Decodable {
-    struct Responses: Decodable {
+struct CamerasExpected: Codable {
+    struct Responses: Codable {
         let publicApi: String
         let legacyApi: String
     }
 
-    struct Camera: Decodable {
+    struct Camera: Codable {
         let id: String
         let publicApi: PublicApi
         let legacyApi: LegacyApi
     }
 
-    struct PublicApi: Decodable {
+    struct PublicApi: Codable {
         let name: String?
         let hasSpeaker: Bool
     }
 
-    struct LegacyApi: Decodable {
+    struct LegacyApi: Codable {
         let name: String
         let preferredChannel: Channel?
     }
 
-    struct Channel: Decodable {
+    struct Channel: Codable {
         let name: String
         let rtspAlias: String?
     }
@@ -50,20 +50,20 @@ struct CamerasExpected: Decodable {
 /// layer (TLS and the pin prompt).
 struct ProtectApiClientTests {
     /// `shared/fixtures/protect-api/legacy/expected.json`.
-    struct Expected: Decodable {
-        struct Livestream: Decodable {
+    struct Expected: Codable {
+        struct Livestream: Codable {
             let name: String
             let response: String
             let url: String
         }
 
-        struct RtspEnabled: Decodable {
+        struct RtspEnabled: Codable {
             let name: String
             let response: String
             let rtspAlias: String
         }
 
-        struct ApiKey: Decodable {
+        struct ApiKey: Codable {
             let name: String
             let response: String
             let apiKey: String
