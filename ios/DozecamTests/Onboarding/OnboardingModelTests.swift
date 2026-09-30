@@ -375,6 +375,34 @@ struct OnboardingModelTests {
         #expect(harness.model.path == [.signIn])
     }
 
+    /// Access granted on an earlier run, then withdrawn in Settings: iOS
+    /// does not say so, so a connection that never reached the console
+    /// re-checks the remembered grant and reports the refusal.
+    @Test func aWithdrawnGrantIsFoundAndReportedAfterAFailedConnection() async throws {
+        let harness = OnboardingHarness(localNetwork: .granted, probe: [.init(evidence: [.denied])])
+        harness.fill()
+        harness.stub.enqueue(.failure(.timedOut))
+
+        await harness.model.signIn()
+
+        #expect(harness.probe.connections == ["192.168.1.1:443"])
+        #expect(harness.dependencies.localNetwork.status == .denied)
+        #expect(harness.model.signInError == OnboardingModel.localNetworkDeniedMessage)
+        #expect(harness.model.localNetworkPrompt == .denied)
+    }
+
+    /// A console that answered was reached, so the grant is not in question.
+    @Test func anAnsweringConsoleDoesNotReopenTheGrant() async throws {
+        let harness = OnboardingHarness(localNetwork: .granted)
+        harness.fill()
+        harness.stub.enqueue(status: 401)
+
+        await harness.model.signIn()
+
+        #expect(harness.probe.connections.isEmpty)
+        #expect(harness.dependencies.localNetwork.status == .granted)
+    }
+
     @Test func signingInNeedsAnAddressAUsernameAndAPassword() {
         let harness = OnboardingHarness()
         #expect(!harness.model.canSignIn)

@@ -282,7 +282,7 @@ final class OnboardingModel {
                 endpoint: refusal.endpoint, presented: presented, pinned: refusal.pinnedFingerprint)
             path = [.signIn, .certificate]
         } catch {
-            handleConnectFailure(error)
+            await handleConnectFailure(error)
         }
     }
 
@@ -344,9 +344,17 @@ final class OnboardingModel {
         )
     }
 
-    private func handleConnectFailure(_ failure: any Error) {
+    private func handleConnectFailure(_ failure: any Error) async {
         certificate = nil
         path = [.signIn]
+        // A remembered grant can have been withdrawn in Settings since, and
+        // iOS says nothing: a connection that failed without reaching the
+        // console re-checks it, so the refusal is reported as such.
+        if dependencies.localNetwork.status == .granted, Self.neverReachedConsole(failure),
+            let target = consoleTarget()
+        {
+            await dependencies.localNetwork.refresh(probing: target.host, port: target.port, timeout: .seconds(5))
+        }
         // Checked first: without the access the connection is held back
         // before any TLS happens, and the timeout that surfaces says nothing
         // about the real cause.
@@ -357,6 +365,20 @@ final class OnboardingModel {
             return
         }
         signInError = Self.message(for: failure, host: ProtectCameraImport.consoleHost(forInput: host))
+    }
+
+    /// A transport failure (no HTTP answer at all), as a withdrawn
+    /// local-network grant produces; an HTTP status says the console answered.
+    static func neverReachedConsole(_ failure: any Error) -> Bool {
+        switch failure {
+        case let error as ProtectAPIError:
+            if case .unreachable = error { return true }
+            return false
+        case is URLError:
+            return true
+        default:
+            return false
+        }
     }
 
     // MARK: - Picking and importing
