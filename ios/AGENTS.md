@@ -43,7 +43,9 @@ Versions are never edited by hand. `generate.sh` writes `CURRENT_PROJECT_VERSION
 
 - `ios/Dozecam/App/` — the `App`, `AppModel` (which destination is showing), `RootView`, `BuildInfo`.
 - `ios/Dozecam/Monitor/`, `Onboarding/`, `Settings/` — the three destinations, the counterparts of Android's `MainActivity`, `OnboardingActivity` and `SettingsActivity`. Monitor is the viewer; settings is presented as a sheet over it. They are stubs until #64–#69. Debug builds accept `-startOn monitor|settings` as a launch argument, so agents can reach a destination without tapping.
-- `ios/DozecamTests/` — Swift Testing, hosted by the app, run on simulators. `Support/Fixtures.swift` loads the golden vectors in `shared/fixtures` (#61) straight from the checkout: the simulator sees the host's file system.
+- `ios/Dozecam/Protect/` — the console: `Trust/` is TOFU certificate pinning (`TofuTrustStore`, and `PinnedSessionFactory` for the pinned `URLSession`s the clients take); `ProtectCredentialsStore` keeps the sign-in in the Keychain.
+- `ios/Dozecam/Storage/` — `Keychain`, a generic-password wrapper; every item is `AfterFirstUnlockThisDeviceOnly`.
+- `ios/DozecamTests/` — Swift Testing, hosted by the app, run on simulators. `Support/Fixtures.swift` loads the golden vectors in `shared/fixtures` (#61) straight from the checkout: the simulator sees the host's file system. `Resources/` holds test-only files copied into the test bundle (the test certificates; `Support/TestCertificates.swift` says how they were made).
 
 ## iOS mechanics behind the product rules
 
@@ -59,3 +61,4 @@ These are the decisions from the spikes; the rules themselves are in `shared/spe
 
 - Dependabot does not cover Swift yet: it reads only `Package.swift` manifests, and the app's packages will be declared in `project.yml`. Revisit when the first package (VLCKit, #66) lands.
 - CI: `.github/workflows/ios-ci.yml` runs lint and `test.sh` on `macos-26` for PRs touching `ios/`, `shared/` or its own workflow. It needs no signing secrets.
+- Simulator builds from the command line are signed ad hoc (`CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=`), as `test.sh` does, never with `CODE_SIGNING_ALLOWED=NO`: an unsigned app has no entitlements, and the Keychain refuses it with `errSecMissingEntitlement` (-34018).

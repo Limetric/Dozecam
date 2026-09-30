@@ -131,7 +131,8 @@ tools/testbed.sh start
 SIM=$(xcrun simctl list devices available | grep -m1 'iPad Pro' | grep -oE '[0-9A-F-]{36}')
 xcrun simctl boot "$SIM" 2>/dev/null; open -a Simulator
 xcodebuild build -project ios/Dozecam.xcodeproj -scheme "Dozecam Dev" \
-  -destination "id=$SIM" -derivedDataPath ios/build/DerivedData -quiet CODE_SIGNING_ALLOWED=NO
+  -destination "id=$SIM" -derivedDataPath ios/build/DerivedData -quiet \
+  CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=
 xcrun simctl install "$SIM" "ios/build/DerivedData/Build/Products/Dev-iphonesimulator/Dozecam.app"
 xcrun simctl launch --terminate-running-process "$SIM" app.dozecam.dev
 xcrun simctl io "$SIM" screenshot shot.png
