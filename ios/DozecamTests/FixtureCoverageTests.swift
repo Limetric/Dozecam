@@ -10,6 +10,7 @@ import Testing
 /// same change. Areas arrive with their features (#64, #67, #68).
 struct FixtureCoverageTests {
     static let adopted: [String] = [
+        "failure-ledger/timelines.json",
         "listen-target/alert-sounds.json",
         "listen-target/alert-wakes-screen.json",
         "listen-target/alert-yields.json",
