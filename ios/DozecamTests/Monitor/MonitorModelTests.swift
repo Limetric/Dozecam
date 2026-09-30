@@ -106,7 +106,7 @@ struct MonitorModelTests {
 
         harness.model.sceneChanged(inForeground: false)
         #expect(harness.model.sessions.sessions.isEmpty)
-        #expect(harness.factory.built.allSatisfy(\.released))
+        #expect(harness.factory.built.allSatisfy { $0.released })
 
         harness.model.sceneChanged(inForeground: true)
         let after = try #require(harness.player("nursery"))
@@ -122,7 +122,7 @@ struct MonitorModelTests {
         #expect(harness.model.sessions.sessions.count == 3)
         await harness.hide()
         #expect(harness.model.sessions.sessions.isEmpty)
-        #expect(harness.factory.built.allSatisfy(\.released))
+        #expect(harness.factory.built.allSatisfy { $0.released })
     }
 
     @Test func tilesFollowTheNetwork() async throws {

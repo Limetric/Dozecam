@@ -124,10 +124,13 @@ final class VlcPlayerCore {
         relay?.core = nil
         player?.delegate = nil
         player?.stop()
+        // The retired player lives on until VLC settles (`RetiringPlayer`);
+        // it must not keep the view the next player draws into.
+        player?.drawable = nil
         let retiring = RetiringPlayer(player!)
         player = nil
         relay = nil
-        Self.retirement.async { retiring.drop() }
+        retiring.dropWhenSettled(on: Self.retirement)
     }
 
     private func resetSession() {
@@ -274,12 +277,44 @@ final class VlcPlayerCore {
 /// Carries a stopped player to the retirement queue, where its last
 /// reference goes. Unchecked: nothing touches the player after the hand-off
 /// but its release.
+/// Holds a stopped player until VLC is done with it, then lets it go off the
+/// main thread. VLC's player thread posts notifications that hold the player
+/// until their autorelease pool drains there; if one of them held the last
+/// reference, `-[VLCMediaPlayer dealloc]` would run on that thread and assert
+/// on the player lock it already holds (a SIGABRT on reconnect). So the
+/// player is kept until its stop has completed and a grace period has let
+/// those notifications drain; and the main thread never holds the last
+/// reference, since `dealloc` there waits on VLC threads that wait on it.
 private final class RetiringPlayer: @unchecked Sendable {
     private var player: VLCMediaPlayer?
+    private var waited: Duration = .zero
+
+    /// Long enough for the player thread to deliver what it queued before
+    /// the stop took effect.
+    static let grace: Duration = .seconds(2)
+    /// A stop that never completes is let go after this, rather than kept.
+    static let stopTimeout: Duration = .seconds(10)
+    private static let poll: Duration = .milliseconds(100)
 
     init(_ player: VLCMediaPlayer) { self.player = player }
 
-    func drop() { player = nil }
+    /// Runs on `queue` only; the state is read there, never on the main thread.
+    func dropWhenSettled(on queue: DispatchQueue) {
+        queue.asyncAfter(deadline: .now() + Self.seconds(Self.poll)) { [self] in
+            waited += Self.poll
+            let state = player?.state
+            let stopped = state == nil || state == .stopped || state == .error || state == .nothingSpecial
+            if stopped || waited >= Self.stopTimeout {
+                queue.asyncAfter(deadline: .now() + Self.seconds(Self.grace)) { [self] in player = nil }
+            } else {
+                dropWhenSettled(on: queue)
+            }
+        }
+    }
+
+    private static func seconds(_ duration: Duration) -> Double {
+        Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
+    }
 }
 
 /// The view VLC draws into; black where the picture is not.

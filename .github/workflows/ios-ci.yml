@@ -36,6 +36,16 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      # VLCKit's SPM package is a ~920 MB binary; fetched afresh it dominates
+      # the run. The pin lives in project.yml, so that keys the cache.
+      - name: Cache Swift packages
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/Library/Caches/org.swift.swiftpm
+            ios/build/DerivedData/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('ios/project.yml') }}
+
       - name: Lint
         run: tools/lint.sh
 

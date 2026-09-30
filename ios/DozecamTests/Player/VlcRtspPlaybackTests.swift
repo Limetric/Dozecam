@@ -31,6 +31,20 @@ private let testbedReachable: Bool = {
 @MainActor
 @Suite(.serialized, .enabled(if: testbedReachable, "the RTSP testbed is not running on 127.0.0.1:18554"))
 struct VlcRtspPlaybackTests {
+    /// Plays `url` and waits for `condition`, restarting once with a fresh
+    /// session if the first attempt shows nothing, as the watchdog's connect
+    /// timeout does in the app: VLC 4's live555 now and then stays buffering
+    /// on a connect to mediamtx (#84).
+    private func play(
+        _ url: String, on player: VlcVideoPlayerController, log: PlayerEventLog,
+        until condition: (PlayerEventLog) -> Bool
+    ) async -> Bool {
+        player.play(.rtsp(url: url))
+        if await log.wait(for: .seconds(8), until: condition) { return true }
+        player.play(.rtsp(url: url))
+        return await log.wait(for: .seconds(12), until: condition)
+    }
+
     @Test func theTestbedNurseryPlaysFrameByFrame() async {
         let player = VlcVideoPlayerController()
         defer { player.release() }
@@ -39,9 +53,10 @@ struct VlcRtspPlaybackTests {
         defer { window.close() }
         player.setMuted(true)
 
-        player.play(.rtsp(url: "rtsp://127.0.0.1:18554/nursery"))
-
-        #expect(await log.wait { $0.events.contains(.playing) && $0.frames >= 3 }, "\(log.events)")
+        let playing = await play("rtsp://127.0.0.1:18554/nursery", on: player, log: log) {
+            $0.events.contains(.playing) && $0.frames >= 3
+        }
+        #expect(playing, "\(log.events)")
         #expect(
             log.events.contains(where: {
                 if case .videoAspect(let a) = $0 { abs(a - 16.0 / 9.0) < 0.01 } else { false }
@@ -85,11 +100,12 @@ struct VlcRtspPlaybackTests {
         let log = PlayerEventLog(player)
         let window = PlayerWindow(player)
         defer { window.close() }
-        player.play(.rtsp(url: "rtsp://127.0.0.1:18554/nursery"))
-        #expect(await log.wait { $0.frames >= 2 })
+        #expect(await play("rtsp://127.0.0.1:18554/nursery", on: player, log: log) { $0.frames >= 2 })
 
-        player.play(.rtsp(url: "rtsp://127.0.0.1:18554/nursery"))
         let before = log.events.count(where: { $0 == .playing })
-        #expect(await log.wait { $0.events.count(where: { $0 == .playing }) > before })
+        #expect(
+            await play("rtsp://127.0.0.1:18554/nursery", on: player, log: log) {
+                $0.events.count(where: { $0 == .playing }) > before
+            })
     }
 }
