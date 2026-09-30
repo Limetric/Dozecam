@@ -26,6 +26,7 @@ struct FixtureCoverageTests {
         "stream-url/monitorable.json",
         "stream-url/normalize.json",
         "stream-url/valid.json",
+        "transport-fallback/fallback.json",
     ]
 
     @Test func everyCaseOfAnAdoptedFixtureIsRunByAnIOSTest() throws {
