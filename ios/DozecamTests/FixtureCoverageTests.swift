@@ -12,6 +12,7 @@ struct FixtureCoverageTests {
     static let adopted: [String] = [
         "livestream/av1-config-repair.json",
         "livestream/decoder.json",
+        "playback-watchdog/timings.json",
         "protect-api/cameras.expected.json",
         "protect-api/legacy/expected.json",
         "protect-api/public/expected.json",

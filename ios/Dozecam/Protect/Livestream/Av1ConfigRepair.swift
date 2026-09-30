@@ -9,8 +9,8 @@ import Foundation
 /// optional and the sequence header travels in-band. Media3's parser reads
 /// straight past the record into an OBU header without checking that any
 /// bytes remain, so it throws and playback dies before a frame is decoded.
-/// Whether iOS's demuxer needs this too is open (#59, #66); the repair is
-/// held to the same fixtures either way.
+/// libVLC's MP4 demuxer, which iOS uses, does not need it (#66), but it is
+/// applied there too and held to the same fixtures.
 ///
 /// Such a parser does handle an OBU it does not care about. So appending one
 /// zero-length **temporal delimiter** OBU gives it the bytes it insists on

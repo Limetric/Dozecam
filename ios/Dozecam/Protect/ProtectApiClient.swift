@@ -259,7 +259,7 @@ struct ProtectApiClient: Sendable {
             components.scheme?.lowercased() == "https",
             let host = components.percentEncodedHost, !host.isEmpty,
             components.user == nil, components.password == nil,
-            components.port.map { (1...65535).contains($0) } ?? true
+            components.port.map({ (1...65535).contains($0) }) ?? true
         else { return nil }
         var base = URLComponents()
         base.scheme = "https"

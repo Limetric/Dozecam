@@ -10,23 +10,49 @@ final class AppModel {
     enum Destination: Equatable {
         case onboarding
         case monitor
+        /// The user exited (shared/spec/monitoring-lifecycle.md: "leave
+        /// Dozecam"). iOS apps cannot quit themselves, so the viewer is torn
+        /// down, every camera session with it, and a screen says Dozecam is
+        /// off. The next open of the viewer starts again.
+        case exited
     }
 
     private(set) var destination: Destination
     var isShowingSettings = false
 
     let dependencies: AppDependencies
-    let monitor = MonitorModel()
+    let monitor: MonitorModel
     let onboarding: OnboardingModel
     let settings: SettingsModel
 
     /// With no cameras there is nothing to monitor, so the app opens on
-    /// onboarding, as Android's viewer does.
-    init(dependencies: AppDependencies, destination: Destination? = nil) {
+    /// onboarding, as Android's viewer does. `makePlayer` builds each camera's
+    /// player for the viewer; the default never plays (`PendingLivePlayers`).
+    init(
+        dependencies: AppDependencies,
+        makePlayer: @escaping CameraSessions.MakePlayer = PendingLivePlayers.make(for:),
+        destination: Destination? = nil
+    ) {
         self.dependencies = dependencies
+        monitor = MonitorModel(dependencies: dependencies, makePlayer: makePlayer)
         onboarding = OnboardingModel(dependencies: dependencies)
         settings = SettingsModel(dependencies: dependencies)
         self.destination = destination ?? (dependencies.cameras.cameras.isEmpty ? .onboarding : .monitor)
+        monitor.exitHandler = { [weak self] in self?.exit() }
+    }
+
+    /// Leaves the viewer: its sessions end with it. Monitoring (#67) and the
+    /// dead-man alarm (#68) stop here too once they exist.
+    func exit() {
+        isShowingSettings = false
+        destination = .exited
+    }
+
+    /// Opening the viewer again after an exit: from the exited screen, or by
+    /// coming back to the app, which is how iOS users reopen one.
+    func resumeAfterExit() {
+        guard destination == .exited else { return }
+        destination = monitor.dependencies.cameras.cameras.isEmpty ? .onboarding : .monitor
     }
 
     func finishOnboarding() {
@@ -48,7 +74,11 @@ final class AppModel {
         /// Debug builds only: `-startOn monitor` or `-startOn settings` as a launch
         /// argument opens that destination directly, since nothing can tap
         /// through onboarding in a simulator run by an agent.
-        static func forLaunch(dependencies: AppDependencies, defaults: UserDefaults = .standard) -> AppModel {
+        static func forLaunch(
+            dependencies: AppDependencies,
+            makePlayer: @escaping CameraSessions.MakePlayer = PendingLivePlayers.make(for:),
+            defaults: UserDefaults = .standard
+        ) -> AppModel {
             let startOn = defaults.string(forKey: "startOn")
             let destination: Destination? =
                 switch startOn {
@@ -56,7 +86,7 @@ final class AppModel {
                 case "onboarding": .onboarding
                 default: nil
                 }
-            let model = AppModel(dependencies: dependencies, destination: destination)
+            let model = AppModel(dependencies: dependencies, makePlayer: makePlayer, destination: destination)
             if startOn == "settings" { model.openSettings() }
             return model
         }

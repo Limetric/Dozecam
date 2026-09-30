@@ -44,7 +44,8 @@ Usage: tools/testbed.sh <command>
                    host alias 10.0.2.2; pass --host for a physical device.
 
 Environment: DOZECAM_TESTBED_PORT (default 18554), DOZECAM_TESTBED_DIR
-(default /tmp/dozecam-testbed).
+(default /tmp/dozecam-testbed), DOZECAM_TESTBED_ENCODER (x264, the default,
+or videotoolbox: what a camera sends, needed by iPhone/iPad hardware decode).
 USAGE
 	exit 64
 }
@@ -163,10 +164,22 @@ start_publisher() {
 	esac
 	# 1s keyframe interval keeps join latency low for the player and the
 	# watchdog; zerolatency avoids frame reordering delay.
+	local encoder
+	case "${DOZECAM_TESTBED_ENCODER:-x264}" in
+	# What a camera's hardware encoder sends. An iPhone or iPad decodes video
+	# with VideoToolbox, which rejects x264's zerolatency output (#59), so
+	# iOS device runs need this; emulators and simulators decode either.
+	videotoolbox) encoder=(-c:v h264_videotoolbox -realtime 1 -profile:v main) ;;
+	x264) encoder=(-c:v libx264 -preset ultrafast -tune zerolatency) ;;
+	*)
+		echo "DOZECAM_TESTBED_ENCODER must be x264 or videotoolbox" >&2
+		exit 64
+		;;
+	esac
 	nohup ffmpeg -hide_banner -loglevel warning \
 		-re -f lavfi -i "$video" \
 		-re -f lavfi -i "$audio" \
-		-c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p \
+		"${encoder[@]}" -pix_fmt yuv420p \
 		-g 15 -b:v 500k \
 		-c:a aac -b:a 64k \
 		-f rtsp -rtsp_transport tcp "rtsp://127.0.0.1:$PORT/$name" \
