@@ -82,11 +82,7 @@ struct MonitorView: View {
         }
         .overlay(alignment: .bottom) {
             VStack(spacing: OverlayChrome.gap) {
-                // Every failure past grace, with its start, whatever the
-                // alerts switch says (shared/spec/failure-alerts.md).
-                ForEach(model.failureNotices, id: \.id) { notice in
-                    OverlayNotice(text: notice.text, attention: true)
-                }
+                FailureNotices(model: model)
                 NetworkNotice(reach: model.reach)
                 AnnouncementView(model: model)
             }
@@ -142,6 +138,19 @@ struct ControlRow: View {
             }
             ControlButton(systemImage: "checklist", label: "Night checklist", action: onOpenChecklist)
             ControlButton(systemImage: "gearshape.fill", label: "Settings", action: onOpenSettings)
+        }
+    }
+}
+
+/// Every failure past grace, with its start, whatever the alerts switch
+/// says: on the grid and on a camera full screen alike
+/// (shared/spec/failure-alerts.md).
+struct FailureNotices: View {
+    let model: MonitorModel
+
+    var body: some View {
+        ForEach(model.failureNotices, id: \.id) { notice in
+            OverlayNotice(text: notice.text, attention: true)
         }
     }
 }

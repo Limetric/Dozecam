@@ -213,6 +213,7 @@ struct MonitoringAlertsTests {
         harness.nurseryCries()
         #expect(
             await eventually { harness.tone.calls.contains { if case .start(.room, _) = $0 { true } else { false } } })
+        #expect(harness.alarms.stops >= 1, "whatever AlarmKit kept ringing is stopped")
     }
 
     /// An answer before the queued raise runs means nothing rings.

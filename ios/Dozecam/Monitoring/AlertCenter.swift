@@ -215,6 +215,9 @@ final class AlertCenter {
     private func fallBack() {
         guard viaAlarmKit, signaler.isAlarming else { return }
         viaAlarmKit = false
+        // AlarmKit keeps an alarm it failed to replace; two alarms for two
+        // different things must never sound at once.
+        delivery.alarms.stop()
         perform(signaler.burstNow(nowMs: scheduler.nowMs))
     }
 
