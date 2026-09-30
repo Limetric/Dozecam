@@ -186,9 +186,13 @@ final class PlaybackWatchdog {
                 // No frame will ever come, and retrying cannot make the codec
                 // decodable: stop waiting for one. Errors, stops and the
                 // network coming back still reconnect, and each new session
-                // says the same again.
+                // says the same again. Saying so is also this session
+                // arriving: a reconnect that got this far has recovered, and
+                // a later stop is the stream ending, not our own teardown.
                 undecodable = true
                 deadline = nil
+                attempts = 0
+                awaitingRecovery = false
             case .buffering, .videoAspect:
                 // Not frames, and say nothing about whether one is coming.
                 break

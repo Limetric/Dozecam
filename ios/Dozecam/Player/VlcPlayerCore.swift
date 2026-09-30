@@ -154,7 +154,7 @@ final class VlcPlayerCore {
         player.audio?.isMuted = muted
         if muted {
             player.deselectAllAudioTracks()
-        } else if !player.audioTracks.isEmpty {
+        } else if !player.audioTracks.isEmpty, !isAudioSelected {
             player.selectTrack(at: 0, type: .audio)
         }
     }
@@ -183,6 +183,10 @@ final class VlcPlayerCore {
         case .videoTrackChanged:
             reportAspect()
             checkDecodable()
+        case .audioTrackAdded:
+            // An unmute that came before the stream was open selects the
+            // room's sound now that there is some.
+            applyMute()
         }
     }
 
@@ -357,6 +361,7 @@ private final class VlcEventRelay: NSObject, VLCMediaPlayerDelegate, @unchecked 
         case state(VLCMediaPlayerState)
         case buffering(Float)
         case videoTrackChanged
+        case audioTrackAdded
     }
 
     /// Written and read on the main thread only.
@@ -371,7 +376,11 @@ private final class VlcEventRelay: NSObject, VLCMediaPlayerDelegate, @unchecked 
     }
 
     func mediaPlayerTrackAdded(_ trackId: String, with trackType: VLCMedia.TrackType) {
-        if trackType == .video { deliver(.videoTrackChanged) }
+        switch trackType {
+        case .video: deliver(.videoTrackChanged)
+        case .audio: deliver(.audioTrackAdded)
+        default: break
+        }
     }
 
     func mediaPlayerTrackUpdated(_ trackId: String, with trackType: VLCMedia.TrackType) {

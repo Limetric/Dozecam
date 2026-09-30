@@ -125,6 +125,24 @@ struct CameraSessionsTests {
         #expect(player.muted == false)
     }
 
+    @Test func anUndecodableStreamThatEndsAfterAReconnectIsReconnectedAgain() throws {
+        let sessions = registry()
+        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [], audible: ["n"])
+        let player = try #require(factory.player(for: "rtsp://cam/nursery"))
+        let config = PlaybackWatchdog.Config()
+        player.emit(.unsupportedCodec("AV1"))
+        player.emit(.error)
+        scheduler.advance(by: config.backoffMs(forAttempt: 1))
+        player.emit(.unsupportedCodec("AV1"))
+        #expect(player.plays.count == 2)
+
+        // The recovered stream ends (its publisher restarted): that is not
+        // the reconnect's own teardown, and it is retried from the start.
+        player.emit(.stopped)
+        scheduler.advance(by: config.backoffMs(forAttempt: 1))
+        #expect(player.plays.count == 3)
+    }
+
     @Test func thePictureShapeIsKept() throws {
         let sessions = registry()
         sessions.update(active: true, wanted: ["n": Self.nursery], warm: [], audible: [])

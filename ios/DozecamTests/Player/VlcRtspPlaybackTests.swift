@@ -92,6 +92,21 @@ struct VlcRtspPlaybackTests {
         #expect(await within(.seconds(5)) { !player.isAudioSelected })
     }
 
+    /// Every session starts muted and is unmuted at once if it is the one
+    /// to be heard, before the stream has any tracks.
+    @Test func anUnmuteBeforeTheStreamOpensStillBringsTheSound() async {
+        let player = VlcVideoPlayerController()
+        defer { player.release() }
+        let log = PlayerEventLog(player)
+        let window = PlayerWindow(player)
+        defer { window.close() }
+        player.setMuted(true)
+        player.play(.rtsp(url: "rtsp://127.0.0.1:18554/nursery"))
+        player.setMuted(false)
+
+        #expect(await within(.seconds(15)) { player.isAudioSelected }, "\(log.events)")
+    }
+
     @Test func aStreamThatDoesNotExistIsAnErrorNotALiveTile() async {
         let player = VlcVideoPlayerController()
         defer { player.release() }
