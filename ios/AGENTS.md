@@ -37,6 +37,7 @@ Versions are never edited by hand. `generate.sh` writes `CURRENT_PROJECT_VERSION
 - **iPhone and iPad**, every orientation on iPad, so Split View and Stage Manager can resize the app; one scene.
 - **Swift 6 language mode, strict concurrency.** The module's default actor isolation is deliberately *not* MainActor. Models are `@MainActor @Observable` classes, the counterpart of Android's ViewModels. Realtime audio render blocks and libVLC callbacks run on other threads, and a closure written inside MainActor code inherits that isolation and traps at runtime (#58). Create them in `nonisolated` or file-scope functions.
 - **Info.plist:** `UIBackgroundModes: [audio]`, plus the local network, microphone (talk-back) and AlarmKit usage descriptions.
+- **App Transport Security:** `NSAllowsArbitraryLoads`, because consoles present self-signed certificates under any name the user reaches them by (IP, `.local`, or a qualified DNS name, which `NSAllowsLocalNetworking` does not cover), and identity comes from pinning, not a CA. HTTPS is enforced in code instead: `ProtectApiClient.baseURL` rejects every other scheme. App Review wants a justification for this key; that belongs to #71.
 - **Entitlements:** Time Sensitive Notifications only. Critical Alerts needs Apple's approval and comes with a public release (#71). Nothing is ticked by hand in the developer portal: automatic signing (`-allowProvisioningUpdates`) syncs the App ID from the entitlements file.
 
 ## Layout
