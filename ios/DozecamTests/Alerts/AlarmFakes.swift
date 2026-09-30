@@ -20,6 +20,9 @@ final class FakeAlarmScheduler: AlarmScheduling {
     var refuse = false
     /// Schedule calls wait for `release()`.
     var holding = false
+    /// False when the test has already listed the alarm itself, as AlarmKit
+    /// can before `schedule` returns.
+    var listsOnSchedule = true
     private var held: [CheckedContinuation<Void, Never>] = []
     private var subscribers: [AsyncStream<[AlarmSnapshot]>.Continuation] = []
 
@@ -39,6 +42,7 @@ final class FakeAlarmScheduler: AlarmScheduling {
         calls.append(.schedule(id, spec))
         if holding { await withCheckedContinuation { held.append($0) } }
         if refuse { throw Refused() }
+        guard listsOnSchedule else { return }
         alarms.append(AlarmSnapshot(id: id, phase: .scheduled))
         publish()
     }
@@ -96,6 +100,12 @@ final class FakeAlarmAlerting: AlarmAlerting {
     private(set) var raised: [AlertSubject] = []
     private(set) var stops = 0
     var refuse = false
+    /// Raises wait, as AlarmKit can, until `releaseHeld()`.
+    var holding = false
+    /// Held raises are refused when released.
+    var refuseHeld = false
+    private var held: [CheckedContinuation<Void, Never>] = []
+    var heldCount: Int { held.count }
     let acknowledgements: AsyncStream<AlertSubject>
     private let continuation: AsyncStream<AlertSubject>.Continuation
 
@@ -103,7 +113,17 @@ final class FakeAlarmAlerting: AlarmAlerting {
         (acknowledgements, continuation) = AsyncStream.makeStream(of: AlertSubject.self)
     }
 
+    func releaseHeld() {
+        let waiting = held
+        held = []
+        for continuation in waiting { continuation.resume() }
+    }
+
     func raise(_ subject: AlertSubject) async throws {
+        if holding {
+            await withCheckedContinuation { held.append($0) }
+            if refuseHeld { throw FakeAlarmScheduler.Refused() }
+        }
         if refuse { throw FakeAlarmScheduler.Refused() }
         raised.append(subject)
         ringing = subject

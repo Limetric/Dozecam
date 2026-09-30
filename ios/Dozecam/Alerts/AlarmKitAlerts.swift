@@ -106,6 +106,9 @@ final class AlarmKitAlerts: AlarmAlerting {
     /// Whether AlarmKit's updates have listed the current alarm yet: only an
     /// alarm seen can be seen to go.
     @ObservationIgnored private var listed = false
+    /// The alarm being scheduled, and whether an update has already listed
+    /// it: AlarmKit can publish it before `schedule` returns.
+    @ObservationIgnored private var scheduling: (id: UUID, seen: Bool)?
     /// Retires a raise still waiting on AlarmKit when a stop or a newer raise
     /// overtakes it.
     @ObservationIgnored private var generation = 0
@@ -139,7 +142,10 @@ final class AlarmKitAlerts: AlarmAlerting {
         let spec = AlarmSpec(
             title: subject.alarmTitle, fireDate: now().addingTimeInterval(Self.lead), tone: subject.alarmKitTone,
             purpose: subject.purpose, cameraId: subject.cameraId)
+        scheduling = (id, false)
+        defer { if scheduling?.id == id { scheduling = nil } }
         try await scheduler.schedule(id: id, spec)
+        let seen = scheduling?.id == id && scheduling?.seen == true
         guard token == generation else {
             // Stopped, or replaced by a newer raise, while AlarmKit answered.
             end(id)
@@ -150,8 +156,9 @@ final class AlarmKitAlerts: AlarmAlerting {
         ringing = subject
         isAlerting = false
         // Learnt from the updates alone, in their order: a list AlarmKit sent
-        // before this alarm existed, still queued, must not read as it gone.
-        listed = false
+        // before this alarm existed, still queued, must not read as it gone;
+        // one that already listed it while it was being scheduled counts.
+        listed = seen
         if let previous { end(previous) }
     }
 
@@ -163,6 +170,9 @@ final class AlarmKitAlerts: AlarmAlerting {
     }
 
     private func receive(_ alarms: [AlarmSnapshot]) {
+        if let pending = scheduling, alarms.contains(where: { $0.id == pending.id }) {
+            scheduling?.seen = true
+        }
         guard let id = alarmId else { return }
         if let alarm = alarms.first(where: { $0.id == id }) {
             listed = true

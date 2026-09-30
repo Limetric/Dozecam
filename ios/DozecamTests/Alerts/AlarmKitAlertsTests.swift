@@ -148,6 +148,28 @@ struct AlarmKitAlertsTests {
         #expect(!alerts.isAlerting)
     }
 
+    /// AlarmKit listed the alarm before `schedule` returned, and no later
+    /// list shows it: the user's Stop still counts.
+    @Test func aStopIsHeardWhenTheAlarmWasListedWhileBeingScheduled() async throws {
+        var acknowledgements = alerts.acknowledgements.makeAsyncIterator()
+        scheduler.holding = true
+        scheduler.listsOnSchedule = false
+        let alerts = alerts
+        let raising = Task { try await alerts.raise(Self.nursery) }
+        #expect(await eventually { scheduler.heldCount == 1 })
+        guard case .schedule(let id, _) = scheduler.calls.last else {
+            Issue.record("no schedule call")
+            return
+        }
+        scheduler.add(AlarmSnapshot(id: id, phase: .scheduled))
+        await settleAlerts()
+        scheduler.release()
+        try await raising.value
+
+        scheduler.userStops(id)
+        #expect(await acknowledgements.next() == Self.nursery)
+    }
+
     @Test func theAppEndingItIsNoAcknowledgement() async throws {
         try await alerts.raise(Self.nursery)
         scheduler.ring(scheduler.scheduledIds[0])

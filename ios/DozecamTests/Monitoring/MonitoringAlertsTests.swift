@@ -216,6 +216,27 @@ struct MonitoringAlertsTests {
         #expect(harness.alarms.stops >= 1, "whatever AlarmKit kept ringing is stopped")
     }
 
+    /// A refusal that arrives for an alarm already answered and replaced
+    /// leaves the newer alarm on AlarmKit.
+    @Test func aLateRefusalLeavesTheNewerAlarmAlone() async throws {
+        let harness = try await Harness()
+        harness.service.arm()
+        harness.allLive()
+        harness.alarms.holding = true
+        harness.nurseryCries()
+        #expect(await eventually { harness.alarms.heldCount == 1 })
+        harness.service.acknowledge()
+        harness.alarms.refuseHeld = true
+        harness.pass(seconds: 20)
+        harness.alarms.holding = false
+        harness.nurseryCries()
+        #expect(await eventually { harness.alarms.ringing == .room(cameraId: "nursery", name: "Nursery") })
+        harness.alarms.releaseHeld()
+        await harness.settle()
+        #expect(harness.alarms.ringing != nil)
+        #expect(!harness.tone.calls.contains { if case .start = $0 { true } else { false } })
+    }
+
     /// An answer before the queued raise runs means nothing rings.
     @Test func anAlarmAnsweredBeforeItIsRaisedNeverRings() async throws {
         let harness = try await Harness()

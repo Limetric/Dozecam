@@ -204,6 +204,9 @@ final class AlertCenter {
             do {
                 try await alarms.raise(subject)
             } catch {
+                // An alarm answered or replaced meanwhile is not this one's
+                // to change.
+                guard generation == raisedIn else { return }
                 // AlarmKit refused: the tone takes over, so the room is
                 // still heard.
                 Self.log.error("AlarmKit refused an alarm; falling back to the tone")
