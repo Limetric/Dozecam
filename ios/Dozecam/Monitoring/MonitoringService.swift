@@ -489,8 +489,9 @@ final class MonitoringService {
         if failures != update.active { failures = update.active }
         if let note = update.recoveryNote(monitoredCameraIds: Set(monitors.keys)) { recovered = note }
         if update.unplugged, let percent = health.battery?.percent { alerts.unplugged(percent: percent) }
-        alerts.apply(
-            announcer.judge(update, alertsEnabled: settings.alertsEnabled), wording: wording, settings: settings)
+        let action = announcer.judge(update, alertsEnabled: settings.alertsEnabled)
+        alerts.apply(action, wording: wording, settings: settings)
+        if case .none = action { alerts.follow(update.active, wording: wording, settings: settings) }
         offerStatus(health.cameras, wallNowMs: wallNowMs)
 
         let access = alerts.delivery.access

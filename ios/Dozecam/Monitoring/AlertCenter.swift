@@ -46,6 +46,11 @@ final class AlertCenter {
     /// cannot ring after it.
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var lastNotice: Task<Void, Never>?
+    /// Counts every AlarmKit raise: only the latest may change delivery.
+    @ObservationIgnored private var raises = 0
+    /// The failures the card last said, so a change in their details (the
+    /// battery lower, a camera renamed) updates it quietly.
+    @ObservationIgnored private var cardFailures: [FailureReason]?
 
     private static let log = Logger(subsystem: "app.dozecam", category: "alerts")
 
@@ -97,17 +102,28 @@ final class AlertCenter {
         case .none:
             break
         case .raise(let failures):
+            cardFailures = failures.map(\.reason)
             failureTitle = wording.cardTitle(failures)
             post(failures, wording: wording, announce: true)
             signal(AlertSignalerState.monitoringFailure, settings: settings)
         case .refresh(let failures):
+            cardFailures = failures.map(\.reason)
             failureTitle = wording.cardTitle(failures)
             post(failures, wording: wording, announce: false)
         case .clear:
+            cardFailures = nil
             let notices = delivery.notices
             enqueue { notices.removeFailure() }
             perform(signaler.stopFailure())
         }
+    }
+
+    /// The card, updated without sounding or waking anyone, when what it
+    /// lists has changed in its details (shared/spec/failure-alerts.md: "its
+    /// details follow along").
+    func follow(_ failures: [MonitoringFailure], wording: FailureWording, settings: AppSettings) {
+        guard let cardFailures, !failures.isEmpty, failures.map(\.reason) != cardFailures else { return }
+        apply(.refresh(failures), wording: wording, settings: settings)
     }
 
     private func post(_ failures: [MonitoringFailure], wording: FailureWording, announce: Bool) {
@@ -130,6 +146,7 @@ final class AlertCenter {
     func dropAll() {
         perform(signaler.stop())
         cardCameraId = nil
+        cardFailures = nil
         let notices = delivery.notices
         enqueue {
             notices.removeSoundAlert()
@@ -143,6 +160,7 @@ final class AlertCenter {
     func exit() {
         perform(signaler.stop())
         cardCameraId = nil
+        cardFailures = nil
         let notices = delivery.notices
         enqueue { notices.removeAll() }
         disarmDeadMan()
@@ -198,15 +216,17 @@ final class AlertCenter {
         guard delivery.alarms.ringing != subject else { return }
         let alarms = delivery.alarms
         let raisedIn = generation
+        raises += 1
+        let raise = raises
         Task { [weak self] in
             // Answered, withdrawn or exited before this ran: nothing to ring.
             guard let self, generation == raisedIn, signaler.isAlarming else { return }
             do {
                 try await alarms.raise(subject)
             } catch {
-                // An alarm answered or replaced meanwhile is not this one's
-                // to change.
-                guard generation == raisedIn else { return }
+                // An alarm answered, or re-pointed at another room, meanwhile
+                // is not this one's to change.
+                guard generation == raisedIn, raises == raise else { return }
                 // AlarmKit refused: the tone takes over, so the room is
                 // still heard.
                 Self.log.error("AlarmKit refused an alarm; falling back to the tone")

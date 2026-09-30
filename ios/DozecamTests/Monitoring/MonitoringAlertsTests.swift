@@ -16,6 +16,7 @@ private final class Harness {
     let vibrator = FakeAlarmVibrator()
     let center = FakeNoticeCenter()
     let deadMan = FakeDeadMan()
+    let batterySource = FakeBatterySource()
     let dependencies: AppDependencies
     let service: MonitoringService
     private let players = AudioPlayers()
@@ -41,7 +42,7 @@ private final class Harness {
         let players = players
         service = MonitoringService(
             dependencies: dependencies, speaker: speaker, makePlayer: { id, _ in players.make(id) }, alerts: alerts,
-            battery: BatteryMonitor(source: FakeBatterySource()), scheduler: scheduler)
+            battery: BatteryMonitor(source: batterySource), scheduler: scheduler)
     }
 
     func player(_ id: String) -> FakeAudioPlayer? { players.players[id] }
@@ -237,6 +238,27 @@ struct MonitoringAlertsTests {
         #expect(!harness.tone.calls.contains { if case .start = $0 { true } else { false } })
     }
 
+    /// Two rooms while AlarmKit is still answering: a refusal of the first
+    /// cannot take delivery away from the second.
+    @Test func aLateRefusalForAReplacedRoomLeavesTheNewRoomOnAlarmKit() async throws {
+        let harness = try await Harness()
+        harness.service.arm()
+        harness.allLive()
+        harness.alarms.holding = true
+        harness.alarms.refuseHeld = true
+        harness.nurseryCries()
+        #expect(await eventually { harness.alarms.heldCount == 1 })
+        harness.alarms.holding = false
+        let start = harness.scheduler.nowMs
+        harness.hear("twins", rms: 0.3, atMs: start)
+        harness.hear("twins", rms: 0.3, atMs: start + 1_600)
+        #expect(await eventually { harness.alarms.ringing == .room(cameraId: "twins", name: "Twins") })
+        harness.alarms.releaseHeld()
+        await harness.settle()
+        #expect(harness.alarms.ringing == .room(cameraId: "twins", name: "Twins"))
+        #expect(!harness.tone.calls.contains { if case .start = $0 { true } else { false } })
+    }
+
     /// An answer before the queued raise runs means nothing rings.
     @Test func anAlarmAnsweredBeforeItIsRaisedNeverRings() async throws {
         let harness = try await Harness()
@@ -327,6 +349,25 @@ struct MonitoringAlertsTests {
         #expect(harness.service.recovered != nil)
         await harness.service.alerts.flushNotices()
         #expect(harness.center.showing[MonitoringNotices.failureId] == nil)
+    }
+
+    /// The card follows the battery down while it stays low, quietly.
+    @Test func theFailureCardFollowsItsDetails() async throws {
+        let harness = try await Harness { $0.failureGraceMs = 30_000 }
+        harness.batterySource.reading = BatteryReading(level: 0.2, power: .unplugged)
+        harness.service.arm()
+        harness.pass(seconds: 31)
+        await harness.service.alerts.flushNotices()
+        let first = try #require(harness.center.showing[MonitoringNotices.failureId])
+        #expect(first.title.contains("20"))
+
+        harness.batterySource.set(BatteryReading(level: 0.15, power: .unplugged))
+        harness.pass(seconds: 1)
+        await harness.service.alerts.flushNotices()
+        let updated = try #require(harness.center.showing[MonitoringNotices.failureId])
+        #expect(updated.title.contains("15"))
+        #expect(updated.level == .passive, "an update never sounds or wakes")
+        #expect(harness.alarms.raised.count == 1)
     }
 
     // MARK: - The dead-man and Exit
