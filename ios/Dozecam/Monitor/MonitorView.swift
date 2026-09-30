@@ -70,6 +70,14 @@ struct MonitorView: View {
         VStack(spacing: 0) {
             controls
                 .padding(OverlayChrome.margin)
+            // iOS has no ongoing notification: the status line lives here,
+            // on a row of its own so it is never cut short by the buttons.
+            if let status = model.statusLine, !model.showsNotMonitoring {
+                StatusLine(text: status)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, OverlayChrome.margin)
+                    .padding(.bottom, OverlayChrome.gap)
+            }
             CameraGrid(model: model)
         }
         .overlay(alignment: .bottom) {
@@ -109,9 +117,6 @@ struct ControlRow: View {
                 NotMonitoringBadge {
                     if model.retryMonitoring() { onOpenChecklist() }
                 }
-            } else if let status = model.statusLine {
-                // iOS has no ongoing notification: the status line lives here.
-                StatusLine(text: status)
             }
             Spacer(minLength: 0)
             // The way out first: the one control that ends the night rather
