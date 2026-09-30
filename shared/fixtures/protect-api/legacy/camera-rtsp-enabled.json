@@ -1,0 +1,8 @@
+{
+  "id": "cam1",
+  "modelKey": "camera",
+  "name": "Nursery",
+  "channels": [
+    {"id": 1, "name": "Medium", "isRtspEnabled": true, "rtspAlias": "newAlias"}
+  ]
+}

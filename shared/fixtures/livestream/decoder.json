@@ -1,0 +1,92 @@
+{
+  "cases": [
+    {
+      "name": "emits the init segment with the codec announced before it",
+      "messages": [
+        {
+          "file": "decoder/init-with-codec/message-1.bin",
+          "segments": [{ "type": "init", "codec": "av01.0.05M.08,mp4a.40.2", "text": "FTYPMOOV" }]
+        }
+      ]
+    },
+    {
+      "name": "assembles a fragment in moof mdat video audio order",
+      "messages": [
+        { "file": "decoder/box-order/message-1.bin", "segments": [{ "type": "media", "text": "MDVA" }] }
+      ]
+    },
+    {
+      "name": "carries a frame split across websocket messages",
+      "messages": [
+        { "file": "decoder/frame-split-across-messages/message-1.bin", "segments": [] },
+        { "file": "decoder/frame-split-across-messages/message-2.bin", "segments": [] },
+        {
+          "file": "decoder/frame-split-across-messages/message-3.bin",
+          "segments": [{ "type": "init", "text": "FTYPMOOV" }]
+        }
+      ]
+    },
+    {
+      "name": "decodes several fragments arriving in one message",
+      "messages": [
+        {
+          "file": "decoder/two-fragments-in-one-message/message-1.bin",
+          "segments": [{ "type": "media", "text": "M1D1" }, { "type": "media", "text": "M2D2" }]
+        }
+      ]
+    },
+    {
+      "name": "does not leak boxes from one fragment into the next",
+      "messages": [
+        { "file": "decoder/no-leak-between-fragments/message-1.bin", "segments": [{ "type": "media", "text": "M1A1" }] },
+        { "file": "decoder/no-leak-between-fragments/message-2.bin", "segments": [{ "type": "media", "text": "M2" }] }
+      ]
+    },
+    {
+      "name": "ignores an empty fragment rather than emitting zero bytes",
+      "messages": [
+        { "file": "decoder/empty-fragment/message-1.bin", "segments": [] }
+      ]
+    },
+    {
+      "name": "ignores timestamp frames",
+      "messages": [
+        { "file": "decoder/timestamp-ignored/message-1.bin", "segments": [{ "type": "media", "text": "M" }] }
+      ]
+    },
+    {
+      "name": "reads a payload longer than a 16-bit length",
+      "messages": [
+        {
+          "file": "decoder/payload-over-16-bits/message-1.bin",
+          "segments": [{ "type": "init", "file": "decoder/payload-over-16-bits/init.bin" }]
+        }
+      ]
+    },
+    {
+      "name": "rejects an unknown frame type instead of desyncing silently",
+      "messages": [
+        { "file": "decoder/unknown-frame-type/message-1.bin", "error": "protocol" }
+      ]
+    },
+    {
+      "name": "concatenates a box delivered as several chunks",
+      "messages": [
+        { "file": "decoder/chunked-box/message-1.bin", "segments": [{ "type": "media", "text": "MOOFchunk1chunk2chunk3" }] }
+      ]
+    },
+    {
+      "name": "keeps box order when every type is chunked",
+      "messages": [
+        { "file": "decoder/every-box-chunked/message-1.bin", "segments": [{ "type": "media", "text": "m1m2d1d2v1v2a1a2" }] }
+      ]
+    },
+    {
+      "name": "chunks do not survive into the following fragment",
+      "messages": [
+        { "file": "decoder/chunks-not-carried-over/message-1.bin", "segments": [{ "type": "media", "text": "old1old2" }] },
+        { "file": "decoder/chunks-not-carried-over/message-2.bin", "segments": [{ "type": "media", "text": "new" }] }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "cases": [
+    {"name": "silence is zero", "samples": [0, 0, 0, 0], "expected": 0.0, "tolerance": 0.0},
+    {"name": "empty buffer is zero", "samples": [], "expected": 0.0, "tolerance": 0.0},
+    {"name": "full-scale square wave is one", "samples": [32767, -32767, 32767, -32767], "expected": 1.0, "tolerance": 0.001},
+    {"name": "half-scale square wave is one half", "samples": [16384, -16384, 16384, -16384], "expected": 0.5, "tolerance": 0.001}
+  ]
+}

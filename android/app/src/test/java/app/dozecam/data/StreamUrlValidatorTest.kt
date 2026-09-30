@@ -1,86 +1,73 @@
 package app.dozecam.data
 
+import app.dozecam.testing.Fixtures
+import kotlinx.serialization.Serializable
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/** The accept/reject cases live in `shared/fixtures/stream-url/`, one file per question. */
 class StreamUrlValidatorTest {
 
-    @Test
-    fun `accepts plain rtsp url with port and token path`() {
-        assertTrue(StreamUrlValidator.isValid("rtsp://192.168.1.1:7447/abcDEF123"))
+    @Serializable
+    private data class Case<T>(val name: String, val url: String, val expected: T)
+
+    @Serializable
+    private data class Fixture<T>(val cases: List<Case<T>>)
+
+    private val valid = Fixtures.decode<Fixture<Boolean>>("stream-url/valid.json").cases
+    private val monitorable = Fixtures.decode<Fixture<Boolean>>("stream-url/monitorable.json").cases
+    private val normalized = Fixtures.decode<Fixture<String>>("stream-url/normalize.json").cases
+
+    private fun <T> List<Case<T>>.check(names: Array<out String>, actual: (String) -> T) = names.forEach { name ->
+        val case = singleOrNull { it.name == name } ?: error("no fixture case \"$name\"")
+        assertEquals("${case.name}: \"${case.url}\"", case.expected, actual(case.url))
     }
 
-    @Test
-    fun `accepts hostname urls and surrounding whitespace`() {
-        assertTrue(StreamUrlValidator.isValid("  rtsp://console.local:7447/token  "))
-    }
+    private fun checkValid(vararg names: String) = valid.check(names, StreamUrlValidator::isValid)
+
+    private fun checkMonitorable(vararg names: String) = monitorable.check(names, StreamUrlValidator::isMonitorable)
+
+    private fun checkNormalized(vararg names: String) = normalized.check(names, StreamUrlValidator::normalize)
 
     @Test
-    fun `accepts uppercase scheme`() {
-        assertTrue(StreamUrlValidator.isValid("RTSP://192.168.1.1:7447/token"))
-    }
+    fun `accepts plain rtsp url with port and token path`() = checkValid("plain rtsp url with port and token path")
 
     @Test
-    fun `rejects blank input`() {
-        assertFalse(StreamUrlValidator.isValid(""))
-        assertFalse(StreamUrlValidator.isValid("   "))
-    }
+    fun `accepts hostname urls and surrounding whitespace`() = checkValid("hostname url with surrounding whitespace")
 
     @Test
-    fun `rejects non-rtsp schemes`() {
-        assertFalse(StreamUrlValidator.isValid("http://192.168.1.1:7447/token"))
-    }
+    fun `accepts uppercase scheme`() = checkValid("uppercase scheme")
 
     @Test
-    fun `accepts rtsps urls, including secure-RTSP query params`() {
-        assertTrue(StreamUrlValidator.isValid("rtsps://192.168.1.1:7441/token"))
-        assertTrue(StreamUrlValidator.isValid("rtsps://192.168.1.1:7441/EwjjtVc000xWicJ?enableSrtp"))
-    }
+    fun `rejects blank input`() = checkValid("empty input", "whitespace-only input")
 
     @Test
-    fun `only plain rtsp urls are monitorable`() {
-        assertTrue(StreamUrlValidator.isMonitorable("rtsp://192.168.1.1:7447/token"))
-        // A stale pre-normalization rtsps entry; normalize() prevents new ones.
-        assertFalse(StreamUrlValidator.isMonitorable("rtsps://192.168.1.1:7441/token"))
-        assertFalse(StreamUrlValidator.isMonitorable(""))
-        assertFalse(StreamUrlValidator.isMonitorable("http://192.168.1.1/x"))
-    }
+    fun `rejects non-rtsp schemes`() = checkValid("http scheme")
 
     @Test
-    fun `normalize rewrites Protect's rtsps console link to its playable rtsp alias`() {
-        assertEquals(
-            "rtsp://192.168.1.1:7447/EwjjtVc000xWicJ",
-            StreamUrlValidator.normalize("rtsps://192.168.1.1:7441/EwjjtVc000xWicJ?enableSrtp"),
-        )
-    }
+    fun `accepts rtsps urls, including secure-RTSP query params`() =
+        checkValid("rtsps url", "rtsps url with Protect's secure-RTSP query param")
+
+    // A stale pre-normalization rtsps entry; normalize() prevents new ones.
+    @Test
+    fun `only plain rtsp urls are monitorable`() =
+        checkMonitorable("plain rtsp url", "stale pre-normalization rtsps url", "empty input is not monitorable", "http url")
 
     @Test
-    fun `normalize leaves an rtsps url on a non-standard port untouched apart from scheme`() {
-        assertEquals(
-            "rtsp://192.168.1.1:9999/token",
-            StreamUrlValidator.normalize("rtsps://192.168.1.1:9999/token"),
-        )
-    }
+    fun `normalize rewrites Protect's rtsps console link to its playable rtsp alias`() =
+        checkNormalized("Protect's rtsps console link becomes its playable rtsp alias")
 
     @Test
-    fun `normalize is a no-op for plain rtsp urls and trims whitespace`() {
-        assertEquals(
-            "rtsp://192.168.1.1:7447/token",
-            StreamUrlValidator.normalize("  rtsp://192.168.1.1:7447/token  "),
-        )
-    }
+    fun `normalize leaves an rtsps url on a non-standard port untouched apart from scheme`() =
+        checkNormalized("rtsps on a non-standard port changes only the scheme")
 
     @Test
-    fun `rejects urls without a host`() {
-        assertFalse(StreamUrlValidator.isValid("rtsp://"))
-        assertFalse(StreamUrlValidator.isValid("rtsp:token"))
-    }
+    fun `normalize is a no-op for plain rtsp urls and trims whitespace`() =
+        checkNormalized("plain rtsp is only trimmed")
 
     @Test
-    fun `rejects unparseable input`() {
-        assertFalse(StreamUrlValidator.isValid("rtsp://bad host/with spaces"))
-        assertFalse(StreamUrlValidator.isValid("not a url"))
-    }
+    fun `rejects urls without a host`() = checkValid("scheme and slashes with no host", "opaque rtsp url with no host")
+
+    @Test
+    fun `rejects unparseable input`() = checkValid("host containing spaces", "not a url at all")
 }

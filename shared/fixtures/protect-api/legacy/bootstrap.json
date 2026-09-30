@@ -1,0 +1,41 @@
+{
+  "nvr": {
+    "modelKey": "nvr",
+    "name": "Protect console",
+    "version": "4.0.21"
+  },
+  "lastUpdateId": "00000000-0000-4000-8000-000000000001",
+  "cameras": [
+    {
+      "id": "cam1",
+      "modelKey": "camera",
+      "type": "UVC G4 Instant",
+      "state": "CONNECTED",
+      "name": "Nursery",
+      "channels": [
+        {"id": 0, "name": "High", "enabled": true, "width": 2688, "height": 1512, "fps": 30, "isRtspEnabled": false, "rtspAlias": null},
+        {"id": 1, "name": "Medium", "enabled": true, "width": 1280, "height": 720, "fps": 30, "isRtspEnabled": true, "rtspAlias": "aliasM"},
+        {"id": 2, "name": "Low", "enabled": true, "width": 640, "height": 360, "fps": 30, "isRtspEnabled": false, "rtspAlias": null}
+      ]
+    },
+    {
+      "id": "cam2",
+      "modelKey": "camera",
+      "type": "UVC G3 Flex",
+      "state": "CONNECTED",
+      "name": "",
+      "channels": [
+        {"id": 0, "name": "High", "enabled": true, "width": 1920, "height": 1080, "fps": 30, "isRtspEnabled": true, "rtspAlias": "aliasH"},
+        {"id": 2, "name": "Low", "enabled": true, "width": 640, "height": 360, "fps": 30, "isRtspEnabled": false, "rtspAlias": null}
+      ]
+    },
+    {
+      "id": "cam3",
+      "modelKey": "camera",
+      "type": "UVC G4 Instant",
+      "state": "DISCONNECTED",
+      "name": "Landing",
+      "channels": []
+    }
+  ]
+}

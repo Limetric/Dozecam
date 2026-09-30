@@ -1,0 +1,8 @@
+{
+  "cases": [
+    {"name": "a withheld alert does not displace a sounding alarm for another room", "cameraId": "b", "aloud": ["b"], "alarmingCameraId": "a", "expected": true},
+    {"name": "an alert that sounds is never withheld", "cameraId": "c", "aloud": ["b"], "alarmingCameraId": "a", "expected": false},
+    {"name": "an alert for the alarm's own room is never withheld", "cameraId": "a", "aloud": ["a"], "alarmingCameraId": "a", "expected": false},
+    {"name": "with no alarm sounding nothing is withheld", "cameraId": "b", "aloud": ["b"], "alarmingCameraId": null, "expected": false}
+  ]
+}

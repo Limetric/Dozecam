@@ -1,0 +1,30 @@
+[
+  {
+    "id": "cam1",
+    "modelKey": "camera",
+    "state": "CONNECTED",
+    "name": "Nursery",
+    "isMicEnabled": true,
+    "featureFlags": {
+      "hasMic": true,
+      "hasSpeaker": true,
+      "hasHdr": false
+    }
+  },
+  {
+    "id": "cam2",
+    "modelKey": "camera",
+    "state": "CONNECTED",
+    "name": null,
+    "featureFlags": {
+      "hasMic": true,
+      "hasSpeaker": false
+    }
+  },
+  {
+    "id": "cam3",
+    "modelKey": "camera",
+    "state": "DISCONNECTED",
+    "name": "Landing"
+  }
+]

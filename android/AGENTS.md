@@ -2,7 +2,7 @@
 
 Guidance for coding agents working on the Android app in `android/`. The repo-wide file (product, naming, layout) is `../AGENTS.md`. Paths below are relative to the repo root; Gradle commands run from `android/`.
 
-The Android app is a native Android baby monitor for UniFi Protect cameras: low-latency libVLC RTSP live view, a wake-on-sound foreground service, honest connection state, and Protect console onboarding. Until the shared spec exists (#61), this app and this file are the reference for how Dozecam behaves.
+The Android app is a native Android baby monitor for UniFi Protect cameras: low-latency libVLC RTSP live view, a wake-on-sound foreground service, honest connection state, and Protect console onboarding. This app is the reference implementation, but the product rules themselves are written in `shared/spec`, which wins where this file disagrees.
 
 ## Commands
 

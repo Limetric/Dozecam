@@ -1,0 +1,8 @@
+{
+  "cases": [
+    {"name": "the only room playing aloud does not sound the alarm", "cameraId": "a", "aloud": ["a"], "expected": false},
+    {"name": "a room playing aloud among several does not sound the alarm", "cameraId": "a", "aloud": ["a", "b"], "expected": false},
+    {"name": "a room nobody can hear sounds the alarm with nothing aloud", "cameraId": "c", "aloud": [], "expected": true},
+    {"name": "a room dropped from the mix sounds the alarm", "cameraId": "c", "aloud": ["a"], "expected": true}
+  ]
+}

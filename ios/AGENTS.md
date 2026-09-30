@@ -2,7 +2,7 @@
 
 Guidance for coding agents working on the iPhone and iPad app in `ios/`. The repo-wide file (product, naming, layout, product rules) is `../AGENTS.md`. Paths below are relative to the repo root.
 
-The iOS app is a native Swift/SwiftUI counterpart of the Android app, which stays the reference for behaviour until the shared spec exists (#61). The plan and its order are in #56; the platform findings that shape the design are on #58 (background survival, alerts) and #59 (media stack).
+The iOS app is a native Swift/SwiftUI counterpart of the Android app. The product rules it must meet are in `shared/spec`, which wins over this file; where the spec leaves a detail open, the Android app is the reference. The plan and its order are in #56; the platform findings that shape the design are on #58 (background survival, alerts) and #59 (media stack).
 
 ## Commands
 
@@ -47,7 +47,7 @@ Versions are never edited by hand. `generate.sh` writes `CURRENT_PROJECT_VERSION
 
 ## iOS mechanics behind the product rules
 
-These are the decisions from the spikes; the shared spec (#61) will state each rule once for both platforms.
+These are the decisions from the spikes; the rules themselves are in `shared/spec`.
 
 - **Always-on monitoring** stays alive with the screen locked through an `AVAudioSession` in `.playback` **with `.mixWithOthers`** and a running `AVAudioEngine`. Without mixing, the session cannot be reactivated from the background, so any alarm or a relaunch in the background ends monitoring (#58).
 - **Waking the parent:** AlarmKit is the only path that rings through silent mode and Sleep Focus, so it is the primary alert. The fallback is the app's own tone at media volume plus a time-sensitive notification (#58).

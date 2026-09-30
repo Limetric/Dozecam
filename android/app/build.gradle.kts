@@ -130,6 +130,16 @@ tasks.withType<Test>().configureEach {
     )
 }
 
+// The golden test vectors both apps' tests read (#61) live outside the Gradle
+// project, in shared/fixtures. Tests find them through this property, and the
+// directory is a declared input, so editing a fixture re-runs the tests
+// instead of serving a cached result.
+val sharedFixtures = rootProject.layout.projectDirectory.dir("../shared/fixtures")
+tasks.withType<Test>().configureEach {
+    inputs.dir(sharedFixtures).withPathSensitivity(PathSensitivity.RELATIVE).withPropertyName("sharedFixtures")
+    systemProperty("dozecam.fixtures", sharedFixtures.asFile.canonicalPath)
+}
+
 gradle.taskGraph.whenReady {
     val packagesRelease = allTasks.any { task ->
         task.name.matches(Regex("(assemble|bundle|package).*Release"))

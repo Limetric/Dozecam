@@ -1,0 +1,24 @@
+{
+  "name": "the public and legacy APIs yield the same camera ids for the same cameras",
+  "responses": {
+    "publicApi": "public/cameras.json",
+    "legacyApi": "legacy/bootstrap.json"
+  },
+  "cameras": [
+    {
+      "id": "cam1",
+      "publicApi": {"name": "Nursery", "hasSpeaker": true},
+      "legacyApi": {"name": "Nursery", "preferredChannel": {"name": "Medium", "rtspAlias": "aliasM"}}
+    },
+    {
+      "id": "cam2",
+      "publicApi": {"name": null, "hasSpeaker": false},
+      "legacyApi": {"name": "", "preferredChannel": {"name": "High", "rtspAlias": "aliasH"}}
+    },
+    {
+      "id": "cam3",
+      "publicApi": {"name": "Landing", "hasSpeaker": false},
+      "legacyApi": {"name": "Landing", "preferredChannel": null}
+    }
+  ]
+}

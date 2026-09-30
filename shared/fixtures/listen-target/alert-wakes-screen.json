@@ -1,0 +1,8 @@
+{
+  "cases": [
+    {"name": "the only room playing aloud needs no naming", "cameraId": "a", "aloud": ["a"], "expected": false},
+    {"name": "one room among several is named on screen", "cameraId": "a", "aloud": ["a", "b"], "expected": true},
+    {"name": "a room nobody can hear wakes the screen while another plays", "cameraId": "c", "aloud": ["a"], "expected": true},
+    {"name": "a room nobody can hear wakes the screen with nothing aloud", "cameraId": "c", "aloud": [], "expected": true}
+  ]
+}

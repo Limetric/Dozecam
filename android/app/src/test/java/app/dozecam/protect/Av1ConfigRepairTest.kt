@@ -1,44 +1,54 @@
 package app.dozecam.protect
 
-import android.util.Base64
+import app.dozecam.testing.Fixtures
+import kotlinx.serialization.Serializable
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
 
 /**
  * Exercised against the real initialization segment a UniFi G6 camera sent
- * over the livestream socket, captured from the device.
+ * over the livestream socket, captured from the device. The capture, its
+ * repaired form and the sizes the repair must produce are the shared vectors
+ * in `shared/fixtures/livestream/av1-config-repair.json`.
  */
-@RunWith(RobolectricTestRunner::class)
 class Av1ConfigRepairTest {
 
-    private val realInitSegment: ByteArray = Base64.decode(
-        "AAAAIGZ0eXBkYXNoAAAAAGlzbzZodmMxYXZjMW1wNDEAAARXbW9vdgAAAGxtdmhkAAAAAOaL953m" +
-            "i/edAAAD6AAAAAAAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAA" +
-            "AABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAEhtdmV4AAAAIHRyZXgAAAAAAAAA" +
-            "AQAAAAEAAAu4AAAAAAABAAAAAAAgdHJleAAAAAAAAAACAAAAAQAABAAAAAAAAAAAAAAAAdt0cmFr" +
-            "AAAAXHRraGQAAAAH5ov3neaL950AAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAA" +
-            "AAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAABQAAAALQAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAA" +
-            "AAEAAAAAAAAAAAABAAAAAAFTbWRpYQAAACBtZGhkAAAAAOaL953mi/edAAFfkAAAAABVxAAAAAAA" +
-            "LWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAAA/m1pbmYAAAAUdm1o" +
-            "ZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAL5zdGJs" +
-            "AAAAcnN0c2QAAAAAAAAAAQAAAGJhdjAxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAABQAC0ABIAAAA" +
-            "SAAAAAAAAAABFlViaXF1aXRpIE1lZGlhIFNlcnZlciAAAAAAAAAAAAAAGP//AAAADGF2MUOBBSwB" +
-            "AAAAEHN0dHMAAAAAAAAAAAAAABBzdHNjAAAAAAAAAAAAAAAUc3RzegAAAAAAAAAAAAAAAAAAABBz" +
-            "dGNvAAAAAAAAAAAAAAHAdHJhawAAAFx0a2hkAAAAB+aL953mi/edAAAAAgAAAAAAAAAAAAAAAAAA" +
-            "AAAAAAAAAQAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAA" +
-            "JGVkdHMAAAAcZWxzdAAAAAAAAAABAAAAAAAAAAAAAQAAAAABOG1kaWEAAAAgbWRoZAAAAADmi/ed" +
-            "5ov3nQAAPoAAAAAAVcQAAAAAAC1oZGxyAAAAAAAAAABzb3VuAAAAAAAAAAAAAAAAU291bmRIYW5k" +
-            "bGVyAAAAAONtaW5mAAAAEHNtaGQAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1" +
-            "cmwgAAAAAQAAAKdzdGJsAAAAW3N0c2QAAAAAAAAAAQAAAEttcDRhAAAAAAAAAAEAAAAAAAAAAAAC" +
-            "ABAAAAAAPoAAAAAAACdlc2RzAAAAAAMZAAIABBFAFQAAAAAAAAAAAAAABQIUCAYBAgAAABBzdHRz" +
-            "AAAAAAAAAAAAAAAQc3RzYwAAAAAAAAAAAAAAFHN0c3oAAAAAAAAAAAAAAAAAAAAQc3RjbwAAAAAA" +
-            "AAAA",
-        Base64.NO_WRAP,
+    @Serializable
+    private data class Table(val repair: Repair, val unchanged: List<Unchanged>)
+
+    @Serializable
+    private data class Repair(
+        val name: String,
+        val input: String,
+        val output: String,
+        val av1cSizeBefore: Int,
+        val av1cSizeAfter: Int,
+        val appendedHex: String,
+        val grownBoxes: List<String>,
+        val untouchedBoxes: List<String>,
     )
+
+    @Serializable
+    private data class Unchanged(val name: String, val input: String)
+
+    private val table = Fixtures.decode<Table>("livestream/av1-config-repair.json")
+    private val case = table.repair
+
+    private fun bytes(file: String) = Fixtures.bytes("livestream/$file")
+
+    private val realInitSegment: ByteArray = bytes(case.input)
+
+    private val appended: ByteArray =
+        case.appendedHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+
+    /** Asserts that the fixture's `unchanged` case called [name] comes back byte for byte. */
+    private fun assertUnchanged(name: String) {
+        val unchanged = table.unchanged.singleOrNull { it.name == name } ?: error("no fixture case \"$name\"")
+        val input = bytes(unchanged.input)
+        assertArrayEquals(unchanged.name, input, Av1ConfigRepair.repair(input))
+    }
 
     private fun boxes(buffer: ByteArray): Map<String, Int> {
         // Flat scan for the boxes this repair resizes, with their declared sizes.
@@ -75,15 +85,16 @@ class Av1ConfigRepairTest {
     fun `the captured segment is the shape that breaks Media3`() {
         // Guards the premise: a 12-byte av1C is header plus a bare 4-byte
         // config record, with no configOBUs for the parser to read.
-        assertEquals(12, boxes(realInitSegment)["av1C"])
+        assertEquals("${case.name}: av1C before", case.av1cSizeBefore, boxes(realInitSegment)["av1C"])
     }
 
     @Test
     fun `fills in configOBUs so the record is no longer truncated`() {
         val repaired = Av1ConfigRepair.repair(realInitSegment)
 
-        assertEquals(realInitSegment.size + 2, repaired.size)
-        assertEquals(14, boxes(repaired)["av1C"])
+        assertEquals("${case.name}: size", realInitSegment.size + appended.size, repaired.size)
+        assertEquals("${case.name}: av1C after", case.av1cSizeAfter, boxes(repaired)["av1C"])
+        assertArrayEquals("${case.name}: output", bytes(case.output), repaired)
     }
 
     @Test
@@ -91,10 +102,10 @@ class Av1ConfigRepairTest {
         val repaired = Av1ConfigRepair.repair(realInitSegment)
 
         val av1cEnd = repaired.size - (realInitSegment.size - indexOfAv1cEnd(realInitSegment))
-        val appended = repaired.copyOfRange(av1cEnd - 2, av1cEnd)
+        val tail = repaired.copyOfRange(av1cEnd - appended.size, av1cEnd)
         // obu_type = 2 with a size field, then size 0. Media3 reads the type,
         // finds it is not a sequence header, and returns instead of throwing.
-        assertArrayEquals(byteArrayOf(0x12, 0x00), appended)
+        assertArrayEquals("${case.name}: appended", appended, tail)
     }
 
     @Test
@@ -102,12 +113,13 @@ class Av1ConfigRepairTest {
         val before = boxes(realInitSegment)
         val after = boxes(Av1ConfigRepair.repair(realInitSegment))
 
-        for (type in listOf("moov", "trak", "mdia", "minf", "stbl", "stsd", "av01", "av1C")) {
-            assertEquals("$type size", before.getValue(type) + 2, after.getValue(type))
+        for (type in case.grownBoxes) {
+            assertEquals("${case.name}: $type size", before.getValue(type) + appended.size, after.getValue(type))
         }
         // The audio track and ftyp are untouched.
-        assertEquals(before.getValue("ftyp"), after.getValue("ftyp"))
-        assertEquals(before.getValue("mp4a"), after.getValue("mp4a"))
+        for (type in case.untouchedBoxes) {
+            assertEquals("${case.name}: $type size", before.getValue(type), after.getValue(type))
+        }
     }
 
     @Test
@@ -115,30 +127,25 @@ class Av1ConfigRepairTest {
         val repaired = Av1ConfigRepair.repair(realInitSegment)
 
         // A stale ancestor size would desynchronise the scan and lose boxes.
-        assertTrue(boxes(repaired).keys.containsAll(boxes(realInitSegment).keys))
+        assertTrue(case.name, boxes(repaired).keys.containsAll(boxes(realInitSegment).keys))
     }
 
     @Test
     fun `leaves a segment that already carries configOBUs alone`() {
-        val repaired = Av1ConfigRepair.repair(realInitSegment)
-
-        // Repairing twice must not keep appending.
-        assertArrayEquals(repaired, Av1ConfigRepair.repair(repaired))
+        // Repairing twice must not keep appending. The fixture's repaired
+        // segment is the repair's own output, which the test above holds it to.
+        assertUnchanged("a segment that already carries configOBUs is left alone")
     }
 
     @Test
     fun `leaves a segment without an av1C box alone`() {
-        val audioOnly = "\u0000\u0000\u0000\u0010ftypisom".encodeToByteArray()
-
-        assertArrayEquals(audioOnly, Av1ConfigRepair.repair(audioOnly))
+        assertUnchanged("a segment without an av1C box is left alone")
     }
 
     @Test
     fun `does not walk off the end of a truncated segment`() {
-        val truncated = realInitSegment.copyOfRange(0, 40)
-
         // Returning it unchanged is correct; throwing would kill playback.
-        assertArrayEquals(truncated, Av1ConfigRepair.repair(truncated))
+        assertUnchanged("a truncated segment is returned unchanged rather than walked off the end of")
     }
 
     private fun indexOfAv1cEnd(buffer: ByteArray): Int {

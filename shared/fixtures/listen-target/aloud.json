@@ -1,0 +1,9 @@
+{
+  "cases": [
+    {"name": "every room the monitor can hear plays, together", "requested": true, "speakerGranted": true, "viewerAudible": false, "monitored": ["a", "b", "c"], "expected": ["a", "b", "c"]},
+    {"name": "nothing asked for is nothing played", "requested": false, "speakerGranted": true, "viewerAudible": false, "monitored": ["a", "b", "c"], "expected": []},
+    {"name": "a house with nothing monitored has nothing to play", "requested": true, "speakerGranted": true, "viewerAudible": false, "monitored": [], "expected": []},
+    {"name": "losing the speaker silences it without waiting for the switch", "requested": true, "speakerGranted": false, "viewerAudible": false, "monitored": ["a", "b", "c"], "expected": []},
+    {"name": "listen mode stands down while the viewer is making noise", "requested": true, "speakerGranted": true, "viewerAudible": true, "monitored": ["a", "b", "c"], "expected": []}
+  ]
+}

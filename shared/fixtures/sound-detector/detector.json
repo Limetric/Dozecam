@@ -1,0 +1,146 @@
+{
+  "cases": [
+    {
+      "name": "sustained loud sound triggers exactly once",
+      "settings": {"threshold": 0.1, "sustainMs": 1500, "quietMs": 10000},
+      "samples": [
+        {"atMs": 0, "rms": 0.3, "triggers": false},
+        {"atMs": 1000, "rms": 0.3, "triggers": false},
+        {"atMs": 1500, "rms": 0.3, "triggers": true, "phase": "triggered"},
+        {"atMs": 2000, "rms": 0.3, "triggers": false}
+      ]
+    },
+    {
+      "name": "a short thud does not trigger",
+      "settings": {"threshold": 0.1, "sustainMs": 1500, "quietMs": 10000},
+      "samples": [
+        {"atMs": 0, "rms": 0.5, "triggers": false},
+        {"atMs": 400, "rms": 0.02, "triggers": false, "phase": "armed"},
+        {"atMs": 1000, "rms": 0.5, "triggers": false},
+        {"atMs": 2000, "rms": 0.5, "triggers": false},
+        {"atMs": 2500, "rms": 0.5, "triggers": true}
+      ]
+    },
+    {
+      "name": "quiet levels below threshold never trigger",
+      "settings": {"threshold": 0.1, "sustainMs": 1500, "quietMs": 10000},
+      "samples": [
+        {"atMs": 0, "rms": 0.05, "triggers": false},
+        {"atMs": 250, "rms": 0.05, "triggers": false},
+        {"atMs": 500, "rms": 0.05, "triggers": false},
+        {"atMs": 750, "rms": 0.05, "triggers": false},
+        {"atMs": 1000, "rms": 0.05, "triggers": false},
+        {"atMs": 1250, "rms": 0.05, "triggers": false},
+        {"atMs": 1500, "rms": 0.05, "triggers": false},
+        {"atMs": 1750, "rms": 0.05, "triggers": false},
+        {"atMs": 2000, "rms": 0.05, "triggers": false},
+        {"atMs": 2250, "rms": 0.05, "triggers": false},
+        {"atMs": 2500, "rms": 0.05, "triggers": false},
+        {"atMs": 2750, "rms": 0.05, "triggers": false},
+        {"atMs": 3000, "rms": 0.05, "triggers": false},
+        {"atMs": 3250, "rms": 0.05, "triggers": false},
+        {"atMs": 3500, "rms": 0.05, "triggers": false},
+        {"atMs": 3750, "rms": 0.05, "triggers": false},
+        {"atMs": 4000, "rms": 0.05, "triggers": false},
+        {"atMs": 4250, "rms": 0.05, "triggers": false},
+        {"atMs": 4500, "rms": 0.05, "triggers": false},
+        {"atMs": 4750, "rms": 0.05, "triggers": false},
+        {"atMs": 5000, "rms": 0.05, "triggers": false},
+        {"atMs": 5250, "rms": 0.05, "triggers": false},
+        {"atMs": 5500, "rms": 0.05, "triggers": false},
+        {"atMs": 5750, "rms": 0.05, "triggers": false},
+        {"atMs": 6000, "rms": 0.05, "triggers": false},
+        {"atMs": 6250, "rms": 0.05, "triggers": false},
+        {"atMs": 6500, "rms": 0.05, "triggers": false},
+        {"atMs": 6750, "rms": 0.05, "triggers": false},
+        {"atMs": 7000, "rms": 0.05, "triggers": false},
+        {"atMs": 7250, "rms": 0.05, "triggers": false},
+        {"atMs": 7500, "rms": 0.05, "triggers": false},
+        {"atMs": 7750, "rms": 0.05, "triggers": false},
+        {"atMs": 8000, "rms": 0.05, "triggers": false},
+        {"atMs": 8250, "rms": 0.05, "triggers": false},
+        {"atMs": 8500, "rms": 0.05, "triggers": false},
+        {"atMs": 8750, "rms": 0.05, "triggers": false},
+        {"atMs": 9000, "rms": 0.05, "triggers": false},
+        {"atMs": 9250, "rms": 0.05, "triggers": false},
+        {"atMs": 9500, "rms": 0.05, "triggers": false},
+        {"atMs": 9750, "rms": 0.05, "triggers": false},
+        {"atMs": 10000, "rms": 0.05, "triggers": false},
+        {"atMs": 10250, "rms": 0.05, "triggers": false},
+        {"atMs": 10500, "rms": 0.05, "triggers": false},
+        {"atMs": 10750, "rms": 0.05, "triggers": false},
+        {"atMs": 11000, "rms": 0.05, "triggers": false},
+        {"atMs": 11250, "rms": 0.05, "triggers": false},
+        {"atMs": 11500, "rms": 0.05, "triggers": false},
+        {"atMs": 11750, "rms": 0.05, "triggers": false},
+        {"atMs": 12000, "rms": 0.05, "triggers": false},
+        {"atMs": 12250, "rms": 0.05, "triggers": false},
+        {"atMs": 12500, "rms": 0.05, "triggers": false},
+        {"atMs": 12750, "rms": 0.05, "triggers": false},
+        {"atMs": 13000, "rms": 0.05, "triggers": false},
+        {"atMs": 13250, "rms": 0.05, "triggers": false},
+        {"atMs": 13500, "rms": 0.05, "triggers": false},
+        {"atMs": 13750, "rms": 0.05, "triggers": false},
+        {"atMs": 14000, "rms": 0.05, "triggers": false},
+        {"atMs": 14250, "rms": 0.05, "triggers": false},
+        {"atMs": 14500, "rms": 0.05, "triggers": false},
+        {"atMs": 14750, "rms": 0.05, "triggers": false},
+        {"atMs": 15000, "rms": 0.05, "triggers": false},
+        {"atMs": 15250, "rms": 0.05, "triggers": false},
+        {"atMs": 15500, "rms": 0.05, "triggers": false},
+        {"atMs": 15750, "rms": 0.05, "triggers": false},
+        {"atMs": 16000, "rms": 0.05, "triggers": false},
+        {"atMs": 16250, "rms": 0.05, "triggers": false},
+        {"atMs": 16500, "rms": 0.05, "triggers": false},
+        {"atMs": 16750, "rms": 0.05, "triggers": false},
+        {"atMs": 17000, "rms": 0.05, "triggers": false},
+        {"atMs": 17250, "rms": 0.05, "triggers": false},
+        {"atMs": 17500, "rms": 0.05, "triggers": false},
+        {"atMs": 17750, "rms": 0.05, "triggers": false},
+        {"atMs": 18000, "rms": 0.05, "triggers": false},
+        {"atMs": 18250, "rms": 0.05, "triggers": false},
+        {"atMs": 18500, "rms": 0.05, "triggers": false},
+        {"atMs": 18750, "rms": 0.05, "triggers": false},
+        {"atMs": 19000, "rms": 0.05, "triggers": false},
+        {"atMs": 19250, "rms": 0.05, "triggers": false},
+        {"atMs": 19500, "rms": 0.05, "triggers": false},
+        {"atMs": 19750, "rms": 0.05, "triggers": false},
+        {"atMs": 20000, "rms": 0.05, "triggers": false, "phase": "armed"}
+      ]
+    },
+    {
+      "name": "re-arms only after the full quiet period",
+      "settings": {"threshold": 0.1, "sustainMs": 1500, "quietMs": 10000},
+      "samples": [
+        {"atMs": 0, "rms": 0.3, "triggers": false},
+        {"atMs": 1500, "rms": 0.3, "triggers": true},
+        {"atMs": 2000, "rms": 0.02, "triggers": false},
+        {"atMs": 11999, "rms": 0.02, "triggers": false, "phase": "triggered"},
+        {"atMs": 12000, "rms": 0.02, "triggers": false, "phase": "armed"},
+        {"atMs": 13000, "rms": 0.3, "triggers": false},
+        {"atMs": 14500, "rms": 0.3, "triggers": true}
+      ]
+    },
+    {
+      "name": "loud sound during the quiet period restarts the quiet timer",
+      "settings": {"threshold": 0.1, "sustainMs": 1500, "quietMs": 10000},
+      "samples": [
+        {"atMs": 0, "rms": 0.3, "triggers": false},
+        {"atMs": 1500, "rms": 0.3, "triggers": true},
+        {"atMs": 2000, "rms": 0.02, "triggers": false},
+        {"atMs": 8000, "rms": 0.4, "triggers": false},
+        {"atMs": 12500, "rms": 0.02, "triggers": false, "phase": "triggered"},
+        {"atMs": 22500, "rms": 0.02, "triggers": false, "phase": "armed"}
+      ]
+    },
+    {
+      "name": "updated settings apply to subsequent samples",
+      "settings": {"threshold": 0.1, "sustainMs": 1500, "quietMs": 10000},
+      "samples": [
+        {"newSettings": {"threshold": 0.4, "sustainMs": 1500, "quietMs": 10000}, "atMs": 0, "rms": 0.3, "triggers": false, "phase": "armed"},
+        {"atMs": 1000, "rms": 0.5, "triggers": false, "phase": "building"},
+        {"atMs": 2500, "rms": 0.5, "triggers": true}
+      ]
+    }
+  ]
+}

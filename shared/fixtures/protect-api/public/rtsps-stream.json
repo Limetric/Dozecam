@@ -1,0 +1,5 @@
+{
+  "high": "rtsps://192.168.1.1:7441/aliasH?enableSrtp",
+  "medium": "rtsps://192.168.1.1:7441/aliasM?enableSrtp",
+  "low": null
+}

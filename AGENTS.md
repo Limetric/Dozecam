@@ -14,12 +14,12 @@ A monorepo with one native app per platform:
 
 - `android/` — the Android app (Kotlin, Jetpack Compose, Gradle). Guidance: `android/AGENTS.md`.
 - `ios/` — the iPhone and iPad app (Swift, SwiftUI, XcodeGen). Guidance: `ios/AGENTS.md`.
-- `shared/` — the platform-neutral product spec and the golden test fixtures both apps' tests read, arriving with #61.
+- `shared/` — `spec/`, the platform-neutral product spec, and `fixtures/`, the golden test vectors both apps' tests read.
 - `tools/` — shared tooling: `testbed.sh` (synthetic RTSP cameras for testing without a Protect console), `release/` (Play copy extraction), and the talk-back spike.
 - `spikes/` — throwaway iOS spikes whose findings are on #58 and #59; not product code.
 - `store-listing/<platform>/` — store copy.
 
-The two apps share no code. Shared behaviour is enforced through the spec and fixtures in `shared/`, with the Android app as the reference implementation. Until `shared/spec` exists (#61), `android/AGENTS.md` is where the product rules are written down.
+The two apps share no code. Shared behaviour is enforced through the spec and fixtures in `shared/`, with the Android app as the reference implementation. `shared/spec` is where the product rules are written down, and it wins over the platform AGENTS.md files and code comments.
 
 ## Product rules
 

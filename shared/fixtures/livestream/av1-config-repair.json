@@ -1,0 +1,26 @@
+{
+  "repair": {
+    "name": "a captured G6 init segment gets a temporal delimiter OBU in its empty av1C",
+    "input": "av1-config-repair/g6-init.bin",
+    "output": "av1-config-repair/g6-init-repaired.bin",
+    "av1cSizeBefore": 12,
+    "av1cSizeAfter": 14,
+    "appendedHex": "1200",
+    "grownBoxes": ["moov", "trak", "mdia", "minf", "stbl", "stsd", "av01", "av1C"],
+    "untouchedBoxes": ["ftyp", "mp4a"]
+  },
+  "unchanged": [
+    {
+      "name": "a segment that already carries configOBUs is left alone",
+      "input": "av1-config-repair/g6-init-repaired.bin"
+    },
+    {
+      "name": "a segment without an av1C box is left alone",
+      "input": "av1-config-repair/ftyp-only.bin"
+    },
+    {
+      "name": "a truncated segment is returned unchanged rather than walked off the end of",
+      "input": "av1-config-repair/g6-init-truncated.bin"
+    }
+  ]
+}

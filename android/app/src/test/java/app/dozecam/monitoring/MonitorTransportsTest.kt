@@ -2,8 +2,9 @@ package app.dozecam.monitoring
 
 import app.dozecam.data.Camera
 import app.dozecam.player.StreamSource
+import app.dozecam.testing.Fixtures
+import kotlinx.serialization.Serializable
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -66,83 +67,96 @@ class MonitorTransportsTest {
     }
 }
 
+/**
+ * The fallback rules themselves live in `shared/fixtures/transport-fallback`,
+ * which the iOS monitor is held to as well.
+ */
 class TransportFallbackTest {
+
+    @Serializable
+    private data class Table(val restartsBeforeFallback: Int, val cases: List<Case>)
+
+    @Serializable
+    private data class Case(val name: String, val transportCount: Int, val steps: List<Step>)
+
+    @Serializable
+    private data class Step(
+        val event: String,
+        val times: Int = 1,
+        val movesOn: Boolean? = null,
+        val index: Int? = null,
+    )
+
+    private val table = Fixtures.decode<Table>("transport-fallback/fallback.json")
+
+    /** Plays the fixture case called [name] against a fresh fallback. */
+    private fun play(name: String) {
+        val case = table.cases.singleOrNull { it.name == name } ?: error("no fixture case \"$name\"")
+        // Played twice: against the production default and against the
+        // fixture's stated threshold. The steps encode that threshold, so a
+        // default or a stated number that drifts from them fails.
+        val fallbacks = listOf(
+            "default" to TransportFallback(case.transportCount),
+            "restartsBeforeFallback=${table.restartsBeforeFallback}" to
+                TransportFallback(case.transportCount, table.restartsBeforeFallback),
+        )
+        for ((label, fallback) in fallbacks) {
+            case.steps.forEachIndexed { i, step ->
+                val where = "${case.name} ($label), step ${i + 1}"
+                repeat(step.times) { n ->
+                    when (step.event) {
+                        "restart" -> {
+                            val movedOn = fallback.onRestart()
+                            step.movesOn?.let { assertEquals("$where: restart ${n + 1} moved on", it, movedOn) }
+                        }
+                        "audioDecoded" -> fallback.onAudioDecoded()
+                        else -> error("$where: unknown event ${step.event}")
+                    }
+                }
+                step.index?.let { assertEquals("$where: index", it, fallback.index) }
+            }
+        }
+    }
 
     @Test
     fun `a transport is given several restarts before being abandoned`() {
-        val fallback = TransportFallback(transportCount = 2, restartsBeforeFallback = 3)
-
-        assertFalse(fallback.onRestart())
-        assertFalse(fallback.onRestart())
-        assertEquals(0, fallback.index)
-
-        assertTrue(fallback.onRestart())
-        assertEquals(1, fallback.index)
+        play("a transport is given several restarts before being abandoned")
     }
 
     @Test
     fun `restarts are counted here rather than read off the watchdog`() {
-        val fallback = TransportFallback(transportCount = 2, restartsBeforeFallback = 3)
-
         // The failure this exists for is a session that reaches "playing" and
         // only then fails to decode: the watchdog counts that as a recovery and
         // resets its attempt number every time round, so anything keyed on that
         // number would never climb and the camera would stay uncovered forever.
-        repeat(3) { fallback.onRestart() }
-
-        assertEquals(1, fallback.index)
+        play("restarts are counted here rather than read off the watchdog")
     }
 
     @Test
     fun `a transport that has ever decoded is kept through any later trouble`() {
-        val fallback = TransportFallback(transportCount = 2, restartsBeforeFallback = 3)
-        fallback.onAudioDecoded()
-
-        repeat(20) { assertFalse(fallback.onRestart()) }
-
-        // By now the trouble really is the network, and the other transport
-        // would fare no better.
-        assertEquals(0, fallback.index)
+        // By the twentieth restart the trouble really is the network, and the
+        // other transport would fare no better.
+        play("a transport that has ever decoded is kept through any later trouble")
     }
 
     @Test
     fun `a lone transport is never abandoned, because there is nowhere to go`() {
-        val fallback = TransportFallback(transportCount = 1, restartsBeforeFallback = 3)
-
-        repeat(10) { assertFalse(fallback.onRestart()) }
-        assertEquals(0, fallback.index)
+        play("a lone transport is never abandoned, because there is nowhere to go")
     }
 
     @Test
     fun `a fallback that is no better itself hands the turn back`() {
-        val fallback = TransportFallback(transportCount = 2, restartsBeforeFallback = 3)
-
-        repeat(3) { fallback.onRestart() }
-        assertEquals(1, fallback.index)
-
         // The fallback can be just as unusable as what it replaced — stale
         // credentials, a console that will not serve a livestream. Stopping
-        // here would pin the camera to it for good while the stream it started
+        // there would pin the camera to it for good while the stream it started
         // on came back to life unnoticed.
-        repeat(3) { fallback.onRestart() }
-        assertEquals(0, fallback.index)
+        play("a fallback that is no better itself hands the turn back")
     }
 
     @Test
     fun `each transport gets its own run of restarts rather than the tail of the last`() {
-        val fallback = TransportFallback(transportCount = 3, restartsBeforeFallback = 3)
-
-        repeat(3) { fallback.onRestart() }
-        assertEquals(1, fallback.index)
-
         // Without rebasing the count, the second transport would be abandoned
         // on its first failure and the third never tried properly either.
-        assertFalse(fallback.onRestart())
-        assertFalse(fallback.onRestart())
-        assertTrue(fallback.onRestart())
-        assertEquals(2, fallback.index)
-
-        repeat(3) { fallback.onRestart() }
-        assertEquals(0, fallback.index)
+        play("each transport gets its own run of restarts rather than the tail of the last")
     }
 }

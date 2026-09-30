@@ -1,0 +1,8 @@
+{
+  "cases": [
+    {"name": "plain rtsp url", "url": "rtsp://192.168.1.1:7447/token", "expected": true},
+    {"name": "stale pre-normalization rtsps url", "url": "rtsps://192.168.1.1:7441/token", "expected": false},
+    {"name": "empty input is not monitorable", "url": "", "expected": false},
+    {"name": "http url", "url": "http://192.168.1.1/x", "expected": false}
+  ]
+}

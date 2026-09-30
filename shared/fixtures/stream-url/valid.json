@@ -1,0 +1,16 @@
+{
+  "cases": [
+    {"name": "plain rtsp url with port and token path", "url": "rtsp://192.168.1.1:7447/abcDEF123", "expected": true},
+    {"name": "hostname url with surrounding whitespace", "url": "  rtsp://console.local:7447/token  ", "expected": true},
+    {"name": "uppercase scheme", "url": "RTSP://192.168.1.1:7447/token", "expected": true},
+    {"name": "empty input", "url": "", "expected": false},
+    {"name": "whitespace-only input", "url": "   ", "expected": false},
+    {"name": "http scheme", "url": "http://192.168.1.1:7447/token", "expected": false},
+    {"name": "rtsps url", "url": "rtsps://192.168.1.1:7441/token", "expected": true},
+    {"name": "rtsps url with Protect's secure-RTSP query param", "url": "rtsps://192.168.1.1:7441/EwjjtVc000xWicJ?enableSrtp", "expected": true},
+    {"name": "scheme and slashes with no host", "url": "rtsp://", "expected": false},
+    {"name": "opaque rtsp url with no host", "url": "rtsp:token", "expected": false},
+    {"name": "host containing spaces", "url": "rtsp://bad host/with spaces", "expected": false},
+    {"name": "not a url at all", "url": "not a url", "expected": false}
+  ]
+}
