@@ -45,6 +45,15 @@ struct VlcRtspPlaybackTests {
         return await log.wait(for: .seconds(12), until: condition)
     }
 
+    private func within(_ limit: Duration, until condition: () -> Bool) async -> Bool {
+        let end = ContinuousClock.now + limit
+        while ContinuousClock.now < end {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return condition()
+    }
+
     @Test func theTestbedNurseryPlaysFrameByFrame() async {
         let player = VlcVideoPlayerController()
         defer { player.release() }
@@ -62,6 +71,25 @@ struct VlcRtspPlaybackTests {
                 if case .videoAspect(let a) = $0 { abs(a - 16.0 / 9.0) < 0.01 } else { false }
             }))
         #expect(!log.events.contains(.error))
+    }
+
+    /// A muted camera holds no audio output, so it cannot take the speaker
+    /// from another app; unmuting brings the room's sound back.
+    @Test func aMutedCameraHasNoAudioTrackSelected() async {
+        let player = VlcVideoPlayerController()
+        defer { player.release() }
+        let log = PlayerEventLog(player)
+        let window = PlayerWindow(player)
+        defer { window.close() }
+        player.setMuted(true)
+
+        #expect(await play("rtsp://127.0.0.1:18554/nursery", on: player, log: log) { $0.frames >= 3 })
+        #expect(!player.isAudioSelected)
+
+        player.setMuted(false)
+        #expect(await within(.seconds(5)) { player.isAudioSelected })
+        player.setMuted(true)
+        #expect(await within(.seconds(5)) { !player.isAudioSelected })
     }
 
     @Test func aStreamThatDoesNotExistIsAnErrorNotALiveTile() async {

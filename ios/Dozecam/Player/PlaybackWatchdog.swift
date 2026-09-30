@@ -70,6 +70,9 @@ final class PlaybackWatchdog {
     /// again.
     @ObservationIgnored private var videoOn = true
     @ObservationIgnored private var brokeWhileWarm = false
+    /// The stream's video cannot be decoded here: no frame is ever due, and
+    /// nothing that looks like one is believed.
+    @ObservationIgnored private var undecodable = false
     /// When the current phase (initial connect, live stall watch, reconnect
     /// attempt) is declared failed. Only frames and phase transitions move it:
     /// `buffering` must never push it out.
@@ -109,6 +112,7 @@ final class PlaybackWatchdog {
         awaitingRecovery = false
         videoOn = true
         brokeWhileWarm = false
+        undecodable = false
         backoffUntil = nil
         deadline = scheduler.nowMs + config.connectTimeoutMs
         setState(.connecting)
@@ -149,9 +153,10 @@ final class PlaybackWatchdog {
         case .player(let event):
             switch event {
             case .playing, .timeChanged:
-                if !videoOn {
+                if !videoOn || undecodable {
                     // Nothing is painting, so nothing here is a frame: the
-                    // audio clock ticks on for a camera nobody is watching.
+                    // audio clock ticks on for a camera nobody is watching,
+                    // or over a picture this device cannot decode.
                 } else if networkUp {
                     markLive()
                 } else {
@@ -177,7 +182,14 @@ final class PlaybackWatchdog {
                 } else {
                     setState(.offline)
                 }
-            case .buffering, .videoAspect, .unsupportedCodec:
+            case .unsupportedCodec:
+                // No frame will ever come, and retrying cannot make the codec
+                // decodable: stop waiting for one. Errors, stops and the
+                // network coming back still reconnect, and each new session
+                // says the same again.
+                undecodable = true
+                deadline = nil
+            case .buffering, .videoAspect:
                 // Not frames, and say nothing about whether one is coming.
                 break
             }
@@ -216,6 +228,9 @@ final class PlaybackWatchdog {
                 brokeWhileWarm = false
                 attempts = 0
                 attemptReconnect(immediate: true)
+            } else if undecodable {
+                // Still no picture to wait for.
+                deadline = nil
             } else {
                 // The first-frame allowance, not the stall one: the decoder
                 // cannot paint until the stream's next keyframe.
@@ -236,6 +251,7 @@ final class PlaybackWatchdog {
         case .player(let event):
             switch event {
             case .playing, .timeChanged:
+                guard !undecodable else { break }
                 backoffUntil = nil
                 markLive()  // recovered on its own; skip the restart
             default:

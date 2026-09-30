@@ -89,13 +89,11 @@ final class CameraSession {
         case .videoAspect(let ratio):
             videoAspect = ratio
         case .unsupportedCodec(let codec):
+            // The session stays up, since its sound can still be heard, and
+            // the tile says what is wrong instead of a connection state. The
+            // watchdog stops waiting for frames but still reconnects a
+            // dropped connection, so the room is heard again after a blip.
             unsupportedCodec = codec
-            // Retrying cannot make a codec decodable, and a watchdog left
-            // running would read an audio clock ticking over a black picture
-            // as frames. The session stays up (its sound can still be heard);
-            // the tile says what is wrong instead of a connection state.
-            watchdog.stop()
-            return
         default:
             break
         }

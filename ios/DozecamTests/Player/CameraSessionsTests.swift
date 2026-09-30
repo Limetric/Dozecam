@@ -100,6 +100,31 @@ struct CameraSessionsTests {
         #expect(player.plays.count == 1)
     }
 
+    @Test func anUnsupportedCodecStillReconnectsItsSound() throws {
+        let sessions = registry()
+        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [], audible: ["n"])
+        let session = try #require(sessions["n"])
+        let player = try #require(factory.player(for: "rtsp://cam/nursery"))
+        player.emit(.unsupportedCodec("AV1"))
+
+        // The connection drops: the room is reconnected, after its backoff.
+        let config = PlaybackWatchdog.Config()
+        player.emit(.error)
+        scheduler.advance(by: config.backoffMs(forAttempt: 1))
+        #expect(player.plays.count == 2)
+        // The new session says the same, and is left to play its sound.
+        player.emit(.unsupportedCodec("AV1"))
+        scheduler.advance(by: 60_000)
+        #expect(player.plays.count == 2)
+
+        // A network blip reconnects it once the network is back.
+        sessions.setOnline(false)
+        sessions.setOnline(true)
+        #expect(player.plays.count == 3)
+        #expect(session.tileState == .unsupported(codec: "AV1"))
+        #expect(player.muted == false)
+    }
+
     @Test func thePictureShapeIsKept() throws {
         let sessions = registry()
         sessions.update(active: true, wanted: ["n": Self.nursery], warm: [], audible: [])

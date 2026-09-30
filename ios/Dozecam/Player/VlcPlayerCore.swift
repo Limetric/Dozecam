@@ -64,6 +64,8 @@ final class VlcPlayerCore {
         // afresh: a camera nobody is watching would otherwise come back from
         // a stall with its decoder running again.
         if !videoEnabled { media.addOption(":no-video") }
+        // Nor may a muted camera start an audio output: see `applyMute`.
+        if muted { media.addOption(":no-audio") }
         let player = VLCMediaPlayer(library: library)
         let relay = VlcEventRelay()
         // The picture is letterboxed inside whatever box the tile gives it,
@@ -76,7 +78,7 @@ final class VlcPlayerCore {
         self.relay = relay
         player.media = media
         player.play()
-        applyMute()
+        player.audio?.isMuted = muted
         watchFrames()
     }
 
@@ -141,9 +143,24 @@ final class VlcPlayerCore {
         reportedUnsupported = false
     }
 
+    /// A muted camera has no audio track selected, not just its volume off.
+    /// libVLC's iOS audio output activates the app's `AVAudioSession` as
+    /// `.playback` without mixing for as long as it runs, muted or not, so a
+    /// silent viewer would still stop another app's lullaby
+    /// (shared/spec/alerts-and-sound-modes.md: the viewer holds the speaker
+    /// only while its sound is on).
     private func applyMute() {
-        player?.audio?.isMuted = muted
+        guard let player else { return }
+        player.audio?.isMuted = muted
+        if muted {
+            player.deselectAllAudioTracks()
+        } else if !player.audioTracks.isEmpty {
+            player.selectTrack(at: 0, type: .audio)
+        }
     }
+
+    /// Whether the running session has an audio track selected.
+    var isAudioSelected: Bool { player?.audioTracks.contains(where: \.isSelected) ?? false }
 
     private func emit(_ event: PlayerEvent) {
         onEvent?(event)
