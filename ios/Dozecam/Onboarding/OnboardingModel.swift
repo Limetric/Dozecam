@@ -299,46 +299,64 @@ final class OnboardingModel {
         let publicAPI = ProtectPublicApiClient(baseURL: signIn.baseURL, urlSession: session.urlSession)
         let stored = (try? dependencies.credentials.load())?
             .apiKey(reusableFor: signIn.host, username: signIn.username)
-        if let stored, let cameras = try await publicCameras(publicAPI, apiKey: stored) {
-            try save(signIn, apiKey: stored)
-            return .publicAPI(publicAPI, apiKey: stored, cameras: cameras)
+        // The key kept for next time: only a console that rejects a key loses
+        // it (shared/spec/protect.md).
+        var kept = stored
+        if let stored {
+            switch try await publicCameras(publicAPI, apiKey: stored) {
+            case .cameras(let cameras):
+                try save(signIn, apiKey: stored)
+                return .publicAPI(publicAPI, apiKey: stored, cameras: cameras)
+            case .unsupported:
+                // No public API here: a new key would not help.
+                try save(signIn, apiKey: stored)
+                return .legacy(legacy, cameras: try await legacy.bootstrap(login).cameras)
+            case .keyRejected:
+                kept = nil
+            }
         }
         if let minted = try await mintApiKey(legacy, login: login), minted != stored {
             // Saved as soon as it is issued: if the camera list then fails,
             // the retry reuses this key instead of minting another.
             try save(signIn, apiKey: minted)
-            if let cameras = try await publicCameras(publicAPI, apiKey: minted) {
+            kept = minted
+            switch try await publicCameras(publicAPI, apiKey: minted) {
+            case .cameras(let cameras):
                 return .publicAPI(publicAPI, apiKey: minted, cameras: cameras)
+            case .unsupported:
+                break
+            case .keyRejected:
+                // A fresh key refused: this account has no rights there.
+                kept = nil
             }
         }
-        try save(signIn, apiKey: nil)
+        try save(signIn, apiKey: kept)
         return .legacy(legacy, cameras: try await legacy.bootstrap(login).cameras)
     }
 
-    /// The camera list over the public API, or nil when this console or key
-    /// cannot serve it (Protect before 5.3, a revoked key). Not an error: the
-    /// legacy API is the fallback. A console that could not be reached or
-    /// failed on its side says nothing about the key, so that is thrown and
-    /// the stored key kept: a new one is minted only when the console no
-    /// longer accepts the old (shared/spec/protect.md).
-    private func publicCameras(_ api: ProtectPublicApiClient, apiKey: String) async throws -> [PublicCamera]? {
-        do {
-            return try await api.cameras(apiKey: apiKey)
-        } catch let error as ProtectAPIError where Self.saysNothingAboutTheKey(error) {
-            throw error
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            return nil
-        }
+    /// What the public camera list says about the console and the key.
+    enum PublicListing {
+        case cameras([PublicCamera])
+        /// 401 or 403: this key is no longer accepted.
+        case keyRejected
+        /// 404, or an answer that is not the API's: Protect before 5.3. The
+        /// legacy API is the fallback.
+        case unsupported
     }
 
-    /// Transport failures and server errors: the key may be fine.
-    static func saysNothingAboutTheKey(_ error: ProtectAPIError) -> Bool {
-        switch error {
-        case .unreachable: true
-        case .rejected(let status, _): status >= 500
-        default: false
+    /// Anything else (an unreachable console, 429, a server error) says
+    /// nothing about the key or the API, so it is thrown: the sign-in fails
+    /// and the stored key is kept, rather than minting another on every
+    /// retry.
+    private func publicCameras(_ api: ProtectPublicApiClient, apiKey: String) async throws -> PublicListing {
+        do {
+            return .cameras(try await api.cameras(apiKey: apiKey))
+        } catch let error as ProtectAPIError {
+            switch error {
+            case .unauthorized, .forbidden: return .keyRejected
+            case .notFound, .invalidResponse: return .unsupported
+            default: throw error
+            }
         }
     }
 

@@ -72,7 +72,9 @@ struct OnboardingModelTests {
     /// about the stored key: the sign-in fails and the key is kept, rather
     /// than minting another one on every retry.
     @Test(arguments: [
-        StubConsole.Reply.response(status: 503, headers: [:], body: Data("{}".utf8)), .failure(.timedOut),
+        StubConsole.Reply.response(status: 503, headers: [:], body: Data("{}".utf8)),
+        .response(status: 429, headers: [:], body: Data("{}".utf8)),
+        .failure(.timedOut),
     ])
     func aTransientFailureKeepsTheStoredKey(reply: StubConsole.Reply) async throws {
         let harness = OnboardingHarness(
@@ -86,6 +88,28 @@ struct OnboardingModelTests {
         #expect(try harness.credentials.load()?.apiKey == "valid")
         #expect(harness.model.signInError != nil)
         #expect(harness.model.path == [.signIn])
+    }
+
+    /// A console without the public API (404, or an answer that is not the
+    /// API's) falls back to the legacy API without minting, and keeps the
+    /// stored key.
+    @Test(arguments: [
+        StubConsole.Reply.response(status: 404, headers: [:], body: Data("{}".utf8)),
+        .response(status: 200, headers: [:], body: Data("<html>".utf8)),
+    ])
+    func aConsoleWithoutThePublicAPIKeepsTheKeyAndFallsBack(reply: StubConsole.Reply) async throws {
+        let harness = OnboardingHarness(
+            stored: ProtectCredentials(host: "192.168.1.1", username: "user", password: "pass", apiKey: "valid"))
+        harness.stub.enqueueLogin()
+        harness.stub.enqueue(reply)
+        try harness.stub.enqueueFixture("protect-api/legacy/bootstrap.json")
+
+        await harness.model.signIn()
+
+        #expect(!harness.requestLines.contains("POST \(apiKeyPath)"))
+        #expect(!harness.model.usesPublicAPI)
+        #expect(harness.model.path == [.signIn, .cameras])
+        #expect(try harness.credentials.load()?.apiKey == "valid")
     }
 
     /// A key minted for one console or user is never sent to another.
