@@ -127,8 +127,9 @@ final class LivestreamVideoPlayerController: VideoPlayerController {
 
     /// Opens the socket and turns its messages into the fMP4 byte stream the
     /// pipe carries: the initialisation segment, then one fragment at a time.
-    /// Runs off the main actor; cancelling it closes the socket.
-    private nonisolated static func feed(
+    /// Runs off the main actor; cancelling it closes the socket. Shared with
+    /// the monitor's audio-only players (`AudioOnlyPlayer`).
+    nonisolated static func feed(
         _ connection: ProtectLivestreamProvider.Connection, into pipe: LivestreamPipe,
         onFailure: @escaping @Sendable () -> Void
     ) -> Task<Void, Never> {

@@ -20,16 +20,24 @@ enum LivestreamMedia {
     /// releasing the player: libVLC waits for its input thread, which may be
     /// blocked in a read that only the pipe can end.
     static func make(reading pipe: LivestreamPipe) -> VLCMedia? {
+        guard let descriptor = makeDescriptor(reading: pipe) else { return nil }
+        // VLCMedia takes its own reference.
+        let media = VLCMedia(libVLCMediaDescriptor: UnsafeMutableRawPointer(descriptor))
+        libvlc_media_release(descriptor)
+        return media
+    }
+
+    /// The same media as a bare `libvlc_media_t`, for the audio-only players
+    /// that drive libVLC's C API directly (`AudioOnlyPlayer`). The caller owns
+    /// the reference it returns. The same rule on closing the pipe first.
+    static func makeDescriptor(reading pipe: LivestreamPipe) -> OpaquePointer? {
         let source = Unmanaged.passRetained(LivestreamMediaSource(pipe: pipe)).toOpaque()
         guard let descriptor = libvlc_media_new_callbacks(livestreamCallbacks, source) else {
             Unmanaged<LivestreamMediaSource>.fromOpaque(source).release()
             return nil
         }
-        // VLCMedia takes its own reference.
-        let media = VLCMedia(libVLCMediaDescriptor: UnsafeMutableRawPointer(descriptor))
-        libvlc_media_release(descriptor)
-        for option in options { media?.addOption(option) }
-        return media
+        for option in options { libvlc_media_add_option(descriptor, option) }
+        return descriptor
     }
 }
 
