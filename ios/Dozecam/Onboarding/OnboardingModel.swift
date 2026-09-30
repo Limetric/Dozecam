@@ -315,14 +315,28 @@ final class OnboardingModel {
 
     /// The camera list over the public API, or nil when this console or key
     /// cannot serve it (Protect before 5.3, a revoked key). Not an error: the
-    /// legacy API is the fallback.
+    /// legacy API is the fallback. A console that could not be reached or
+    /// failed on its side says nothing about the key, so that is thrown and
+    /// the stored key kept: a new one is minted only when the console no
+    /// longer accepts the old (shared/spec/protect.md).
     private func publicCameras(_ api: ProtectPublicApiClient, apiKey: String) async throws -> [PublicCamera]? {
         do {
             return try await api.cameras(apiKey: apiKey)
+        } catch let error as ProtectAPIError where Self.saysNothingAboutTheKey(error) {
+            throw error
         } catch is CancellationError {
             throw CancellationError()
         } catch {
             return nil
+        }
+    }
+
+    /// Transport failures and server errors: the key may be fine.
+    static func saysNothingAboutTheKey(_ error: ProtectAPIError) -> Bool {
+        switch error {
+        case .unreachable: true
+        case .rejected(let status, _): status >= 500
+        default: false
         }
     }
 

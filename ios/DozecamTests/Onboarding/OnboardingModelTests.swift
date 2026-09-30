@@ -68,6 +68,26 @@ struct OnboardingModelTests {
         #expect(harness.model.usesPublicAPI)
     }
 
+    /// A console that fails on its side, or cannot be reached, says nothing
+    /// about the stored key: the sign-in fails and the key is kept, rather
+    /// than minting another one on every retry.
+    @Test(arguments: [
+        StubConsole.Reply.response(status: 503, headers: [:], body: Data("{}".utf8)), .failure(.timedOut),
+    ])
+    func aTransientFailureKeepsTheStoredKey(reply: StubConsole.Reply) async throws {
+        let harness = OnboardingHarness(
+            stored: ProtectCredentials(host: "192.168.1.1", username: "user", password: "pass", apiKey: "valid"))
+        harness.stub.enqueueLogin()
+        harness.stub.enqueue(reply)
+
+        await harness.model.signIn()
+
+        #expect(harness.requestLines == ["POST /api/auth/login", "GET \(publicCamerasPath)"])
+        #expect(try harness.credentials.load()?.apiKey == "valid")
+        #expect(harness.model.signInError != nil)
+        #expect(harness.model.path == [.signIn])
+    }
+
     /// A key minted for one console or user is never sent to another.
     @Test func aKeyForAnotherConsoleIsNotTried() async throws {
         let harness = OnboardingHarness(
