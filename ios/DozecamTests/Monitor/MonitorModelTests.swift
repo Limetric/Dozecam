@@ -1,3 +1,4 @@
+import AVFAudio
 import Foundation
 import Synchronization
 import Testing
@@ -35,6 +36,7 @@ private final class Harness {
     let scheduler = ManualScheduler()
     let factory = PlayerFactory()
     let network = SwitchedPathSource()
+    let speaker = ManualSpeakerLossSource()
     let dependencies: AppDependencies
     let model: MonitorModel
     private let idleRecorder = IdleRecorder()
@@ -48,7 +50,7 @@ private final class Harness {
     init(cameras: [Camera] = Harness.cameras, settings: @escaping @Sendable (inout AppSettings) -> Void = { _ in })
         async throws
     {
-        dependencies = AppDependencies.isolated(networkSource: network)
+        dependencies = AppDependencies.isolated(networkSource: network, speakerLosses: speaker)
         for camera in cameras { try await dependencies.cameras.upsert(camera) }
         await dependencies.appSettings.update { current in
             var next = current
@@ -348,6 +350,46 @@ struct MonitorModelTests {
         #expect(harness.dependencies.appSettings.settings.soundMode == .off)
         #expect(harness.model.announcement?.text == "Sound off")
         await harness.hide()
+    }
+
+    @Test func unpluggingHeadphonesTurnsTheSoundOffForGood() async throws {
+        let harness = try await Harness { $0.soundMode = .allAloud }
+        await harness.show()
+        _ = await eventually { harness.speaker.isObserved }
+        harness.speaker.unplug()
+        #expect(await eventually { harness.model.settings.soundMode == .off })
+        #expect(harness.unmuted().isEmpty)
+        #expect(harness.model.announcement?.text == "Sound off: the headphones were disconnected")
+        await harness.model.flush()
+        #expect(harness.dependencies.appSettings.settings.soundMode == .off)
+        await harness.hide()
+    }
+
+    @Test(arguments: [false, true])
+    func unpluggingLeavesTheSettingAloneWhenTheViewerHoldsNoSpeaker(allPaused: Bool) async throws {
+        let harness = try await Harness { $0.soundMode = .rotating }
+        await harness.show()
+        _ = await eventually { harness.speaker.isObserved }
+        if allPaused {
+            for id in Harness.cameras.map(\.id) { harness.model.pause(id) }
+        } else {
+            harness.model.sceneChanged(inForeground: false)
+        }
+        harness.speaker.unplug()
+        for _ in 0..<100 { await Task.yield() }
+        await harness.model.flush()
+        #expect(harness.model.settings.soundMode == .rotating)
+        #expect(harness.dependencies.appSettings.settings.soundMode == .rotating)
+        await harness.hide()
+    }
+
+    @Test func onlyTheOldDeviceGoingAwayIsALoss() {
+        let key = AVAudioSessionRouteChangeReasonKey
+        let reason = { (r: AVAudioSession.RouteChangeReason) in [key: r.rawValue] as [AnyHashable: Any] }
+        #expect(SystemSpeakerLossSource.isLoss(reason(.oldDeviceUnavailable)))
+        #expect(!SystemSpeakerLossSource.isLoss(reason(.newDeviceAvailable)))
+        #expect(!SystemSpeakerLossSource.isLoss(reason(.categoryChange)))
+        #expect(!SystemSpeakerLossSource.isLoss(nil))
     }
 
     // MARK: - Alerts and keep awake

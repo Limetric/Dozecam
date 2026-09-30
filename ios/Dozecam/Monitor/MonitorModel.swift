@@ -147,7 +147,8 @@ final class MonitorModel {
         async let all: Void = followAllCameras()
         async let settings: Void = followSettings()
         async let reach: Void = followReach()
-        _ = await (cameras, all, settings, reach)
+        async let speaker: Void = followSpeakerLosses()
+        _ = await (cameras, all, settings, reach, speaker)
     }
 
     /// The scene went to the background or came back. Backgrounding tears
@@ -326,6 +327,21 @@ final class MonitorModel {
         for await next in dependencies.network.reachUpdates() {
             reach = next
             sessions.setOnline(next != .offline)
+        }
+    }
+
+    /// Headphones unplugged while the viewer holds the speaker: the setting
+    /// goes to off, for the viewer and the monitor alike, rather than the
+    /// rooms carrying on out of the device's own speaker. The viewer holds it
+    /// only while it shows, with sound on and a room unpaused
+    /// (shared/spec/alerts-and-sound-modes.md).
+    private func followSpeakerLosses() async {
+        for await _ in dependencies.speakerLosses.losses() {
+            guard isInForeground, settings.soundMode != .off, !activeCameras.isEmpty else { continue }
+            settings.soundMode = .off
+            write { $0.soundMode = .off }
+            announce("Sound off: the headphones were disconnected")
+            sync()
         }
     }
 

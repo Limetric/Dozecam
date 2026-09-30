@@ -54,7 +54,8 @@
                 credentials: InMemoryCredentialsStore(),
                 trust: TofuTrustStore(fileURL: nil),
                 localNetwork: LocalNetworkAccess(defaults: UserDefaults(suiteName: suite)!),
-                network: NetworkMonitor(source: network)
+                network: NetworkMonitor(source: network),
+                speakerLosses: SystemSpeakerLossSource()
             )
             let players: [String: (FakeVideoPlayer.Script, String, CGFloat)] = Dictionary(
                 uniqueKeysWithValues: cameras.enumerated().map { index, camera in
