@@ -63,8 +63,11 @@ final class PinnedSession: Sendable {
     /// The certificate refusal behind `error`, if a refusal is what it is.
     /// URLSession reports a cancelled challenge as `URLError.cancelled`
     /// carrying the failing URL; the refusal is looked up by its endpoint.
+    /// The Protect clients wrap transport errors in
+    /// `ProtectAPIError.unreachable`, so that is unwrapped first.
     func trustFailure(in error: any Error) -> TofuTrustError? {
         if let error = error as? TofuTrustError { return error }
+        if case .unreachable(let wrapped) = error as? ProtectAPIError { return trustFailure(in: wrapped) }
         guard let urlError = error as? URLError,
             let url = urlError.failingURL,
             let endpoint = TofuEndpoint(url: url)

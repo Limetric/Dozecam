@@ -37,11 +37,19 @@ final class StubConsole: Sendable {
     fileprivate static let routingHeader = "X-Stub-Console"
 
     init() {
+        urlSession = URLSession(configuration: Self.configuration(routingTo: id))
+        StubURLProtocol.register(backend, as: id)
+    }
+
+    /// A configuration routed to this console, for sessions built elsewhere
+    /// (the pinned session factory).
+    var configuration: URLSessionConfiguration { Self.configuration(routingTo: id) }
+
+    private static func configuration(routingTo id: String) -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]
-        configuration.httpAdditionalHeaders = [Self.routingHeader: id]
-        urlSession = URLSession(configuration: configuration)
-        StubURLProtocol.register(backend, as: id)
+        configuration.httpAdditionalHeaders = [routingHeader: id]
+        return configuration
     }
 
     deinit {
@@ -144,7 +152,8 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
             client?.urlProtocol(self, didLoad: body)
             client?.urlProtocolDidFinishLoading(self)
         case .failure(let code):
-            client?.urlProtocol(self, didFailWithError: URLError(code))
+            // Like URLSession's own errors, carrying the failing URL.
+            client?.urlProtocol(self, didFailWithError: URLError(code, userInfo: [NSURLErrorFailingURLErrorKey: url]))
         }
     }
 

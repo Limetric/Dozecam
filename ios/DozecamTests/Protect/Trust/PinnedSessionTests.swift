@@ -156,6 +156,29 @@ struct PinnedSessionDelegateTests {
         #expect(session.trustFailure(in: CocoaError(.fileNoSuchFile)) == nil)
     }
 
+    /// The seam between the clients and the trust layer: a refused handshake
+    /// reaches the caller of a real client call as the refusal, not as the
+    /// client's `ProtectAPIError.unreachable`.
+    @Test func aRefusalSurfacesThroughAProtectClientCall() async throws {
+        let stub = StubConsole()
+        let configuration = stub.configuration
+        let session = PinnedSessionFactory(store: TofuTrustStore(fileURL: nil), configuration: { configuration })
+            .consoleSession()
+        defer { session.invalidate() }
+        _ = session.delegate.respond(to: try challenge(presenting: "console-a", at: console))
+        stub.enqueue(.failure(.cancelled))
+        let client = ProtectApiClient(
+            baseURL: try #require(URL(string: "https://192.168.1.1")), urlSession: session.urlSession)
+
+        await #expect(
+            throws: TofuTrustError.unpinned(endpoint: console, presented: TestCertificates.consoleAFingerprint)
+        ) {
+            try await session.surfacingTrustFailures {
+                _ = try await client.login(username: "user", password: "pass")
+            }
+        }
+    }
+
     @Test func surfacingTrustFailuresRethrowsTheRefusal() async throws {
         let session = PinnedSessionFactory(store: TofuTrustStore(fileURL: nil)).consoleSession()
         defer { session.invalidate() }
