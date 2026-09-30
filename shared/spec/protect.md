@@ -17,6 +17,7 @@ Fixtures: [`shared/fixtures/protect-api/`](../fixtures/protect-api/) (anonymised
 
 - A Protect camera's id is `protect-<console camera id>-<channel>`, where the channel is the quality channel: Protect numbers them High, Medium, Low, and Dozecam uses **Medium, channel 1**. The public API names the quality ("medium"); the legacy API takes the channel called Medium, or the first channel if there is none.
 - **The same camera gets the same id from both APIs**, so a console that switches API between runs updates its existing entries and never duplicates them.
+  - **Known exception:** a camera with no Medium channel. The legacy API falls back to its first channel (High, channel 0) and stores `protect-<id>-0`, while the public API always asks for Medium and stores `protect-<id>-1`, so a console switching API duplicates such a camera. Both platforms behave this way today, and the `cam2` fixture in [`shared/fixtures/protect-api/`](../fixtures/protect-api/) pins it; changing it is a rule change for both apps.
 - Re-importing a camera updates its entry (name, stream URL) and keeps its enabled setting: enabled is the user's choice, not the console's. A camera new to the list arrives enabled.
 - Each Protect camera records the console that issued it. A camera from a console that is not the one signed in is played over its own RTSP URL, never through a livestream negotiated with the wrong console.
 - A camera added by hand gets a random id and has no console.

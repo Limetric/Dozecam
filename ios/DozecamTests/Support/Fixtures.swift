@@ -29,7 +29,46 @@ enum Fixtures {
         try Data(contentsOf: url(path, in: root))
     }
 
-    static func decode<T: Decodable>(_ type: T.Type, from path: String, in root: URL = root) throws -> T {
-        try JSONDecoder().decode(type, from: data(path, in: root))
+    struct UnknownKeys: Error, CustomStringConvertible {
+        let path: String
+        let keys: [String]
+        var description: String { "\(path) has keys the test type does not read: \(keys.joined(separator: ", "))" }
+    }
+
+    /// Decodes a fixture and, like Android's loader, rejects keys the type
+    /// does not read, so a typo in a fixture fails instead of silently testing
+    /// nothing. JSONDecoder has no strict mode, so the value is encoded back
+    /// and every key of the fixture must survive the round trip (or hold null).
+    static func decode<T: Codable>(_ type: T.Type, from path: String, in root: URL = root) throws -> T {
+        let raw = try data(path, in: root)
+        let value = try JSONDecoder().decode(type, from: raw)
+        let original = try JSONSerialization.jsonObject(with: raw, options: .fragmentsAllowed)
+        let roundTrip = try JSONSerialization.jsonObject(with: JSONEncoder().encode(value), options: .fragmentsAllowed)
+        let unknown = unknownKeys(original, known: roundTrip, at: "")
+        guard unknown.isEmpty else { throw UnknownKeys(path: path, keys: unknown) }
+        return value
+    }
+
+    private static func unknownKeys(_ value: Any, known: Any?, at path: String) -> [String] {
+        switch value {
+        case let object as [String: Any]:
+            let knownObject = known as? [String: Any] ?? [:]
+            return object.keys.sorted().flatMap { key -> [String] in
+                let child = object[key]!
+                let childPath = path.isEmpty ? key : "\(path).\(key)"
+                guard let knownChild = knownObject[key] else {
+                    return child is NSNull ? [] : [childPath]
+                }
+                return unknownKeys(child, known: knownChild, at: childPath)
+            }
+        case let array as [Any]:
+            let knownArray = known as? [Any] ?? []
+            return array.enumerated().flatMap { index, element in
+                let known = index < knownArray.count ? knownArray[index] : nil
+                return unknownKeys(element, known: known, at: "\(path)[\(index)]")
+            }
+        default:
+            return []
+        }
     }
 }

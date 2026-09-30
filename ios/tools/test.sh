@@ -3,6 +3,11 @@
 # an iPad simulator (the newest runtime's first iPhone and iPad). CI runs
 # exactly this.
 #
+# The build is signed ad hoc ("-"), which needs no certificate or team, rather
+# than left unsigned: an unsigned app has no application-identifier
+# entitlement, and the Keychain refuses it (errSecMissingEntitlement, -34018),
+# so the Keychain tests could not run.
+#
 #   ios/tools/test.sh              both simulators
 #   ios/tools/test.sh iphone|ipad  one of them
 set -euo pipefail
@@ -43,5 +48,5 @@ for family in "${families[@]}"; do
 	xcodebuild test -project Dozecam.xcodeproj -scheme "Dozecam Dev" \
 		-destination "platform=iOS Simulator,id=$udid" \
 		-derivedDataPath build/DerivedData -quiet \
-		CODE_SIGNING_ALLOWED=NO
+		CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=
 done

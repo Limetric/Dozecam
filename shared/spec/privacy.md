@@ -26,4 +26,4 @@ The microphone is used only while talk-back is held, and only while the viewer i
 Android reference: `SecurePrefs`, `EncryptedCredentialsStore`, `CameraRepository`, `TofuTrustStore`, `android:allowBackup="false"`.
 
 - **Android:** encryption uses an Android Keystore master key (AES-256-GCM). When the Keystore is unavailable or corrupted, which happens on some devices, the data falls back to a plain app-private file and is moved back into encrypted storage, and removed from the plain file, on the next healthy start.
-- **iOS:** the same data, stored with the platform's equivalent protection; the storage is designed in #64.
+- **iOS:** console credentials are one Keychain item, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`: readable while locked once the device has been unlocked since boot, so the monitor reconnects overnight, and never synced or restored onto another device. Certificate pins are a file in Application Support, excluded from backups, readable after the first unlock. Keychain items outlive an uninstall, unlike app files.

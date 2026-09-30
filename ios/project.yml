@@ -76,6 +76,16 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
+        # Consoles present self-signed certificates and are trusted by pinning
+        # (shared/spec/protect.md), under whatever name the user reaches them
+        # by: an IP, a .local name, or a qualified DNS name, which
+        # NSAllowsLocalNetworking does not cover (ATS then fails the TLS
+        # handshake, -1200, before the pinning delegate can accept it). HTTPS
+        # stays mandatory in code: ProtectApiClient.baseURL rejects any other
+        # scheme. Alone on purpose: iOS ignores NSAllowsArbitraryLoads when
+        # NSAllowsLocalNetworking is also present.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
     entitlements:
       path: Dozecam/Dozecam.entitlements
       properties:
