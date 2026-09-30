@@ -36,6 +36,32 @@ struct AppModelTests {
         #expect(model.destination == .onboarding)
     }
 
+    /// Exit leaves the viewer (its sessions go with it) and reopening it
+    /// starts again; with every camera gone meanwhile it opens on onboarding.
+    @Test func exitingLeavesTheViewerAndReopeningStartsAgain() async throws {
+        let dependencies = try await dependencies(cameras: [nursery])
+        let model = AppModel(dependencies: dependencies)
+        model.openSettings()
+        model.monitor.requestExit()
+        model.monitor.confirmExit()
+        #expect(model.destination == .exited)
+        #expect(!model.isShowingSettings)
+
+        model.resumeAfterExit()
+        #expect(model.destination == .monitor)
+
+        model.exit()
+        try await dependencies.cameras.remove(id: nursery.id)
+        model.resumeAfterExit()
+        #expect(model.destination == .onboarding)
+    }
+
+    @Test func resumingDoesNothingUnlessExited() async throws {
+        let model = AppModel(dependencies: try await dependencies(cameras: [nursery]))
+        model.resumeAfterExit()
+        #expect(model.destination == .monitor)
+    }
+
     @Test(arguments: [
         (nil, AppModel.Destination.onboarding, false),
         ("monitor", .monitor, false),

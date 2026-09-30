@@ -10,6 +10,11 @@ final class AppModel {
     enum Destination: Equatable {
         case onboarding
         case monitor
+        /// The user exited (shared/spec/monitoring-lifecycle.md: "leave
+        /// Dozecam"). iOS apps cannot quit themselves, so the viewer is torn
+        /// down, every camera session with it, and a screen says Dozecam is
+        /// off. The next open of the viewer starts again.
+        case exited
     }
 
     private(set) var destination: Destination
@@ -33,6 +38,21 @@ final class AppModel {
         onboarding = OnboardingModel(dependencies: dependencies)
         settings = SettingsModel(dependencies: dependencies)
         self.destination = destination ?? (dependencies.cameras.cameras.isEmpty ? .onboarding : .monitor)
+        monitor.exitHandler = { [weak self] in self?.exit() }
+    }
+
+    /// Leaves the viewer: its sessions end with it. Monitoring (#67) and the
+    /// dead-man alarm (#68) stop here too once they exist.
+    func exit() {
+        isShowingSettings = false
+        destination = .exited
+    }
+
+    /// Opening the viewer again after an exit: from the exited screen, or by
+    /// coming back to the app, which is how iOS users reopen one.
+    func resumeAfterExit() {
+        guard destination == .exited else { return }
+        destination = monitor.dependencies.cameras.cameras.isEmpty ? .onboarding : .monitor
     }
 
     func finishOnboarding() {
