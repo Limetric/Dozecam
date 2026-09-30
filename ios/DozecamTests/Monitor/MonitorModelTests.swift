@@ -404,6 +404,37 @@ struct MonitorModelTests {
         await harness.hide()
     }
 
+    /// Whatever the viewer decided while the speaker was interrupted, it asks
+    /// for its rooms again once the speaker is back.
+    @Test func theViewerAsksForItsSoundAgainAfterAnInterruption() async throws {
+        let harness = try await Harness { $0.soundMode = .rotating }
+        await harness.show()
+        #expect(harness.requested() == ["nursery"])
+
+        harness.hardware.emit(.interruptionBegan)
+        #expect(await eventually { !harness.speaker.isGranted })
+        harness.model.open("twins")
+        #expect(harness.requested().isEmpty)
+
+        harness.hardware.emit(.interruptionEnded(shouldResume: true))
+        #expect(await eventually { harness.requested() == ["twins"] })
+        await harness.hide()
+    }
+
+    /// A speaker that never comes back is lost for good, whatever the mode.
+    @Test func aSpeakerThatNeverComesBackTurnsTheSoundOff() async throws {
+        let harness = try await Harness { $0.soundMode = .rotating }
+        await harness.show()
+        harness.hardware.emit(.interruptionBegan)
+        harness.hardware.refuseActivation = true
+        harness.hardware.emit(.interruptionEnded(shouldResume: true))
+        #expect(await eventually { harness.model.settings.soundMode == .off })
+        #expect(harness.model.announcement?.text == "Something else is using the speaker — sound stays off")
+        await harness.model.flush()
+        #expect(harness.dependencies.appSettings.settings.soundMode == .off)
+        await harness.hide()
+    }
+
     @Test(arguments: [false, true])
     func unpluggingLeavesTheSettingAloneWhenTheViewerHoldsNoSpeaker(allPaused: Bool) async throws {
         let harness = try await Harness { $0.soundMode = .rotating }

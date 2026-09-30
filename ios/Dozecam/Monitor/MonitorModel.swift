@@ -202,8 +202,9 @@ final class MonitorModel {
         async let all: Void = followAllCameras()
         async let settings: Void = followSettings()
         async let reach: Void = followReach()
-        async let speaker: Void = followSpeakerLosses()
-        _ = await (cameras, all, settings, reach, speaker)
+        async let losses: Void = followSpeakerLosses()
+        async let speaker: Void = followSpeaker()
+        _ = await (cameras, all, settings, reach, losses, speaker)
     }
 
     /// The scene went to the background or came back. Backgrounding tears
@@ -399,12 +400,39 @@ final class MonitorModel {
     /// (shared/spec/alerts-and-sound-modes.md).
     private func followSpeakerLosses() async {
         for await _ in monitoring.speaker.losses() {
-            guard isInForeground, settings.soundMode != .off, !activeCameras.isEmpty else { continue }
+            guard holdsSpeaker else { continue }
             settings.soundMode = .off
             write { $0.soundMode = .off }
             announce("Sound off: the headphones were disconnected")
             sync()
         }
+    }
+
+    /// The speaker interrupted, back, or gone. Back: the viewer asks for its
+    /// rooms again, since whatever it decided meanwhile had no speaker to ask.
+    /// Refused or never back while the viewer holds it: the setting goes to
+    /// off, as for headphones unplugged (shared/spec/alerts-and-sound-modes.md).
+    private func followSpeaker() async {
+        let events = monitoring.speaker.updates()
+        // Refused before this screen was listening: arming comes first.
+        if case .failed = monitoring.speaker.status { speakerRefused() }
+        for await event in events {
+            if case .lost(let loss) = event, loss != .routeLost { speakerRefused() }
+            sync()
+        }
+    }
+
+    private func speakerRefused() {
+        guard holdsSpeaker else { return }
+        settings.soundMode = .off
+        write { $0.soundMode = .off }
+        announce("Something else is using the speaker — sound stays off")
+    }
+
+    /// The viewer has the speaker while it shows, with sound on and a room
+    /// unpaused.
+    private var holdsSpeaker: Bool {
+        isOnScreen && isInForeground && settings.soundMode != .off && !activeCameras.isEmpty
     }
 
     /// How each camera's video is fetched. A camera issued by a console other
