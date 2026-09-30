@@ -40,6 +40,7 @@ Ways out: the viewer's exit button (after a confirmation) and the ongoing card's
 Android reference: `MonitoringService.exit`, `ExitReceiver`, `MonitoringNotifications.cancelAll`, `MonitoringState.exitRequested`.
 
 - **iOS:** there is no ongoing card, so exit is the viewer's button only. Exit also cancels the dead-man alarm (below), since an alarm for an app the user closed would be a false alarm (#68).
+- **iOS:** local-network access cannot be asked about, only probed, and a grant can be withdrawn without a word. So arming is skipped only when access is known to be denied; access never recorded counts as granted, and the monitor connecting is the probe (#67).
 
 ## The "Not monitoring" badge
 

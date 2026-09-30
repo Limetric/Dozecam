@@ -22,28 +22,40 @@ final class AppModel {
 
     let dependencies: AppDependencies
     let monitor: MonitorModel
+    /// The wake-on-sound monitor, which outlives the viewer that arms it.
+    let monitoring: MonitoringService
     let onboarding: OnboardingModel
     let settings: SettingsModel
 
     /// With no cameras there is nothing to monitor, so the app opens on
     /// onboarding, as Android's viewer does. `makePlayer` builds each camera's
-    /// player for the viewer; the default never plays (`PendingLivePlayers`).
+    /// player for the viewer; the default never plays (`PendingLivePlayers`),
+    /// and neither does the default monitor's.
     init(
         dependencies: AppDependencies,
         makePlayer: @escaping CameraSessions.MakePlayer = PendingLivePlayers.make(for:),
+        monitoring: MonitoringService? = nil,
         destination: Destination? = nil
     ) {
         self.dependencies = dependencies
-        monitor = MonitorModel(dependencies: dependencies, makePlayer: makePlayer)
+        let monitoring =
+            monitoring
+            ?? MonitoringService(dependencies: dependencies, speaker: .shared, makePlayer: PendingAudioPlayer.make)
+        self.monitoring = monitoring
+        monitor = MonitorModel(dependencies: dependencies, monitoring: monitoring, makePlayer: makePlayer)
         onboarding = OnboardingModel(dependencies: dependencies)
-        settings = SettingsModel(dependencies: dependencies)
+        settings = SettingsModel(
+            dependencies: dependencies,
+            levelSource: SettingsLaunchOptions.levelSource(fallback: MonitoringLevelSource(monitoring: monitoring)))
         self.destination = destination ?? (dependencies.cameras.cameras.isEmpty ? .onboarding : .monitor)
         monitor.exitHandler = { [weak self] in self?.exit() }
     }
 
-    /// Leaves the viewer: its sessions end with it. Monitoring (#67) and the
-    /// dead-man alarm (#68) stop here too once they exist.
+    /// Leaves the viewer, whose sessions end with it, and stops monitoring
+    /// (shared/spec/monitoring-lifecycle.md, "Exit"). The dead-man alarm
+    /// (#68) stops here too once it exists.
     func exit() {
+        monitoring.exit()
         isShowingSettings = false
         destination = .exited
     }
@@ -77,6 +89,7 @@ final class AppModel {
         static func forLaunch(
             dependencies: AppDependencies,
             makePlayer: @escaping CameraSessions.MakePlayer = PendingLivePlayers.make(for:),
+            monitoring: MonitoringService? = nil,
             defaults: UserDefaults = .standard
         ) -> AppModel {
             let startOn = defaults.string(forKey: "startOn")
@@ -86,7 +99,8 @@ final class AppModel {
                 case "onboarding": .onboarding
                 default: nil
                 }
-            let model = AppModel(dependencies: dependencies, makePlayer: makePlayer, destination: destination)
+            let model = AppModel(
+                dependencies: dependencies, makePlayer: makePlayer, monitoring: monitoring, destination: destination)
             if startOn == "settings" { model.openSettings() }
             return model
         }

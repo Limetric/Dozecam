@@ -17,7 +17,6 @@ private final class SilentVideoPlayer: VideoPlayerController {
     let view = UIView()
 
     func play(_ source: StreamSource) {}
-    func setMuted(_ muted: Bool) {}
     func setVideoEnabled(_ enabled: Bool) {}
     func stop() {}
     func release() {}

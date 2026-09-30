@@ -47,8 +47,6 @@ final class RecordingPlayer: VideoPlayerController {
     private(set) var plays: [StreamSource] = []
     private(set) var stops = 0
     private(set) var released = false
-    private(set) var muted: Bool?
-    private(set) var mutedHistory: [Bool] = []
     private(set) var videoEnabled = true
 
     init(source: StreamSource? = nil) {
@@ -56,10 +54,6 @@ final class RecordingPlayer: VideoPlayerController {
     }
 
     func play(_ source: StreamSource) { plays.append(source) }
-    func setMuted(_ muted: Bool) {
-        self.muted = muted
-        mutedHistory.append(muted)
-    }
     func setVideoEnabled(_ enabled: Bool) { videoEnabled = enabled }
     func stop() { stops += 1 }
     func release() { released = true }

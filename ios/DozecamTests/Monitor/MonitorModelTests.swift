@@ -1,4 +1,3 @@
-import AVFAudio
 import Foundation
 import Synchronization
 import Testing
@@ -24,6 +23,18 @@ private final class SwitchedPathSource: NetworkPathSource {
     }
 }
 
+/// The monitor's audio players, by camera id, for the test to make decode.
+@MainActor
+private final class AudioPlayers {
+    var players: [String: FakeAudioPlayer] = [:]
+
+    func make(_ id: String) -> any AudioPlayer {
+        let player = FakeAudioPlayer()
+        players[id] = player
+        return player
+    }
+}
+
 @MainActor
 private final class IdleRecorder {
     var values: [Bool] = []
@@ -36,8 +47,11 @@ private final class Harness {
     let scheduler = ManualScheduler()
     let factory = PlayerFactory()
     let network = SwitchedPathSource()
-    let speaker = ManualSpeakerLossSource()
+    let hardware = FakeSpeakerHardware()
+    let speaker: Speaker
     let dependencies: AppDependencies
+    let monitoring: MonitoringService
+    let audio = AudioPlayers()
     let model: MonitorModel
     private let idleRecorder = IdleRecorder()
     var idleTimer: [Bool] { idleRecorder.values }
@@ -50,7 +64,7 @@ private final class Harness {
     init(cameras: [Camera] = Harness.cameras, settings: @escaping @Sendable (inout AppSettings) -> Void = { _ in })
         async throws
     {
-        dependencies = AppDependencies.isolated(networkSource: network, speakerLosses: speaker)
+        dependencies = AppDependencies.isolated(networkSource: network)
         for camera in cameras { try await dependencies.cameras.upsert(camera) }
         await dependencies.appSettings.update { current in
             var next = current
@@ -59,8 +73,12 @@ private final class Harness {
         }
         let factory = factory
         let idleRecorder = idleRecorder
+        speaker = Speaker(hardware: hardware, mix: SpeakerMix())
+        monitoring = MonitoringService(
+            dependencies: dependencies, speaker: speaker, makePlayer: { [audio] id, _ in audio.make(id) },
+            scheduler: scheduler)
         model = MonitorModel(
-            dependencies: dependencies, makePlayer: { factory.make($0) }, scheduler: scheduler,
+            dependencies: dependencies, monitoring: monitoring, makePlayer: { factory.make($0) }, scheduler: scheduler,
             setIdleTimerDisabled: { idleRecorder.values.append($0) })
     }
 
@@ -78,8 +96,13 @@ private final class Harness {
 
     func player(_ id: String) -> RecordingPlayer? { factory.player(for: "rtsp://cam/\(id)") }
 
-    func unmuted() -> Set<String> {
-        Set(model.sessions.sessions.filter { !$0.value.isMuted }.keys)
+    /// The cameras the viewer asks the speaker for.
+    func requested() -> Set<String> { model.requestedAudibleIds }
+
+    /// Headphones pulled out, once somebody is listening for it.
+    func unplug() async {
+        _ = await eventually { self.speaker.isObservedForLosses }
+        hardware.emit(.routeLost)
     }
 }
 
@@ -262,7 +285,11 @@ struct MonitorModelTests {
         await harness.show()
         harness.model.pause("twins")
         let exits = IdleRecorder()
-        harness.model.exitHandler = { exits.values.append(true) }
+        let monitoring = harness.monitoring
+        harness.model.exitHandler = {
+            exits.values.append(true)
+            monitoring.exit()
+        }
         harness.model.requestExit()
         #expect(harness.model.isConfirmingExit)
         harness.model.confirmExit()
@@ -276,22 +303,22 @@ struct MonitorModelTests {
     @Test func soundOffKeepsEveryTileSilent() async throws {
         let harness = try await Harness()
         await harness.show()
-        #expect(harness.unmuted().isEmpty)
-        #expect(harness.model.audibleIds.isEmpty)
+        #expect(harness.requested().isEmpty)
+        #expect(harness.requested().isEmpty)
         await harness.hide()
     }
 
     @Test func rotatingPlaysOneTileAtATimeInGridOrder() async throws {
         let harness = try await Harness { $0.soundMode = .rotating }
         await harness.show()
-        #expect(harness.unmuted() == ["nursery"])
-        #expect(harness.model.audibleIds == ["nursery"])
+        #expect(harness.requested() == ["nursery"])
+        #expect(harness.requested() == ["nursery"])
         harness.scheduler.advance(by: 10_000)
-        #expect(harness.unmuted() == ["twins"])
+        #expect(harness.requested() == ["twins"])
         harness.scheduler.advance(by: 10_000)
-        #expect(harness.unmuted() == ["playroom"])
+        #expect(harness.requested() == ["playroom"])
         harness.scheduler.advance(by: 10_000)
-        #expect(harness.unmuted() == ["nursery"])
+        #expect(harness.requested() == ["nursery"])
         await harness.hide()
     }
 
@@ -299,17 +326,17 @@ struct MonitorModelTests {
         let harness = try await Harness { $0.soundMode = .rotating }
         await harness.show(visible: ["nursery", "twins"])
         harness.model.pause("nursery")
-        #expect(harness.unmuted() == ["twins"])
+        #expect(harness.requested() == ["twins"])
         harness.scheduler.advance(by: 10_000)
-        #expect(harness.unmuted() == ["twins"])
+        #expect(harness.requested() == ["twins"])
         await harness.hide()
     }
 
     @Test func allAloudPlaysEveryTileOnScreen() async throws {
         let harness = try await Harness { $0.soundMode = .allAloud }
         await harness.show(visible: ["nursery", "twins"])
-        #expect(harness.unmuted() == ["nursery", "twins"])
-        #expect(harness.model.audibleIds == ["nursery", "twins"])
+        #expect(harness.requested() == ["nursery", "twins"])
+        #expect(harness.requested() == ["nursery", "twins"])
         await harness.hide()
     }
 
@@ -318,9 +345,9 @@ struct MonitorModelTests {
             let harness = try await Harness { $0.soundMode = mode }
             await harness.show()
             harness.model.open("playroom")
-            #expect(harness.unmuted() == ["playroom"], "\(mode)")
+            #expect(harness.requested() == ["playroom"], "\(mode)")
             harness.scheduler.advance(by: 30_000)
-            #expect(harness.unmuted() == ["playroom"], "\(mode)")
+            #expect(harness.requested() == ["playroom"], "\(mode)")
             await harness.hide()
         }
     }
@@ -329,7 +356,7 @@ struct MonitorModelTests {
         let harness = try await Harness { $0.soundMode = .allAloud }
         await harness.show()
         harness.model.sceneChanged(inForeground: false)
-        #expect(harness.model.audibleIds.isEmpty)
+        #expect(harness.requested().isEmpty)
         await harness.hide()
     }
 
@@ -338,30 +365,89 @@ struct MonitorModelTests {
         await harness.show()
         harness.model.cycleSoundMode()
         #expect(harness.model.settings.soundMode == .rotating)
-        #expect(harness.unmuted() == ["nursery"])
+        #expect(harness.requested() == ["nursery"])
         await harness.model.flush()
         #expect(harness.dependencies.appSettings.settings.soundMode == .rotating)
 
         harness.model.cycleSoundMode()
-        #expect(harness.unmuted() == ["nursery", "twins", "playroom"])
+        #expect(harness.requested() == ["nursery", "twins", "playroom"])
         harness.model.cycleSoundMode()
-        #expect(harness.unmuted().isEmpty)
+        #expect(harness.requested().isEmpty)
         await harness.model.flush()
         #expect(harness.dependencies.appSettings.settings.soundMode == .off)
         #expect(harness.model.announcement?.text == "Sound off")
         await harness.hide()
     }
 
+    /// The badge and border say what the speaker plays, never just the ask:
+    /// a room whose sound is not coming through is not marked.
+    @Test func onlyRoomsActuallyPlayingAreMarkedAudible() async throws {
+        let harness = try await Harness { $0.soundMode = .allAloud }
+        await harness.show()
+        #expect(harness.requested() == ["nursery", "twins", "playroom"])
+        #expect(harness.model.audibleIds.isEmpty)
+
+        harness.audio.players["nursery"]?.emit(.levels([LevelSample(rms: 0.01, atMs: harness.scheduler.nowMs)]))
+        #expect(await eventually { harness.model.audibleIds == ["nursery"] })
+        await harness.hide()
+    }
+
     @Test func unpluggingHeadphonesTurnsTheSoundOffForGood() async throws {
         let harness = try await Harness { $0.soundMode = .allAloud }
         await harness.show()
-        _ = await eventually { harness.speaker.isObserved }
-        harness.speaker.unplug()
+        await harness.unplug()
         #expect(await eventually { harness.model.settings.soundMode == .off })
-        #expect(harness.unmuted().isEmpty)
+        #expect(harness.requested().isEmpty)
         #expect(harness.model.announcement?.text == "Sound off: the headphones were disconnected")
         await harness.model.flush()
         #expect(harness.dependencies.appSettings.settings.soundMode == .off)
+        await harness.hide()
+    }
+
+    /// Whatever the viewer decided while the speaker was interrupted, it asks
+    /// for its rooms again once the speaker is back.
+    @Test func theViewerAsksForItsSoundAgainAfterAnInterruption() async throws {
+        let harness = try await Harness { $0.soundMode = .rotating }
+        await harness.show()
+        #expect(harness.requested() == ["nursery"])
+
+        harness.hardware.emit(.interruptionBegan)
+        #expect(await eventually { !harness.speaker.isGranted })
+        harness.model.open("twins")
+        #expect(harness.requested().isEmpty)
+
+        harness.hardware.emit(.interruptionEnded(shouldResume: true))
+        #expect(await eventually { harness.requested() == ["twins"] })
+        await harness.hide()
+    }
+
+    /// A speaker that never comes back is lost for good, whatever the mode.
+    @Test func aSpeakerThatNeverComesBackTurnsTheSoundOff() async throws {
+        let harness = try await Harness { $0.soundMode = .rotating }
+        await harness.show()
+        harness.hardware.emit(.interruptionBegan)
+        harness.hardware.refuseActivation = true
+        harness.hardware.emit(.interruptionEnded(shouldResume: true))
+        #expect(await eventually { harness.model.settings.soundMode == .off })
+        #expect(harness.model.announcement?.text == "Something else is using the speaker — sound stays off")
+        await harness.model.flush()
+        #expect(harness.dependencies.appSettings.settings.soundMode == .off)
+        await harness.hide()
+    }
+
+    /// Switching sound on again is the moment to try a failed speaker again,
+    /// rather than refusing on its old answer.
+    @Test func switchingSoundOnRetriesAFailedSpeaker() async throws {
+        let harness = try await Harness { $0.soundMode = .rotating }
+        harness.hardware.refuseActivation = true
+        await harness.show()
+        #expect(await eventually { harness.model.settings.soundMode == .off })
+
+        harness.hardware.refuseActivation = false
+        harness.model.cycleSoundMode()
+        #expect(harness.model.settings.soundMode == .rotating)
+        #expect(harness.speaker.isGranted)
+        #expect(harness.requested() == ["nursery"])
         await harness.hide()
     }
 
@@ -369,27 +455,17 @@ struct MonitorModelTests {
     func unpluggingLeavesTheSettingAloneWhenTheViewerHoldsNoSpeaker(allPaused: Bool) async throws {
         let harness = try await Harness { $0.soundMode = .rotating }
         await harness.show()
-        _ = await eventually { harness.speaker.isObserved }
         if allPaused {
             for id in Harness.cameras.map(\.id) { harness.model.pause(id) }
         } else {
             harness.model.sceneChanged(inForeground: false)
         }
-        harness.speaker.unplug()
+        await harness.unplug()
         for _ in 0..<100 { await Task.yield() }
         await harness.model.flush()
         #expect(harness.model.settings.soundMode == .rotating)
         #expect(harness.dependencies.appSettings.settings.soundMode == .rotating)
         await harness.hide()
-    }
-
-    @Test func onlyTheOldDeviceGoingAwayIsALoss() {
-        let key = AVAudioSessionRouteChangeReasonKey
-        let reason = { (r: AVAudioSession.RouteChangeReason) in [key: r.rawValue] as [AnyHashable: Any] }
-        #expect(SystemSpeakerLossSource.isLoss(reason(.oldDeviceUnavailable)))
-        #expect(!SystemSpeakerLossSource.isLoss(reason(.newDeviceAvailable)))
-        #expect(!SystemSpeakerLossSource.isLoss(reason(.categoryChange)))
-        #expect(!SystemSpeakerLossSource.isLoss(nil))
     }
 
     // MARK: - Alerts and keep awake

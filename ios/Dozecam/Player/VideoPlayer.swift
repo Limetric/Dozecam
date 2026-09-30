@@ -56,9 +56,9 @@ protocol VideoPlayerController: AnyObject {
     var onEvent: ((PlayerEvent) -> Void)? { get set }
     /// The view the picture is drawn into; the tile hosts it.
     var view: UIView { get }
+    /// Plays the picture only. A camera's sound comes out of the monitor's
+    /// mix (`MonitoringService`), never out of its video player.
     func play(_ source: StreamSource)
-    /// Only a camera the user has singled out is ever audible.
-    func setMuted(_ muted: Bool)
     /// Drops or restores the video track without tearing the session down: a
     /// camera nobody is looking at keeps its stream but decodes no picture.
     func setVideoEnabled(_ enabled: Bool)

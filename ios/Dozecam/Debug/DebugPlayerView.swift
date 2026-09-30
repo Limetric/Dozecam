@@ -51,7 +51,6 @@
 
         func start() {
             controller.onEvent = { [weak self] event in self?.record(event) }
-            controller.setMuted(true)
             controller.play(source)
         }
 

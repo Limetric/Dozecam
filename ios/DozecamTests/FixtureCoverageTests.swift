@@ -10,15 +10,23 @@ import Testing
 /// same change. Areas arrive with their features (#64, #67, #68).
 struct FixtureCoverageTests {
     static let adopted: [String] = [
+        "listen-target/alert-sounds.json",
+        "listen-target/alert-wakes-screen.json",
+        "listen-target/alert-yields.json",
+        "listen-target/aloud.json",
+        "listen-target/heard.json",
         "livestream/av1-config-repair.json",
         "livestream/decoder.json",
         "playback-watchdog/timings.json",
         "protect-api/cameras.expected.json",
         "protect-api/legacy/expected.json",
         "protect-api/public/expected.json",
+        "sound-detector/detector.json",
+        "sound-detector/rms.json",
         "stream-url/monitorable.json",
         "stream-url/normalize.json",
         "stream-url/valid.json",
+        "transport-fallback/fallback.json",
     ]
 
     @Test func everyCaseOfAnAdoptedFixtureIsRunByAnIOSTest() throws {

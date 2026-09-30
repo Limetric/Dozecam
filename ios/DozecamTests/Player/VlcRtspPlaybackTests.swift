@@ -45,22 +45,12 @@ struct VlcRtspPlaybackTests {
         return await log.wait(for: .seconds(12), until: condition)
     }
 
-    private func within(_ limit: Duration, until condition: () -> Bool) async -> Bool {
-        let end = ContinuousClock.now + limit
-        while ContinuousClock.now < end {
-            if condition() { return true }
-            try? await Task.sleep(for: .milliseconds(50))
-        }
-        return condition()
-    }
-
     @Test func theTestbedNurseryPlaysFrameByFrame() async {
         let player = VlcVideoPlayerController()
         defer { player.release() }
         let log = PlayerEventLog(player)
         let window = PlayerWindow(player)
         defer { window.close() }
-        player.setMuted(true)
 
         let playing = await play("rtsp://127.0.0.1:18554/nursery", on: player, log: log) {
             $0.events.contains(.playing) && $0.frames >= 3
@@ -73,38 +63,19 @@ struct VlcRtspPlaybackTests {
         #expect(!log.events.contains(.error))
     }
 
-    /// A muted camera holds no audio output, so it cannot take the speaker
-    /// from another app; unmuting brings the room's sound back.
-    @Test func aMutedCameraHasNoAudioTrackSelected() async {
+    /// The viewer's players never hold an audio output, which would take the
+    /// app's audio session over without mixing; its sound comes from the
+    /// monitor's mix.
+    @Test func theViewersPlayerNeverSelectsAudio() async throws {
         let player = VlcVideoPlayerController()
         defer { player.release() }
         let log = PlayerEventLog(player)
         let window = PlayerWindow(player)
         defer { window.close() }
-        player.setMuted(true)
 
         #expect(await play("rtsp://127.0.0.1:18554/nursery", on: player, log: log) { $0.frames >= 3 })
+        try await Task.sleep(for: .seconds(1))
         #expect(!player.isAudioSelected)
-
-        player.setMuted(false)
-        #expect(await within(.seconds(5)) { player.isAudioSelected })
-        player.setMuted(true)
-        #expect(await within(.seconds(5)) { !player.isAudioSelected })
-    }
-
-    /// Every session starts muted and is unmuted at once if it is the one
-    /// to be heard, before the stream has any tracks.
-    @Test func anUnmuteBeforeTheStreamOpensStillBringsTheSound() async {
-        let player = VlcVideoPlayerController()
-        defer { player.release() }
-        let log = PlayerEventLog(player)
-        let window = PlayerWindow(player)
-        defer { window.close() }
-        player.setMuted(true)
-        player.play(.rtsp(url: "rtsp://127.0.0.1:18554/nursery"))
-        player.setMuted(false)
-
-        #expect(await within(.seconds(15)) { player.isAudioSelected }, "\(log.events)")
     }
 
     @Test func aStreamThatDoesNotExistIsAnErrorNotALiveTile() async {

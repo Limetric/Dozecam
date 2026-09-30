@@ -46,6 +46,16 @@ final class LivePlayers {
         }
     }
 
+    /// The monitor's audio-only player for one camera, writing into its
+    /// speaker sink. Either transport: RTSP, or the livestream negotiated
+    /// with the console signed in.
+    func makeAudio(cameraId: String, sink: SpeakerSink) -> any AudioPlayer {
+        let provider = self.provider
+        return AudioOnlyPlayer(runtime: runtime, sink: sink) { cameraId, channel in
+            try await provider.connect(cameraId: cameraId, channel: channel)
+        }
+    }
+
     deinit {
         sessions.invalidate()
     }

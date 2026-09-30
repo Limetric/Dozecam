@@ -15,10 +15,13 @@ struct DozecamApp: App {
     private static func liveModel() -> AppModel {
         let dependencies = AppDependencies.live()
         let players = LivePlayers(dependencies: dependencies)
+        let monitoring = MonitoringService(
+            dependencies: dependencies, speaker: .shared, makePlayer: players.makeAudio(cameraId:sink:))
         #if DEBUG
-            return AppModel.forLaunch(dependencies: dependencies, makePlayer: players.make(for:))
+            return AppModel.forLaunch(
+                dependencies: dependencies, makePlayer: players.make(for:), monitoring: monitoring)
         #else
-            return AppModel(dependencies: dependencies, makePlayer: players.make(for:))
+            return AppModel(dependencies: dependencies, makePlayer: players.make(for:), monitoring: monitoring)
         #endif
     }
 

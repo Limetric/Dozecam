@@ -40,7 +40,6 @@ final class VlcPlayerCore {
     private var reportedUnsupported = false
     private var lastAspect: Double?
     private(set) var videoEnabled = true
-    private var muted = false
     private var released = false
 
     static let framePollInterval: Duration = .milliseconds(250)
@@ -54,8 +53,8 @@ final class VlcPlayerCore {
         view = VlcVideoView()
     }
 
-    /// Plays `media` as a new session, on a new player. The mute and video
-    /// choices already made carry over.
+    /// Plays `media` as a new session, on a new player. The video choice
+    /// already made carries over.
     func play(_ media: VLCMedia) {
         guard !released else { return }
         retirePlayer()
@@ -64,8 +63,12 @@ final class VlcPlayerCore {
         // afresh: a camera nobody is watching would otherwise come back from
         // a stall with its decoder running again.
         if !videoEnabled { media.addOption(":no-video") }
-        // Nor may a muted camera start an audio output: see `applyMute`.
-        if muted { media.addOption(":no-audio") }
+        // Never an audio output: libVLC's iOS output activates the app's
+        // `AVAudioSession` as `.playback` without mixing whenever it runs,
+        // which would stop other apps' audio and, once the app is in the
+        // background, end monitoring (#58). The viewer's sound comes out of
+        // the monitor's mix instead (`MonitoringService`).
+        media.addOption(":no-audio")
         let player = VLCMediaPlayer(library: library)
         let relay = VlcEventRelay()
         // The picture is letterboxed inside whatever box the tile gives it,
@@ -78,13 +81,7 @@ final class VlcPlayerCore {
         self.relay = relay
         player.media = media
         player.play()
-        player.audio?.isMuted = muted
         watchFrames()
-    }
-
-    func setMuted(_ muted: Bool) {
-        self.muted = muted
-        applyMute()
     }
 
     /// Deselects the video track on the running session, leaving the stream
@@ -143,23 +140,8 @@ final class VlcPlayerCore {
         reportedUnsupported = false
     }
 
-    /// A muted camera has no audio track selected, not just its volume off.
-    /// libVLC's iOS audio output activates the app's `AVAudioSession` as
-    /// `.playback` without mixing for as long as it runs, muted or not, so a
-    /// silent viewer would still stop another app's lullaby
-    /// (shared/spec/alerts-and-sound-modes.md: the viewer holds the speaker
-    /// only while its sound is on).
-    private func applyMute() {
-        guard let player else { return }
-        player.audio?.isMuted = muted
-        if muted {
-            player.deselectAllAudioTracks()
-        } else if !player.audioTracks.isEmpty, !isAudioSelected {
-            player.selectTrack(at: 0, type: .audio)
-        }
-    }
-
-    /// Whether the running session has an audio track selected.
+    /// Whether the running session has an audio track selected: never, since
+    /// `play` opens every media with `:no-audio`. Tests read it.
     var isAudioSelected: Bool { player?.audioTracks.contains(where: \.isSelected) ?? false }
 
     private func emit(_ event: PlayerEvent) {
@@ -183,10 +165,6 @@ final class VlcPlayerCore {
         case .videoTrackChanged:
             reportAspect()
             checkDecodable()
-        case .audioTrackAdded:
-            // An unmute that came before the stream was open selects the
-            // room's sound now that there is some.
-            applyMute()
         }
     }
 
@@ -361,7 +339,6 @@ private final class VlcEventRelay: NSObject, VLCMediaPlayerDelegate, @unchecked 
         case state(VLCMediaPlayerState)
         case buffering(Float)
         case videoTrackChanged
-        case audioTrackAdded
     }
 
     /// Written and read on the main thread only.
@@ -376,11 +353,7 @@ private final class VlcEventRelay: NSObject, VLCMediaPlayerDelegate, @unchecked 
     }
 
     func mediaPlayerTrackAdded(_ trackId: String, with trackType: VLCMedia.TrackType) {
-        switch trackType {
-        case .video: deliver(.videoTrackChanged)
-        case .audio: deliver(.audioTrackAdded)
-        default: break
-        }
+        if trackType == .video { deliver(.videoTrackChanged) }
     }
 
     func mediaPlayerTrackUpdated(_ trackId: String, with trackType: VLCMedia.TrackType) {

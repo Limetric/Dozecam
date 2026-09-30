@@ -36,8 +36,6 @@ final class VlcVideoPlayerController: VideoPlayerController {
         core.play(media)
     }
 
-    func setMuted(_ muted: Bool) { core.setMuted(muted) }
-
     var isAudioSelected: Bool { core.isAudioSelected }
 
     func setVideoEnabled(_ enabled: Bool) { core.setVideoEnabled(enabled) }

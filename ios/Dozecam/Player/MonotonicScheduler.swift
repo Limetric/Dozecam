@@ -40,15 +40,21 @@ final class ScheduledAction {
 final class ContinuousScheduler: MonotonicScheduler {
     static let shared = ContinuousScheduler()
 
-    private let origin = ContinuousClock.now
+    /// One origin for the process, so a time taken off the main actor (a
+    /// decoded audio buffer's, on libVLC's thread) is on the same clock as
+    /// the deadlines here.
+    private nonisolated static let origin = ContinuousClock.now
 
-    var nowMs: Int64 {
+    /// `nowMs`, readable from any thread.
+    nonisolated static var monotonicNowMs: Int64 {
         let elapsed = origin.duration(to: .now).components
         return elapsed.seconds * 1_000 + elapsed.attoseconds / 1_000_000_000_000_000
     }
 
+    var nowMs: Int64 { Self.monotonicNowMs }
+
     func schedule(at deadlineMs: Int64, _ action: @escaping @MainActor () -> Void) -> ScheduledAction {
-        let deadline = origin.advanced(by: .milliseconds(deadlineMs))
+        let deadline = Self.origin.advanced(by: .milliseconds(deadlineMs))
         let task = Task { @MainActor in
             try? await Task.sleep(until: deadline, clock: .continuous)
             guard !Task.isCancelled else { return }
