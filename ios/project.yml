@@ -30,16 +30,32 @@ settings:
     # and libVLC callbacks must never inherit MainActor isolation (#58).
     TARGETED_DEVICE_FAMILY: "1,2"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
+packages:
+  # Live view (#59, #66). VideoLAN distributes VLCKit 4 through SPM as a
+  # binaryTarget but tags no SPM version, so it is pinned by revision.
+  # LGPL-2.1: see ios/AGENTS.md.
+  VLCKit:
+    url: https://code.videolan.org/videolan/VLCKit.git
+    revision: 6cbc4e7b248aa51ec0906697abb30ecae47194b7 # "Distribute 4.0.0a24 via cocoapods and SPM"
 targets:
   Dozecam:
     type: application
     platform: iOS
     sources:
-      - Dozecam
+      - path: Dozecam
+        excludes:
+          - Player/libvlc/**
+    dependencies:
+      - package: VLCKit
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: ""
         CODE_SIGN_ENTITLEMENTS: Dozecam/Dozecam.entitlements
+        # libVLC's C API, for the livestream's media callbacks. Its headers
+        # ship inside VLCKit.framework but outside its module map; a copy from
+        # the same 4.0.0a24 binary lives in Player/libvlc.
+        SWIFT_OBJC_BRIDGING_HEADER: Dozecam/Player/Dozecam-Bridging-Header.h
+        HEADER_SEARCH_PATHS: $(SRCROOT)/Dozecam/Player/libvlc
       configs:
         Debug:
           PRODUCT_BUNDLE_IDENTIFIER: app.dozecam
@@ -103,6 +119,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.dozecam.tests
         GENERATE_INFOPLIST_FILE: YES
+        # @testable import Dozecam re-reads the app's bridging header.
+        HEADER_SEARCH_PATHS: $(SRCROOT)/Dozecam/Player/libvlc
 schemes:
   Dozecam:
     build:

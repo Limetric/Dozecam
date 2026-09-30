@@ -60,7 +60,7 @@ Protect's WebSocket livestream (fragmented MP4) is how a signed-in console's cam
 Android reference: `LivestreamDecoder`, `Av1ConfigRepair`, `ProtectLivestreamProvider`.
 Fixtures: [`shared/fixtures/livestream/`](../fixtures/livestream/).
 
-- **iOS:** the proposed path feeds the same bytes into libVLC through media callbacks, with VideoToolbox or dav1d for AV1; untested, as is whether the AV1 repair is needed there (#59, #66).
+- **iOS:** the same bytes go into libVLC through media callbacks (`libvlc_media_new_callbacks`) and its MP4 demuxer, then VideoToolbox, or dav1d for AV1. libVLC plays an `av1C` with no config OBUs as it is; the repair is applied anyway, since it is spec-valid and keeps the two platforms feeding identical bytes (#66). Proven against synthetic streams only, not yet against a console.
 
 ## Credentials
 

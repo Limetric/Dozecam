@@ -1,8 +1,8 @@
 import UIKit
 
-/// Stands in for the real players (VLCKit for RTSP, the livestream pipeline
-/// for Protect) until they are wired in at `DozecamApp` (#66). It never
-/// produces a frame, so every tile says so honestly: connecting, then
+/// A player that never produces a frame: `AppModel`'s default for tests and
+/// previews, where no real stream exists. The app passes `LivePlayers`
+/// (`DozecamApp`). Every tile it backs says so honestly: connecting, then
 /// reconnecting, never live.
 enum PendingLivePlayers {
     @MainActor
