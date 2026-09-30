@@ -17,6 +17,9 @@ struct MonitorView: View {
     var body: some View {
         let palette = model.palette
         content
+            // Any touch is a person answering a sounding alarm; simultaneous,
+            // so scrolling and every button work as ever.
+            .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in model.touched() })
             .environment(\.viewerPalette, palette)
             .task { await model.observe() }
             .onChange(of: scenePhase, initial: true) { _, phase in
@@ -71,6 +74,11 @@ struct MonitorView: View {
         }
         .overlay(alignment: .bottom) {
             VStack(spacing: OverlayChrome.gap) {
+                // Every failure past grace, with its start, whatever the
+                // alerts switch says (shared/spec/failure-alerts.md).
+                ForEach(model.failureNotices, id: \.id) { notice in
+                    OverlayNotice(text: notice.text, attention: true)
+                }
                 NetworkNotice(reach: model.reach)
                 AnnouncementView(model: model)
             }
@@ -101,6 +109,9 @@ struct ControlRow: View {
                 NotMonitoringBadge {
                     if model.retryMonitoring() { onOpenChecklist() }
                 }
+            } else if let status = model.statusLine {
+                // iOS has no ongoing notification: the status line lives here.
+                StatusLine(text: status)
             }
             Spacer(minLength: 0)
             // The way out first: the one control that ends the night rather
@@ -127,6 +138,21 @@ struct ControlRow: View {
             ControlButton(systemImage: "checklist", label: "Night checklist", action: onOpenChecklist)
             ControlButton(systemImage: "gearshape.fill", label: "Settings", action: onOpenSettings)
         }
+    }
+}
+
+/// What the monitor is doing, and when it last said so: a line that stops
+/// moving is a monitor that has stopped.
+struct StatusLine: View {
+    let text: String
+    @Environment(\.viewerPalette) private var palette
+
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .lineLimit(2)
+            .foregroundStyle(palette.onOverlayVariant)
+            .accessibilityLabel("Monitoring: \(text)")
     }
 }
 

@@ -58,3 +58,4 @@ Android reference: `FailureLedger.Update.unplugged`, `MonitoringNotifications.po
 - **The app itself dying** is a cause the ledger cannot see, since it runs inside the app. Android is restarted by the system (see [monitoring-lifecycle.md](monitoring-lifecycle.md#staying-alive)). **iOS:** nothing restarts it, so the dead-man AlarmKit alarm is the announcement, and its lead time (3 min tested) is its grace period (#58, #68).
 - **Battery:** iPadOS reports the battery in 5 % steps (#58). The thresholds are unchanged.
 - **iOS:** the failure alert uses the same alert path as the sound alert on iOS (AlarmKit, with the fallback), with its own sound and wording (#68).
+- **iOS: the audio session lost** is a cause of its own: the session refused, or not coming back after an interruption. Nothing keeps the app listening with the screen locked without it (#58, #68).

@@ -43,7 +43,15 @@ A trigger raises the alert for that camera, named by its current name.
 Android reference: `MonitoringService.raiseAlert`, `AlertSignaler`, `AlarmSchedule`, `AppSettings`.
 
 - **Android** wakes the screen with a full-screen intent and plays on the alarm stream.
-- **iOS** has no full-screen intent. The primary alert is an **AlarmKit** alarm scheduled 1 s ahead (AlarmKit rejects "now"), which rings full-screen through silent mode and Sleep Focus. When AlarmKit is not authorised, the fallback is the app's own tone through the running audio engine at media volume plus a time-sensitive notification, which is silent in silent mode and suppressed by Sleep Focus (#58). How ramp, repeat, the 5-minute cap and acknowledgement map onto AlarmKit is settled in #68; the rules above are what it must match.
+- **iOS** has no full-screen intent. The primary alert is an **AlarmKit** alarm scheduled 1 s ahead (AlarmKit rejects "now"), which rings full-screen through silent mode and Sleep Focus. When AlarmKit is not authorised, the fallback is the app's own tone through the running audio engine at media volume plus a time-sensitive notification, which is silent in silent mode and suppressed by Sleep Focus (#58). With AlarmKit (#68):
+  - The card is posted as well, as a time-sensitive notification: it is what names the room and opens it when tapped.
+  - The alarm is latched and one at a time, as above. The system's Stop is the acknowledgement, as are a touch on the viewer and opening or dismissing the card.
+  - A trigger from another room replaces the alarm with one titled for that room, which rings again about a second later: AlarmKit cannot retitle a ringing alarm.
+  - AlarmKit rings continuously at the system alarm volume with its own vibration, so ramp, repeat interval, ceiling and the chime and vibration switches do not apply to it.
+  - The 5-minute give-up is the app stopping the alarm.
+  - A room rings with the system alarm sound; a failure and the dead-man ring with the bundled failure tone.
+  - The fallback keeps ramp, repeat and ceiling, applied under the media volume (so it is silent at zero), with a bundled room tone, since an app cannot play the system alarm sounds.
+  - `alertWakesScreen` false (the room is the only one heard) posts the card without interrupting.
 
 ## Sound modes
 

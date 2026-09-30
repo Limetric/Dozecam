@@ -67,6 +67,28 @@ final class AppModel {
         destination = monitor.dependencies.cameras.cameras.isEmpty ? .onboarding : .monitor
     }
 
+    /// Taps on monitoring's cards: opening one is a person answering, and a
+    /// room's opens that room; dismissing one answers too
+    /// (shared/spec/alerts-and-sound-modes.md, "Latched").
+    func followNotices(_ responses: AsyncStream<NoticeResponse>) {
+        Task { [weak self] in
+            for await response in responses {
+                self?.handle(response)
+            }
+        }
+    }
+
+    func handle(_ response: NoticeResponse) {
+        monitoring.acknowledge()
+        guard case .opened(let route) = response else { return }
+        isShowingSettings = false
+        if destination != .monitor { destination = .monitor }
+        switch route {
+        case .room(let cameraId): monitor.open(cameraId)
+        case .failure, .viewer: monitor.closeFullscreen()
+        }
+    }
+
     func finishOnboarding() {
         destination = .monitor
     }

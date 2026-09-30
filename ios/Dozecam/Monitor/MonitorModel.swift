@@ -271,6 +271,23 @@ final class MonitorModel {
         countdown?.reset()
     }
 
+    /// Any touch on the viewer: a person is here, so a sounding alarm stops
+    /// (shared/spec/alerts-and-sound-modes.md, "Latched").
+    func touched() {
+        monitoring.acknowledge()
+    }
+
+    /// Every failure past its grace period, as the viewer names it.
+    var failureNotices: [(id: String, text: String)] {
+        monitoring.failures.map { (id: $0.reason.key, text: monitoring.wording.viewerNotice($0)) }
+    }
+
+    /// The monitor's status line and its proof of life, while it runs.
+    var statusLine: String? {
+        guard monitoring.isRunning, let status = monitoring.status else { return nil }
+        return [status.text, status.checkedText(monitoring.wording)].compactMap { $0 }.joined(separator: " · ")
+    }
+
     // MARK: - Pause
 
     func pause(_ cameraId: String, announcing: Bool = true) {

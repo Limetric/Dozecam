@@ -34,13 +34,18 @@ final class MonitoringNotices {
     // MARK: - The sound alert
 
     /// The sound alert's card for `cameraId`, named `roomName`, or the
-    /// bedtime test's: the same card, changed only in what it says.
-    static func soundAlert(cameraId: String, roomName: String, test: Bool = false) -> LocalNotice {
+    /// bedtime test's: the same card, changed only in what it says. Not
+    /// `prominent` when the room is the only one heard through listen mode
+    /// (`ListenTarget.alertWakesScreen`): the card is there, but it does not
+    /// light the screen for a room the parent is already hearing.
+    static func soundAlert(cameraId: String, roomName: String, test: Bool = false, prominent: Bool = true)
+        -> LocalNotice
+    {
         LocalNotice(
             id: alertId,
             title: test ? "Dozecam test alert" : "Sound detected — \(roomName)",
             body: test ? "This is the bedtime test. A real alert names the room." : "Tap to open the live view.",
-            level: .timeSensitive,
+            level: prominent ? .timeSensitive : .passive,
             route: .room(cameraId: cameraId),
             category: NotificationRouter.alertCategory
         )
@@ -49,8 +54,8 @@ final class MonitoringNotices {
     /// Returns false when the system refused (notifications not allowed),
     /// which the failure ledger learns separately from `AlertAccess`.
     @discardableResult
-    func postSoundAlert(cameraId: String, roomName: String, test: Bool = false) async -> Bool {
-        await post(Self.soundAlert(cameraId: cameraId, roomName: roomName, test: test))
+    func postSoundAlert(cameraId: String, roomName: String, test: Bool = false, prominent: Bool = true) async -> Bool {
+        await post(Self.soundAlert(cameraId: cameraId, roomName: roomName, test: test, prominent: prominent))
     }
 
     func removeSoundAlert() {
