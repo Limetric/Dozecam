@@ -166,6 +166,30 @@ struct MonitoringAlertsTests {
         #expect(await eventually { !harness.service.alerts.isAlarming })
     }
 
+    /// AlarmKit refusing leaves the tone to take over at once, not at the
+    /// next repeat.
+    @Test func aRefusedAlarmKitAlarmFallsBackToTheToneAtOnce() async throws {
+        let harness = try await Harness()
+        harness.alarms.refuse = true
+        harness.service.arm()
+        harness.allLive()
+        harness.nurseryCries()
+        #expect(
+            await eventually { harness.tone.calls.contains { if case .start(.room, _) = $0 { true } else { false } } })
+    }
+
+    /// An answer before the queued raise runs means nothing rings.
+    @Test func anAlarmAnsweredBeforeItIsRaisedNeverRings() async throws {
+        let harness = try await Harness()
+        harness.service.arm()
+        harness.allLive()
+        harness.nurseryCries()
+        harness.service.acknowledge()
+        await harness.settle()
+        #expect(harness.alarms.raised.isEmpty)
+        #expect(harness.alarms.ringing == nil)
+    }
+
     @Test func theAlarmGivesUpFiveMinutesAfterTheLastTrigger() async throws {
         let harness = try await Harness()
         harness.access.alarms = .denied

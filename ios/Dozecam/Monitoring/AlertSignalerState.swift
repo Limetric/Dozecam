@@ -156,6 +156,18 @@ struct AlertSignalerState: Sendable {
         return actions
     }
 
+    /// A burst now, at the ramp's current volume, for an alarm whose delivery
+    /// just changed (AlarmKit refused it, so the fallback tone takes over): the
+    /// burst it started with went to AlarmKit, and waiting for the next repeat
+    /// would leave the room silent for up to 30 s.
+    mutating func burstNow(nowMs: Int64) -> [Action] {
+        guard var current = run else { return [] }
+        let elapsedMs = nowMs - current.startedAtMs
+        current.previousElapsedMs = elapsedMs
+        run = current
+        return burst(current, elapsedMs: elapsedMs)
+    }
+
     /// A person is here: a touch or key press on the viewer, or the alert
     /// dismissed.
     mutating func acknowledge() -> [Action] {

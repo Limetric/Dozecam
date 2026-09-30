@@ -42,6 +42,9 @@ final class AlertCenter {
     /// Whether the current alarm rings through AlarmKit rather than the tone.
     @ObservationIgnored private var viaAlarmKit = false
     @ObservationIgnored private var following: Task<Void, Never>?
+    /// Bumped whenever the alarm stops, so a raise queued before the stop
+    /// cannot ring after it.
+    @ObservationIgnored private var generation = 0
 
     private static let log = Logger(subsystem: "app.dozecam", category: "alerts")
 
@@ -163,14 +166,17 @@ final class AlertCenter {
             }
         guard delivery.alarms.ringing != subject else { return }
         let alarms = delivery.alarms
+        let raisedIn = generation
         Task { [weak self] in
+            // Answered, withdrawn or exited before this ran: nothing to ring.
+            guard let self, generation == raisedIn, signaler.isAlarming else { return }
             do {
                 try await alarms.raise(subject)
             } catch {
                 // AlarmKit refused: the tone takes over, so the room is
                 // still heard.
                 Self.log.error("AlarmKit refused an alarm; falling back to the tone")
-                self?.fallBack()
+                fallBack()
             }
         }
     }
@@ -178,7 +184,7 @@ final class AlertCenter {
     private func fallBack() {
         guard viaAlarmKit, signaler.isAlarming else { return }
         viaAlarmKit = false
-        perform(signaler.tick(nowMs: scheduler.nowMs))
+        perform(signaler.burstNow(nowMs: scheduler.nowMs))
     }
 
     private func startTicking() {
@@ -205,6 +211,7 @@ final class AlertCenter {
             case .vibrate:
                 if !viaAlarmKit { delivery.vibrator.pulse() }
             case .stop:
+                generation += 1
                 ticker?.cancel()
                 ticker = nil
                 delivery.tone.stop()
