@@ -254,6 +254,58 @@ struct OnboardingModelTests {
         #expect(harness.dependencies.cameras.cameras.isEmpty)
     }
 
+    /// Cameras already imported leave the selection, so a retry after a
+    /// later camera failed imports only the rest and counts each camera once.
+    @Test func aRetriedImportCountsEachCameraOnce() async throws {
+        let harness = OnboardingHarness()
+        harness.fill()
+        harness.stub.enqueueLogin()
+        harness.stub.enqueue(status: 403, json: "{}")
+        harness.stub.enqueue(
+            json: #"""
+                {"cameras": [
+                  {"id": "cam1", "name": "Nursery", "channels": [{"id": 1, "name": "Medium", "isRtspEnabled": true, "rtspAlias": "a1"}]},
+                  {"id": "cam2", "name": "Hall", "channels": [{"id": 1, "name": "Medium"}]}
+                ]}
+                """#)
+        await harness.model.signIn()
+        harness.model.selectAllCameras(true)
+
+        harness.stub.enqueue(status: 500, json: "{}")  // enabling RTSP on cam2 fails
+        await harness.model.importSelected()
+        #expect(harness.model.importError != nil)
+        #expect(harness.model.selectedCameraIDs == ["cam2"])
+        #expect(harness.dependencies.cameras.cameras.map(\.id) == ["protect-cam1-1"])
+
+        harness.stub.enqueue(
+            json:
+                #"{"id": "cam2", "name": "Hall", "channels": [{"id": 1, "name": "Medium", "isRtspEnabled": true, "rtspAlias": "a2"}]}"#
+        )
+        await harness.model.importSelected()
+        #expect(harness.model.path == [.signIn, .cameras, .done])
+        #expect(harness.model.addedCount == 2)
+        #expect(harness.dependencies.cameras.cameras.map(\.id) == ["protect-cam1-1", "protect-cam2-1"])
+    }
+
+    /// A key is saved the moment it is minted: a camera list that then fails
+    /// is retried with it rather than minting another.
+    @Test func aMintedKeyOutlivesAFailedCameraList() async throws {
+        let harness = OnboardingHarness()
+        harness.fill()
+        harness.stub.enqueueLogin()
+        try harness.stub.enqueueFixture("protect-api/legacy/api-key.json")
+        harness.stub.enqueue(status: 503, json: "{}")
+        await harness.model.signIn()
+        #expect(harness.model.signInError != nil)
+        #expect(try harness.credentials.load()?.apiKey == "abcdef123456")
+
+        harness.stub.enqueueLogin()
+        try harness.stub.enqueueFixture("protect-api/public/cameras.json")
+        await harness.model.signIn()
+        #expect(harness.requestLines.dropFirst(3) == ["POST /api/auth/login", "GET \(publicCamerasPath)"])
+        #expect(harness.model.usesPublicAPI)
+    }
+
     // MARK: Trust on first use
 
     @Test func firstContactAsksAndPinsOnlyOnceTheSignInBehindItSucceeds() async throws {

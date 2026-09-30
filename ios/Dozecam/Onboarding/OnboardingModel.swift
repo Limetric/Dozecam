@@ -303,11 +303,13 @@ final class OnboardingModel {
             try save(signIn, apiKey: stored)
             return .publicAPI(publicAPI, apiKey: stored, cameras: cameras)
         }
-        if let minted = try await mintApiKey(legacy, login: login), minted != stored,
-            let cameras = try await publicCameras(publicAPI, apiKey: minted)
-        {
+        if let minted = try await mintApiKey(legacy, login: login), minted != stored {
+            // Saved as soon as it is issued: if the camera list then fails,
+            // the retry reuses this key instead of minting another.
             try save(signIn, apiKey: minted)
-            return .publicAPI(publicAPI, apiKey: minted, cameras: cameras)
+            if let cameras = try await publicCameras(publicAPI, apiKey: minted) {
+                return .publicAPI(publicAPI, apiKey: minted, cameras: cameras)
+            }
         }
         try save(signIn, apiKey: nil)
         return .legacy(legacy, cameras: try await legacy.bootstrap(login).cameras)
@@ -434,6 +436,8 @@ final class OnboardingModel {
                             camera, api: api, apiKey: apiKey, consoleHost: consoleHost, existing: existing)
                         try await dependencies.cameras.upsert(stored)
                         imported += 1
+                        // Done: a retry after a later failure leaves it be.
+                        selectedCameraIDs.remove(camera.id)
                     }
                 case .legacy(let api, let cameras):
                     for camera in cameras where selected.contains(camera.id) {
@@ -448,6 +452,7 @@ final class OnboardingModel {
                         guard let stored else { continue }
                         try await dependencies.cameras.upsert(stored)
                         imported += 1
+                        selectedCameraIDs.remove(camera.id)
                     }
                 }
             }
