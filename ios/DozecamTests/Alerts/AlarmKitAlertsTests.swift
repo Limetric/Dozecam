@@ -8,12 +8,13 @@ struct AlarmKitAlertsTests {
     let scheduler = FakeAlarmScheduler()
     let start = Date(timeIntervalSince1970: 1_000_000)
     let alerts: AlarmKitAlerts
+    let defaults = UserDefaults(suiteName: "alarmkit-alerts.\(UUID().uuidString)")!
     static let nursery = AlertSubject.room(cameraId: "cam-1", name: "Nursery")
     static let porch = AlertSubject.room(cameraId: "cam-2", name: "Porch")
 
     init() {
         let start = start
-        alerts = AlarmKitAlerts(scheduler: scheduler, now: { start })
+        alerts = AlarmKitAlerts(scheduler: scheduler, now: { start }, defaults: defaults)
     }
 
     // MARK: - Raising
@@ -168,6 +169,16 @@ struct AlarmKitAlertsTests {
 
         scheduler.userStops(id)
         #expect(await acknowledgements.next() == Self.nursery)
+    }
+
+    /// The app killed with an alarm up: the next launch ends it.
+    @Test func anAlarmLeftByAnEarlierRunIsEndedAtLaunch() async throws {
+        try await alerts.raise(Self.nursery)
+        let id = scheduler.scheduledIds[0]
+        let relaunched = AlarmKitAlerts(scheduler: scheduler, defaults: defaults)
+        #expect(scheduler.endedIds.contains(id))
+        #expect(relaunched.ringing == nil)
+        #expect(defaults.string(forKey: "alerts.alarmId") == nil)
     }
 
     @Test func theAppEndingItIsNoAcknowledgement() async throws {

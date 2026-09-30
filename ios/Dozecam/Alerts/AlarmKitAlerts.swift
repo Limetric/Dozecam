@@ -102,7 +102,12 @@ final class AlarmKitAlerts: AlarmAlerting {
     @ObservationIgnored private let acknowledged: AsyncStream<AlertSubject>.Continuation
     @ObservationIgnored private let scheduler: any AlarmScheduling
     @ObservationIgnored private let now: () -> Date
-    @ObservationIgnored private var alarmId: UUID?
+    /// Kept in `defaults` too: an AlarmKit alarm outlives the process, and a
+    /// relaunched app must still be able to end it.
+    @ObservationIgnored private var alarmId: UUID? {
+        didSet { defaults.set(alarmId?.uuidString, forKey: Self.alarmKey) }
+    }
+    @ObservationIgnored private let defaults: UserDefaults
     /// Whether AlarmKit's updates have listed the current alarm yet: only an
     /// alarm seen can be seen to go.
     @ObservationIgnored private var listed = false
@@ -118,10 +123,22 @@ final class AlarmKitAlerts: AlarmAlerting {
     static let lead: TimeInterval = 1
 
     private static let log = Logger(subsystem: "app.dozecam", category: "alerts")
+    private static let alarmKey = "alerts.alarmId"
 
-    init(scheduler: any AlarmScheduling, now: @escaping () -> Date = Date.init) {
+    /// An alarm left by an earlier run (the app was killed with it up) is
+    /// ended here: only a person opening Dozecam relaunches it, which is as
+    /// much an answer as a touch on the viewer.
+    init(scheduler: any AlarmScheduling, now: @escaping () -> Date = Date.init, defaults: UserDefaults = .standard) {
         self.scheduler = scheduler
         self.now = now
+        self.defaults = defaults
+        if let leftover = defaults.string(forKey: Self.alarmKey).flatMap(UUID.init(uuidString:)) {
+            Self.log.notice("ending an alarm left by an earlier run")
+            defaults.removeObject(forKey: Self.alarmKey)
+            do { try scheduler.end(id: leftover) } catch {
+                Self.log.error("could not end the earlier run's alarm: \(error, privacy: .public)")
+            }
+        }
         (acknowledgements, acknowledged) = AsyncStream.makeStream(of: AlertSubject.self)
         let updates = scheduler.updates()
         observer = Task { [weak self] in
