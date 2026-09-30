@@ -69,7 +69,6 @@
             }
         }
 
-        func setMuted(_ muted: Bool) { pattern.setAudible(!muted) }
         func setVideoEnabled(_ enabled: Bool) {}
 
         func stop() {

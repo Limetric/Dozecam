@@ -67,8 +67,6 @@ final class LivestreamVideoPlayerController: VideoPlayerController {
         }
     }
 
-    func setMuted(_ muted: Bool) { core.setMuted(muted) }
-
     /// The socket stays open and keeps feeding the demuxer; only the video
     /// decoder goes.
     func setVideoEnabled(_ enabled: Bool) { core.setVideoEnabled(enabled) }

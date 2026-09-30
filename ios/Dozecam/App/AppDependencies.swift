@@ -13,7 +13,6 @@ final class AppDependencies {
     let trust: TofuTrustStore
     let localNetwork: LocalNetworkAccess
     let network: NetworkMonitor
-    let speakerLosses: any SpeakerLossSource
 
     init(
         cameras: CameraRepository,
@@ -22,8 +21,7 @@ final class AppDependencies {
         credentials: any CredentialsStore,
         trust: TofuTrustStore,
         localNetwork: LocalNetworkAccess,
-        network: NetworkMonitor,
-        speakerLosses: any SpeakerLossSource
+        network: NetworkMonitor
     ) {
         self.cameras = cameras
         self.appSettings = appSettings
@@ -32,7 +30,6 @@ final class AppDependencies {
         self.trust = trust
         self.localNetwork = localNetwork
         self.network = network
-        self.speakerLosses = speakerLosses
     }
 
     /// The real stores: Application Support, UserDefaults.standard, the
@@ -45,8 +42,7 @@ final class AppDependencies {
             credentials: KeychainCredentialsStore(),
             trust: .shared,
             localNetwork: LocalNetworkAccess(),
-            network: NetworkMonitor(),
-            speakerLosses: SystemSpeakerLossSource()
+            network: NetworkMonitor()
         )
     }
 
@@ -57,8 +53,7 @@ final class AppDependencies {
         in directory: URL = FileManager.default.temporaryDirectory.appending(path: "deps-\(UUID().uuidString)"),
         credentials: any CredentialsStore = InMemoryCredentialsStore(),
         localNetworkProbe: any LocalNetworkProbe = SystemLocalNetworkProbe(),
-        networkSource: any NetworkPathSource = SystemNetworkPathSource(),
-        speakerLosses: any SpeakerLossSource = ManualSpeakerLossSource()
+        networkSource: any NetworkPathSource = SystemNetworkPathSource()
     ) -> AppDependencies {
         let suite = "app.dozecam.isolated.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -69,8 +64,7 @@ final class AppDependencies {
             credentials: credentials,
             trust: TofuTrustStore(fileURL: nil),
             localNetwork: LocalNetworkAccess(probe: localNetworkProbe, defaults: defaults),
-            network: NetworkMonitor(source: networkSource),
-            speakerLosses: speakerLosses
+            network: NetworkMonitor(source: networkSource)
         )
     }
 }

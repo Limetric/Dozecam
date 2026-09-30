@@ -2,8 +2,8 @@ import SwiftUI
 
 /// The viewer: every enabled camera, live, or where it has been paused for the
 /// night a placeholder offering it back; one camera at a time on request; and
-/// a row of controls. Arming the monitor and how a camera is set up live
-/// elsewhere (#67, settings).
+/// a row of controls. Opening it arms the monitor (`MonitoringService`), which
+/// also plays its sound; how a camera is set up lives in settings.
 struct MonitorView: View {
     let model: MonitorModel
     let onOpenSettings: () -> Void
@@ -97,6 +97,11 @@ struct ControlRow: View {
 
     var body: some View {
         HStack(spacing: OverlayChrome.gap) {
+            if model.showsNotMonitoring {
+                NotMonitoringBadge {
+                    if model.retryMonitoring() { onOpenChecklist() }
+                }
+            }
             Spacer(minLength: 0)
             // The way out first: the one control that ends the night rather
             // than adjusting it.
@@ -122,6 +127,28 @@ struct ControlRow: View {
             ControlButton(systemImage: "checklist", label: "Night checklist", action: onOpenChecklist)
             ControlButton(systemImage: "gearshape.fill", label: "Settings", action: onOpenSettings)
         }
+    }
+}
+
+/// A start that never landed, styled as the error it is. Tapping retries.
+struct NotMonitoringBadge: View {
+    let action: () -> Void
+    @Environment(\.viewerPalette) private var palette
+
+    var body: some View {
+        Button(action: action) {
+            Label("Not monitoring", systemImage: "exclamationmark.triangle.fill")
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .padding(.horizontal, OverlayChrome.pillPadding)
+                .frame(height: OverlayChrome.controlHeight)
+                .foregroundStyle(palette.onAttention)
+                .background(palette.attention, in: Capsule())
+                .overlay(Capsule().strokeBorder(palette.overlayOutline, lineWidth: 1))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Tries to start monitoring again")
     }
 }
 

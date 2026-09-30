@@ -26,25 +26,33 @@ final class MonitorModel {
     private(set) var hasDisabledOnly: Bool
     private(set) var settings: AppSettings
     private(set) var reach: NetworkReach
-    /// Rooms set aside for tonight ("this child is still up"). In memory only,
-    /// so exiting brings every room back (shared/spec/monitoring-lifecycle.md).
-    /// The monitor (#67) will read the same set; until it exists it lives here.
-    private(set) var pausedIds: Set<String> = []
+    /// Rooms set aside for tonight ("this child is still up"): the monitor's,
+    /// which the viewer shares, so a paused room has no picture, no sound and
+    /// no detector (shared/spec/monitoring-lifecycle.md).
+    var pausedIds: Set<String> { monitoring.pausedIds }
     /// The camera that has the screen to itself, if any.
     private(set) var fullscreenId: String?
     /// The wait before a single camera hands the screen back to the grid.
     private(set) var countdown: InactivityCountdown?
     /// The single camera's pinch; every camera opens whole.
     var zoom = PinchZoom()
-    /// The cameras whose sound is playing, as the screen should mark them.
-    private(set) var audibleIds: Set<String> = []
+    /// The cameras this screen asks to hear, by its sound mode.
+    private(set) var requestedAudibleIds: Set<String> = []
+    /// The cameras whose sound is playing, as the screen should mark them:
+    /// what the speaker is actually playing, never just the ask.
+    var audibleIds: Set<String> { requestedAudibleIds.intersection(monitoring.aloudCameraIds) }
     /// A short confirmation of what a button just did.
     private(set) var announcement: Announcement?
     var isConfirmingExit = false
     private(set) var isOnScreen = false
+    /// The viewer has been open long enough that a monitor still not running
+    /// is a start that never landed, not a cold start in progress.
+    private(set) var isSettled = false
     private(set) var isInForeground = true
 
     let sessions: CameraSessions
+    /// Plays this screen's sound, and keeps listening after it is gone.
+    let monitoring: MonitoringService
 
     @ObservationIgnored let dependencies: AppDependencies
     @ObservationIgnored private let scheduler: any MonotonicScheduler
@@ -56,14 +64,19 @@ final class MonitorModel {
     @ObservationIgnored private var warmIds: Set<String> = []
     @ObservationIgnored private var idleTimerDisabled: Bool?
     @ObservationIgnored private var announcementTimer: ScheduledAction?
+    @ObservationIgnored private var settleTimer: ScheduledAction?
     @ObservationIgnored private var announcementCount = 0
     @ObservationIgnored private var lastWrite: Task<Void, Never>?
 
     /// How long a confirmation stays up: long enough to read a sentence.
     static let announcementMs: Int64 = 4_000
+    /// How long the viewer is open before "Not monitoring" may show, so a
+    /// normal cold start never flashes it (shared/spec/monitoring-lifecycle.md).
+    static let notMonitoringGraceMs: Int64 = 3_000
 
     init(
         dependencies: AppDependencies,
+        monitoring: MonitoringService,
         makePlayer: @escaping CameraSessions.MakePlayer,
         scheduler: any MonotonicScheduler = ContinuousScheduler.shared,
         wallClock: @escaping () -> Date = Date.init,
@@ -73,6 +86,7 @@ final class MonitorModel {
         setIdleTimerDisabled: @escaping @MainActor (Bool) -> Void = { UIApplication.shared.isIdleTimerDisabled = $0 }
     ) {
         self.dependencies = dependencies
+        self.monitoring = monitoring
         self.scheduler = scheduler
         self.inactivityTimeoutMs = inactivityTimeoutMs
         self.setIdleTimerDisabled = setIdleTimerDisabled
@@ -113,6 +127,21 @@ final class MonitorModel {
 
     func session(for cameraId: String) -> CameraSession? { sessions[cameraId] }
 
+    /// The error badge for a start that never landed: something to monitor,
+    /// and no monitor, after the grace period. Silent while it runs.
+    var showsNotMonitoring: Bool {
+        isSettled && !monitoring.isRunning && monitoring.monitorableCount > 0
+    }
+
+    /// Tapping the badge: missing local-network access cannot be fixed by
+    /// retrying, so that opens the night checklist instead; returns whether
+    /// it should.
+    func retryMonitoring() -> Bool {
+        if dependencies.localNetwork.status == .denied { return true }
+        monitoring.arm()
+        return false
+    }
+
     /// What the sound button's next press does, as a VoiceOver label.
     var soundModeActionLabel: String {
         switch Self.nextSoundMode(after: settings.soundMode) {
@@ -120,6 +149,25 @@ final class MonitorModel {
         case .allAloud: "Play every camera aloud"
         case .off: "Turn sound off"
         }
+    }
+
+    /// Android's wording: only the rooms the monitor is hearing now are
+    /// promised for the dark; any other camera plays on this screen and no
+    /// further. Listen mode keeps the alarm quiet, which a parent going to
+    /// sleep must be told.
+    nonisolated static func allAloudConfirmation(rooms: [Camera], carried: Set<String>) -> String {
+        let kept = rooms.filter { carried.contains($0.id) }
+        if kept.count == 1 {
+            return "\(kept[0].name) is playing aloud, and keeps playing with the screen off. "
+                + "Alerts stay quiet while you are listening."
+        }
+        if kept.count > 1 {
+            return "\(kept.count) rooms are playing aloud, and keep playing with the screen off. "
+                + "Alerts stay quiet, but light the screen to say which room."
+        }
+        return rooms.count == 1
+            ? "\(rooms[0].name) is playing aloud while this screen is on"
+            : "\(rooms.count) cameras are playing aloud while this screen is on"
     }
 
     nonisolated static func nextSoundMode(after mode: SoundMode) -> SoundMode {
@@ -138,9 +186,16 @@ final class MonitorModel {
     func observe() async {
         isOnScreen = true
         refreshSources()
+        // Opening the viewer is the ask: it clears an exit and arms, with no
+        // switch to have left off (shared/spec/monitoring-lifecycle.md).
+        monitoring.clearExit()
+        monitoring.arm()
         sync()
+        settleTimer = scheduler.schedule(after: Self.notMonitoringGraceMs) { [weak self] in self?.isSettled = true }
         defer {
             isOnScreen = false
+            isSettled = false
+            settleTimer?.cancel()
             sync()
         }
         async let cameras: Void = followEnabledCameras()
@@ -158,7 +213,14 @@ final class MonitorModel {
     func sceneChanged(inForeground: Bool) {
         guard inForeground != isInForeground else { return }
         isInForeground = inForeground
-        if inForeground { refreshSources() }
+        if inForeground {
+            refreshSources()
+            // The viewer arms on every resume, not only on launch.
+            monitoring.refreshConsole()
+            monitoring.arm()
+        } else {
+            monitoring.enteredBackground()
+        }
         sync()
     }
 
@@ -211,7 +273,7 @@ final class MonitorModel {
 
     func pause(_ cameraId: String, announcing: Bool = true) {
         guard let camera = cameras.first(where: { $0.id == cameraId }), !pausedIds.contains(cameraId) else { return }
-        pausedIds.insert(cameraId)
+        monitoring.pause(cameraId)
         // Said in words: the tile changing is easy to miss from across a room,
         // and pausing is the one press here that stops watching somebody.
         if announcing { announce("\(camera.name) paused. Nothing there raises an alert until you resume it.") }
@@ -223,7 +285,7 @@ final class MonitorModel {
 
     func resume(_ cameraId: String) {
         guard let camera = cameras.first(where: { $0.id == cameraId }), pausedIds.contains(cameraId) else { return }
-        pausedIds.remove(cameraId)
+        monitoring.resume(cameraId)
         announce("\(camera.name) resumed")
         sync()
     }
@@ -240,16 +302,16 @@ final class MonitorModel {
         switch next {
         case .off:
             announce("Sound off")
+        case _ where !monitoring.speaker.isGranted:
+            // The sound comes out of the monitor's speaker; without it there is
+            // nothing to play through, and a sound button left on would lie.
+            settings.soundMode = .off
+            write { $0.soundMode = .off }
+            announce("Something else is using the speaker — sound stays off")
         case .rotating:
             announce("Sound on, one camera at a time")
         case .allAloud:
-            // Nothing carries the sound past this screen until the monitor
-            // does (#67), so the confirmation promises only the screen.
-            let rooms = activeCameras
-            announce(
-                rooms.count == 1
-                    ? "\(rooms[0].name) is playing aloud while this screen is on"
-                    : "\(rooms.count) cameras are playing aloud while this screen is on")
+            announce(Self.allAloudConfirmation(rooms: activeCameras, carried: monitoring.audibleCameraIds))
         }
         sync()
     }
@@ -279,14 +341,12 @@ final class MonitorModel {
         isConfirmingExit = true
     }
 
-    /// Set by the monitor (#67), whose exit stops monitoring and takes down
-    /// everything it posted. Until then exit does what this screen owns.
+    /// Set by the app, whose exit stops monitoring (clearing the pauses, so
+    /// the next open watches every room) and leaves the viewer.
     @ObservationIgnored var exitHandler: (@MainActor () -> Void)?
 
     func confirmExit() {
         isConfirmingExit = false
-        // Pauses are cleared, so the next open watches every room.
-        pausedIds = []
         closeFullscreen()
         exitHandler?()
         sync()
@@ -303,8 +363,10 @@ final class MonitorModel {
         for await next in dependencies.cameras.enabledCameraUpdates() {
             cameras = next
             hasDisabledOnly = !dependencies.cameras.cameras.isEmpty && next.isEmpty
-            pausedIds.formIntersection(next.map(\.id))
             refreshSources()
+            // A camera switched on or added in settings (or onboarding) may be
+            // the first there is to listen to.
+            monitoring.arm()
             sync()
         }
     }
@@ -336,7 +398,7 @@ final class MonitorModel {
     /// only while it shows, with sound on and a room unpaused
     /// (shared/spec/alerts-and-sound-modes.md).
     private func followSpeakerLosses() async {
-        for await _ in dependencies.speakerLosses.losses() {
+        for await _ in monitoring.speaker.losses() {
             guard isInForeground, settings.soundMode != .off, !activeCameras.isEmpty else { continue }
             settings.soundMode = .off
             write { $0.soundMode = .off }
@@ -372,7 +434,7 @@ final class MonitorModel {
 
         let showing = isOnScreen && isInForeground
         let onScreen = activeIds.filter(visibleIds.contains)
-        let soundOn = settings.soundMode != .off
+        let soundOn = settings.soundMode != .off && monitoring.speaker.isGranted
         // Rotation is a grid matter: one camera alone has the whole attention
         // and keeps the sound for as long as it is up.
         rotation?.update(
@@ -387,13 +449,16 @@ final class MonitorModel {
             } else {
                 Set([rotation?.current].compactMap { $0 })
             }
-        if audibleIds != audible { audibleIds = audible }
+        if requestedAudibleIds != audible { requestedAudibleIds = audible }
+        // While it makes noise the viewer has the speaker, and listen mode
+        // stands down (shared/spec/alerts-and-sound-modes.md).
+        monitoring.setViewerAloud(soundOn && showing && !activeIds.isEmpty ? audible : nil)
 
         var wanted: [String: StreamSource] = [:]
         for id in fullscreenId.map({ [$0] }) ?? onScreen {
             if let source = sources[id] { wanted[id] = source }
         }
-        sessions.update(active: showing, wanted: wanted, warm: warmIds, audible: audible)
+        sessions.update(active: showing, wanted: wanted, warm: warmIds)
 
         if let countdown {
             // Time in the background does not count against the viewer.

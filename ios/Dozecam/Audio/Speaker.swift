@@ -284,10 +284,14 @@ final class Speaker {
     }
 }
 
-/// The route losses `MonitorModel` follows today (`SpeakerLossSource`), so the
-/// viewer can take the speaker's in place of `SystemSpeakerLossSource`.
-extension Speaker: SpeakerLossSource {
+extension Speaker {
+    /// Headphones unplugged or another route gone: the viewer's cue to say
+    /// its sound went off. Reported even while the speaker is stopped.
     nonisolated func losses() -> AsyncStream<Void> { events.losses() }
+
+    /// Whether anything follows `losses()`, for tests that must not unplug
+    /// before a listener is there to hear it.
+    nonisolated var isObservedForLosses: Bool { events.hasLossListeners }
 }
 
 /// The speaker's events, to every stream that asked. Lock-protected so
@@ -334,6 +338,8 @@ private final class SpeakerEvents: Sendable {
         }
         return stream
     }
+
+    var hasLossListeners: Bool { subscribers.withLock { !$0.losses.isEmpty } }
 
     func send(_ event: Speaker.Event) {
         subscribers.withLock { subscribers in

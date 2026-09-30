@@ -18,13 +18,16 @@ enum SettingsLaunchOptions {
         #endif
     }
 
-    static func levelSource(defaults: UserDefaults = .standard) -> any LevelSource {
+    /// `fallback` is the real meter: the monitor's level.
+    static func levelSource(
+        defaults: UserDefaults = .standard, fallback: any LevelSource = StaticLevelSource()
+    ) -> any LevelSource {
         #if DEBUG
             if defaults.object(forKey: "settingsLevel") != nil {
                 return StaticLevelSource(level: Float(defaults.double(forKey: "settingsLevel")))
             }
         #endif
-        return StaticLevelSource()
+        return fallback
     }
 
     #if DEBUG

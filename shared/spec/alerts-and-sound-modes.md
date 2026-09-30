@@ -72,7 +72,11 @@ The app holds the speaker as one owner for the viewer and the monitor together; 
 
 Android reference: `MediaAudioFocus`, `MainActivity` (viewer), `MonitoringService.stopListening`.
 
-- **iOS** has no audio focus. The nearest equivalents are audio-session interruptions (a transient loss) and route changes such as headphones being unplugged (a loss for good). The session mixes with other apps (`.mixWithOthers`, required to stay alive, see [monitoring-lifecycle.md](monitoring-lifecycle.md#staying-alive)), so another app's audio does not interrupt it; how "refused" and "ducked" map is settled in #67.
+- **iOS** has no audio focus. The session mixes with other apps (`.mixWithOthers`, required to stay alive, see [monitoring-lifecycle.md](monitoring-lifecycle.md#staying-alive)), so another app's audio neither interrupts it nor is interrupted by it, and nothing asks it to duck (#67):
+  - **Lost for a moment** is an audio-session interruption (a call, Siri, an alarm): silent until it ends, then the session is reactivated whether or not iOS suggests resuming, since monitoring lives only while it runs. A reactivation that fails is lost for good, and a failure for [failure-alerts.md](failure-alerts.md) (#68).
+  - **Lost for good** is a route change with the old device gone (headphones unplugged, a Bluetooth speaker out of range).
+  - **Refused** is the session failing to activate.
+  - **The viewer plays through the monitor.** Its cameras' sound comes from the monitor's audio-only players, mixed out of the same engine, not from its video players: libVLC's own iOS audio output sets the app's session to playback *without* mixing whenever it runs and deactivates it when it stops, which would end monitoring the next time the app went to the background. So the app is one owner of the speaker in fact as well as in rule, and a camera the monitor cannot hear is silent in the viewer too.
 
 ## Listen mode: aloud and heard
 

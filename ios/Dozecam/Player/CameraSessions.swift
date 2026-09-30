@@ -29,7 +29,6 @@ final class CameraSessions {
     @ObservationIgnored private(set) var isOnline = true
     @ObservationIgnored private var wanted: [String: StreamSource] = [:]
     @ObservationIgnored private var warm: Set<String> = []
-    @ObservationIgnored private var audible: Set<String> = []
 
     init(
         makePlayer: @escaping MakePlayer,
@@ -48,11 +47,10 @@ final class CameraSessions {
     /// Settles every session at once, so opening a camera (its claim, the
     /// grid's loss of it and the warm set that came with it) is reconciled in
     /// one step rather than with a teardown in between.
-    func update(active: Bool, wanted: [String: StreamSource], warm: Set<String>, audible: Set<String>) {
+    func update(active: Bool, wanted: [String: StreamSource], warm: Set<String>) {
         isActive = active
         self.wanted = wanted
         self.warm = warm
-        self.audible = audible
         reconcile()
     }
 
@@ -96,13 +94,7 @@ final class CameraSessions {
             }
         }
         for id in keep.subtracting(wanted.keys) {
-            // Nothing on screen can say where a sound comes from while the
-            // camera making it is not on it.
-            sessions[id]?.setMuted(true)
             sessions[id]?.setVideoEnabled(false)
-        }
-        for (id, session) in sessions where wanted[id] != nil {
-            session.setMuted(!audible.contains(id))
         }
     }
 }

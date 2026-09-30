@@ -20,7 +20,6 @@ final class CameraSession {
     /// shows that instead of a connection state: a picture that can never come
     /// is not "reconnecting", and must never be a black "live" tile.
     private(set) var unsupportedCodec: String?
-    private(set) var isMuted = true
     private(set) var isVideoEnabled = true
 
     /// What the watchdog has seen; never live on a frozen frame.
@@ -47,22 +46,11 @@ final class CameraSession {
         }
     }
 
-    /// Starts silent, always: whichever tile is entitled to be heard says so
-    /// once it is up, so a camera joining the grid can never blurt out a burst
-    /// of room audio first.
     func start(networkOnline: Bool) {
         player.onEvent = { [weak self] event in self?.handle(event) }
-        player.setMuted(true)
-        isMuted = true
         watchdog.start()
         if !networkOnline { watchdog.onNetworkLost() }
         player.play(source)
-    }
-
-    func setMuted(_ muted: Bool) {
-        guard isMuted != muted else { return }
-        isMuted = muted
-        player.setMuted(muted)
     }
 
     /// Drops or restores the video track of a camera kept connected behind the

@@ -22,7 +22,7 @@ struct CameraSessionsTests {
 
     @Test func aStallGoesReconnectingThenOfflineOnNetworkLossAndRecovers() throws {
         let sessions = registry()
-        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [], audible: [])
+        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [])
         let session = try #require(sessions["n"])
         let player = try #require(factory.player(for: "rtsp://cam/nursery"))
         #expect(player.plays == [Self.nursery])
@@ -61,7 +61,7 @@ struct CameraSessionsTests {
 
     @Test func aFrozenFrameIsNeverLive() throws {
         let sessions = registry()
-        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [], audible: [])
+        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [])
         let session = try #require(sessions["n"])
         let player = try #require(factory.player(for: "rtsp://cam/nursery"))
         player.emit(.playing)
@@ -73,19 +73,9 @@ struct CameraSessionsTests {
         #expect(session.connection != .live)
     }
 
-    @Test func aSessionStartsSilentAndIsAskedForSoundAfter() throws {
-        let sessions = registry()
-        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [], audible: ["n"])
-        let player = try #require(factory.player(for: "rtsp://cam/nursery"))
-        #expect(player.mutedHistory == [true, false])
-
-        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [], audible: [])
-        #expect(player.muted == true)
-    }
-
     @Test func anUnsupportedCodecIsShownAndNotRetried() throws {
         let sessions = registry()
-        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [], audible: [])
+        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [])
         let session = try #require(sessions["n"])
         let player = try #require(factory.player(for: "rtsp://cam/nursery"))
 
@@ -102,7 +92,7 @@ struct CameraSessionsTests {
 
     @Test func anUnsupportedCodecStillReconnectsItsSound() throws {
         let sessions = registry()
-        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [], audible: ["n"])
+        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [])
         let session = try #require(sessions["n"])
         let player = try #require(factory.player(for: "rtsp://cam/nursery"))
         player.emit(.unsupportedCodec("AV1"))
@@ -122,12 +112,11 @@ struct CameraSessionsTests {
         sessions.setOnline(true)
         #expect(player.plays.count == 3)
         #expect(session.tileState == .unsupported(codec: "AV1"))
-        #expect(player.muted == false)
     }
 
     @Test func anUndecodableStreamThatEndsAfterAReconnectIsReconnectedAgain() throws {
         let sessions = registry()
-        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [], audible: ["n"])
+        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [])
         let player = try #require(factory.player(for: "rtsp://cam/nursery"))
         let config = PlaybackWatchdog.Config()
         player.emit(.unsupportedCodec("AV1"))
@@ -145,7 +134,7 @@ struct CameraSessionsTests {
 
     @Test func thePictureShapeIsKept() throws {
         let sessions = registry()
-        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [], audible: [])
+        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [])
         try #require(factory.player(for: "rtsp://cam/nursery")).emit(.videoAspect(4.0 / 3.0))
         #expect(sessions["n"]?.videoAspect == 4.0 / 3.0)
     }
@@ -153,7 +142,7 @@ struct CameraSessionsTests {
     @Test func aSessionStartedWithNoNetworkIsOffline() throws {
         let sessions = registry()
         sessions.setOnline(false)
-        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [], audible: [])
+        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [])
         #expect(sessions["n"]?.connection == .offline)
     }
 
@@ -161,20 +150,19 @@ struct CameraSessionsTests {
 
     @Test func warmCamerasKeepTheirSessionWithoutVideo() throws {
         let sessions = registry()
-        sessions.update(active: true, wanted: ["n": Self.nursery, "p": Self.playroom], warm: [], audible: [])
+        sessions.update(active: true, wanted: ["n": Self.nursery, "p": Self.playroom], warm: [])
         let playroom = try #require(factory.player(for: "rtsp://cam/playroom"))
         playroom.emit(.playing)
 
         // The nursery opens on its own; the playroom is kept warm behind it.
-        sessions.update(active: true, wanted: ["n": Self.nursery], warm: ["p"], audible: ["n"])
+        sessions.update(active: true, wanted: ["n": Self.nursery], warm: ["p"])
         #expect(!playroom.released)
         #expect(!playroom.videoEnabled)
-        #expect(playroom.muted == true)
         scheduler.advance(by: 60_000)
         #expect(playroom.plays.count == 1, "a warm camera is not stalled")
 
         // Back to the grid: the same session, video restored, no new player.
-        sessions.update(active: true, wanted: ["n": Self.nursery, "p": Self.playroom], warm: [], audible: [])
+        sessions.update(active: true, wanted: ["n": Self.nursery, "p": Self.playroom], warm: [])
         #expect(playroom.videoEnabled)
         #expect(factory.players(for: "rtsp://cam/playroom").count == 1)
         #expect(sessions["p"]?.connection == .connecting, "not live until it paints again")
@@ -182,42 +170,42 @@ struct CameraSessionsTests {
 
     @Test func warmthNeverConjuresASession() {
         let sessions = registry()
-        sessions.update(active: true, wanted: ["n": Self.nursery], warm: ["p"], audible: [])
+        sessions.update(active: true, wanted: ["n": Self.nursery], warm: ["p"])
         #expect(sessions["p"] == nil)
         #expect(factory.players(for: "rtsp://cam/playroom").isEmpty)
     }
 
     @Test func aCameraNoLongerWantedIsReleased() throws {
         let sessions = registry()
-        sessions.update(active: true, wanted: ["n": Self.nursery, "p": Self.playroom], warm: [], audible: [])
-        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [], audible: [])
+        sessions.update(active: true, wanted: ["n": Self.nursery, "p": Self.playroom], warm: [])
+        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [])
         #expect(sessions["p"] == nil)
         #expect(try #require(factory.player(for: "rtsp://cam/playroom")).released)
     }
 
     @Test func aSourceChangeReplacesTheSession() throws {
         let sessions = registry()
-        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [], audible: [])
+        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [])
         let old = try #require(factory.player(for: "rtsp://cam/nursery"))
         let moved = StreamSource.rtsp(url: "rtsp://cam/nursery-2")
-        sessions.update(active: true, wanted: ["n": moved], warm: [], audible: [])
+        sessions.update(active: true, wanted: ["n": moved], warm: [])
         #expect(old.released)
         #expect(sessions["n"]?.source == moved)
     }
 
     @Test func goingInactiveReleasesEverySessionAndComingBackRebuildsThem() throws {
         let sessions = registry()
-        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [], audible: [])
+        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [])
         let first = try #require(factory.player(for: "rtsp://cam/nursery"))
         first.emit(.playing)
 
-        sessions.update(active: false, wanted: ["n": Self.nursery], warm: [], audible: [])
+        sessions.update(active: false, wanted: ["n": Self.nursery], warm: [])
         #expect(first.released)
         #expect(sessions.sessions.isEmpty)
         // Events from the released player reach nothing.
         #expect(first.onEvent == nil)
 
-        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [], audible: [])
+        sessions.update(active: true, wanted: ["n": Self.nursery], warm: [])
         let second = try #require(factory.player(for: "rtsp://cam/nursery"))
         #expect(second !== first)
         #expect(sessions["n"]?.connection == .connecting)
