@@ -22,6 +22,7 @@ struct FixtureCoverageTests {
         "protect-api/legacy/expected.json",
         "protect-api/public/expected.json",
         "sound-detector/detector.json",
+        "sound-detector/rms.json",
         "stream-url/monitorable.json",
         "stream-url/normalize.json",
         "stream-url/valid.json",
