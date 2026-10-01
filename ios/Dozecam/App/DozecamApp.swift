@@ -8,6 +8,12 @@ struct DozecamApp: App {
         @State private var model = Self.liveModel()
     #endif
 
+    /// Before anything else, so a tap on an alert card that launches the app
+    /// is not lost.
+    init() {
+        NotificationRouter.shared.install()
+    }
+
     /// The real stores and the real players: VLCKit over RTSP, and the Protect
     /// livestream for cameras of the signed-in console. `LivePlayers` is kept
     /// alive by the `make` it hands over.
@@ -16,13 +22,16 @@ struct DozecamApp: App {
         let dependencies = AppDependencies.live()
         let players = LivePlayers(dependencies: dependencies)
         let monitoring = MonitoringService(
-            dependencies: dependencies, speaker: .shared, makePlayer: players.makeAudio(cameraId:sink:))
+            dependencies: dependencies, speaker: .shared, makePlayer: players.makeAudio(cameraId:sink:),
+            alerts: AlertCenter(delivery: .live(speaker: .shared)))
         #if DEBUG
-            return AppModel.forLaunch(
+            let model = AppModel.forLaunch(
                 dependencies: dependencies, makePlayer: players.make(for:), monitoring: monitoring)
         #else
-            return AppModel(dependencies: dependencies, makePlayer: players.make(for:), monitoring: monitoring)
+            let model = AppModel(dependencies: dependencies, makePlayer: players.make(for:), monitoring: monitoring)
         #endif
+        model.followNotices(NotificationRouter.shared.responses)
+        return model
     }
 
     var body: some Scene {

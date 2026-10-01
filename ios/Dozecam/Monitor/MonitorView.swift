@@ -17,6 +17,9 @@ struct MonitorView: View {
     var body: some View {
         let palette = model.palette
         content
+            // Any touch is a person answering a sounding alarm; simultaneous,
+            // so scrolling and every button work as ever.
+            .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in model.touched() })
             .environment(\.viewerPalette, palette)
             .task { await model.observe() }
             .onChange(of: scenePhase, initial: true) { _, phase in
@@ -67,10 +70,19 @@ struct MonitorView: View {
         VStack(spacing: 0) {
             controls
                 .padding(OverlayChrome.margin)
+            // iOS has no ongoing notification: the status line lives here,
+            // on a row of its own so it is never cut short by the buttons.
+            if let status = model.statusLine, !model.showsNotMonitoring {
+                StatusLine(text: status)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, OverlayChrome.margin)
+                    .padding(.bottom, OverlayChrome.gap)
+            }
             CameraGrid(model: model)
         }
         .overlay(alignment: .bottom) {
             VStack(spacing: OverlayChrome.gap) {
+                FailureNotices(model: model)
                 NetworkNotice(reach: model.reach)
                 AnnouncementView(model: model)
             }
@@ -127,6 +139,34 @@ struct ControlRow: View {
             ControlButton(systemImage: "checklist", label: "Night checklist", action: onOpenChecklist)
             ControlButton(systemImage: "gearshape.fill", label: "Settings", action: onOpenSettings)
         }
+    }
+}
+
+/// Every failure past grace, with its start, whatever the alerts switch
+/// says: on the grid and on a camera full screen alike
+/// (shared/spec/failure-alerts.md).
+struct FailureNotices: View {
+    let model: MonitorModel
+
+    var body: some View {
+        ForEach(model.failureNotices, id: \.id) { notice in
+            OverlayNotice(text: notice.text, attention: true)
+        }
+    }
+}
+
+/// What the monitor is doing, and when it last said so: a line that stops
+/// moving is a monitor that has stopped.
+struct StatusLine: View {
+    let text: String
+    @Environment(\.viewerPalette) private var palette
+
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .lineLimit(2)
+            .foregroundStyle(palette.onOverlayVariant)
+            .accessibilityLabel("Monitoring: \(text)")
     }
 }
 

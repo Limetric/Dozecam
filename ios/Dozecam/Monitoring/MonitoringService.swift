@@ -16,8 +16,11 @@ import os
 /// audio output takes the app's audio session over without mixing, which
 /// would end monitoring the first time the app went to the background (#58).
 ///
-/// Alerts are #68's: until then a trigger is logged, with the listen-mode
-/// decisions it would be raised with.
+/// A trigger raises the room's alert through `AlertCenter`, weighed by the
+/// listen-mode rules; every way the monitor can stop doing its job is judged
+/// by the `FailureLedger` each second and announced once, after its grace
+/// period; and a dead-man alarm, pushed back every heartbeat, rings if the
+/// app dies (shared/spec/failure-alerts.md).
 @MainActor
 @Observable
 final class MonitoringService {
@@ -37,8 +40,16 @@ final class MonitoringService {
     /// The rooms listen mode is playing: `ListenTarget.of`. Everything that
     /// says a room is aloud reads this, never the setting.
     private(set) var listeningCameraIds: Set<String> = []
-    /// The most recent trigger, until #68 turns it into an alert.
+    /// The most recent trigger, alerted or not.
     private(set) var lastTrigger: Trigger?
+    /// Every failure past its grace period, oldest first: the viewer's notice
+    /// and the status line, whatever the alerts switch says.
+    private(set) var failures: [MonitoringFailure] = []
+    /// The most recent announced failure to have cleared.
+    private(set) var recovered: RecoveredFailure?
+    /// The status line and its proof of life (shared/spec/monitoring-lifecycle.md,
+    /// "Staying alive"); on iOS it lives in the viewer.
+    private(set) var status: StatusHeartbeat.Display?
 
     struct Trigger: Equatable {
         let cameraId: String
@@ -47,6 +58,8 @@ final class MonitoringService {
     }
 
     let speaker: Speaker
+    let alerts: AlertCenter
+    let wording = FailureWording.system
 
     @ObservationIgnored private let dependencies: AppDependencies
     @ObservationIgnored private let makePlayer: @MainActor (_ cameraId: String, _ sink: SpeakerSink) -> any AudioPlayer
@@ -67,6 +80,21 @@ final class MonitoringService {
     /// The rooms heard at the last look, to find the ones that dropped out.
     @ObservationIgnored private var heardBefore: Set<String> = []
     @ObservationIgnored private var following: Task<Void, Never>?
+    @ObservationIgnored private let battery: BatteryMonitor
+    @ObservationIgnored private var ledger = FailureLedger()
+    @ObservationIgnored private var announcer = FailureAnnouncer()
+    @ObservationIgnored private var statusHeartbeat = StatusHeartbeat()
+    @ObservationIgnored private var judging: ScheduledAction?
+    @ObservationIgnored private var beating: ScheduledAction?
+    /// The last answer on notifications, refreshed on every judgement: iOS
+    /// only answers asynchronously, and grants can go without a word.
+    @ObservationIgnored private var notificationsAllowed = true
+
+    /// How often the failures are judged: grace periods are whole seconds.
+    static let judgeIntervalMs: Int64 = 1_000
+    /// How often the dead-man is pushed back: well inside its 3 min lead
+    /// (#58 never saw a heartbeat slip past 45 s).
+    static let heartbeatIntervalMs: Int64 = 30_000
 
     private static let log = Logger(subsystem: "app.dozecam", category: "monitor")
 
@@ -74,6 +102,8 @@ final class MonitoringService {
         dependencies: AppDependencies,
         speaker: Speaker,
         makePlayer: @escaping @MainActor (_ cameraId: String, _ sink: SpeakerSink) -> any AudioPlayer,
+        alerts: AlertCenter? = nil,
+        battery: BatteryMonitor = BatteryMonitor(),
         scheduler: any MonotonicScheduler = ContinuousScheduler.shared,
         watchdogConfig: PlaybackWatchdog.Config = .init(),
         wallClock: @escaping () -> Date = Date.init
@@ -81,6 +111,8 @@ final class MonitoringService {
         self.dependencies = dependencies
         self.speaker = speaker
         self.makePlayer = makePlayer
+        self.alerts = alerts ?? AlertCenter(delivery: .inert(), scheduler: scheduler)
+        self.battery = battery
         self.scheduler = scheduler
         self.watchdogConfig = watchdogConfig
         self.wallClock = wallClock
@@ -136,6 +168,12 @@ final class MonitoringService {
         following = Task { [weak self] in await self?.follow() }
         reconcile()
         applySpeaker()
+        battery.start()
+        ledger = FailureLedger()
+        announcer = FailureAnnouncer()
+        statusHeartbeat = StatusHeartbeat()
+        judge()
+        heartbeat()
         Self.log.notice("monitoring armed: \(self.monitors.count, privacy: .public) rooms")
         return true
     }
@@ -145,7 +183,7 @@ final class MonitoringService {
     /// cleared so the next open watches every room.
     func exit() {
         exitRequested = true
-        stop()
+        if isRunning { stop() } else { alerts.exit() }
         pausedIds = []
     }
 
@@ -163,6 +201,17 @@ final class MonitoringService {
         for id in Array(monitors.keys) { stopMonitor(id) }
         listeningCameraIds = []
         heardBefore = []
+        judging?.cancel()
+        judging = nil
+        beating?.cancel()
+        beating = nil
+        battery.stop()
+        failures = []
+        recovered = nil
+        status = nil
+        // Nothing monitoring posted outlives it, and the dead-man must not
+        // ring for a monitor that stopped on purpose.
+        alerts.exit()
         speaker.stop()
         Self.log.notice("monitoring stopped")
     }
@@ -205,6 +254,14 @@ final class MonitoringService {
         changedSet()
     }
 
+    // MARK: - Alerts
+
+    /// A person is here: a touch on the viewer, or a card opened or
+    /// dismissed. The alarm stops.
+    func acknowledge() {
+        alerts.acknowledge()
+    }
+
     // MARK: - The viewer's sound
 
     /// The viewer's audible cameras while it makes noise, or nil. Listen mode
@@ -245,7 +302,16 @@ final class MonitoringService {
 
     private func followSettings() async {
         for await next in dependencies.appSettings.settingsUpdates() {
+            let alertsWere = settings.alertsEnabled
             settings = next
+            if next.alertsEnabled != alertsWere {
+                // Off: nothing may reach anyone, so what is up comes down.
+                // On: a failure owed its announcement gets it now.
+                if next.alertsEnabled { alerts.heartbeat(alertsEnabled: true) } else { alerts.dropAll() }
+                alerts.apply(
+                    announcer.alertsChanged(enabled: next.alertsEnabled, active: failures), wording: wording,
+                    settings: next)
+            }
             applySpeaker()
         }
     }
@@ -279,8 +345,7 @@ final class MonitoringService {
             case .lost(.refused):
                 break  // `applySpeaker` below
             case .lost(.resumeFailed):
-                // A monitor that can no longer hold its session is a failure
-                // for #68 to announce.
+                // Judged as a failure (`audioSessionLost`) from here on.
                 Self.log.error("speaker did not come back after an interruption")
             case .interrupted, .resumed, .outputVolumeChanged:
                 break
@@ -352,6 +417,8 @@ final class MonitoringService {
     }
 
     private func stopMonitor(_ id: String) {
+        // A room leaving the set takes its alert with it.
+        alerts.withdraw(cameraId: id)
         monitors.removeValue(forKey: id)?.stop()
         runningCameras[id] = nil
         runningTransports[id] = nil
@@ -372,17 +439,98 @@ final class MonitoringService {
         if fired { trigger(id) }
     }
 
-    /// Until #68 delivers alerts, the decision an alert would be raised with.
+    /// A room's alert (Android's `raiseAlert`), weighed against what is
+    /// heard through listen mode (shared/spec/alerts-and-sound-modes.md).
     private func trigger(_ id: String) {
         let name = names[id] ?? id
         lastTrigger = Trigger(cameraId: id, name: name, at: wallClock())
         let heard = heardAloud()
+        let sounds = ListenTarget.alertSounds(cameraId: id, aloud: heard)
+        let prominent = ListenTarget.alertWakesScreen(cameraId: id, aloud: heard)
         Self.log.notice(
             """
             \(name, privacy: .private) is loud: alerts \(self.settings.alertsEnabled ? "on" : "off", privacy: .public), \
-            sounds \(!heard.contains(id), privacy: .public), \
-            wakes screen \(ListenTarget.alertWakesScreen(cameraId: id, aloud: heard), privacy: .public)
+            sounds \(sounds, privacy: .public), wakes screen \(prominent, privacy: .public)
             """)
+        // The detector still ran, and the meters say so; nothing reaches anyone.
+        guard settings.alertsEnabled else { return }
+        // One card: a heard room must not replace the card of a room nobody
+        // can hear while that one's alarm sounds.
+        guard !ListenTarget.alertYields(cameraId: id, aloud: heard, alarmingCameraId: alerts.alarmingCameraId)
+        else { return }
+        alerts.raiseRoom(cameraId: id, name: name, sounds: sounds, prominent: prominent, settings: settings)
+    }
+
+    // MARK: - Failures
+
+    /// Every way the monitor could be failing, judged together, every second
+    /// while armed: time is an input, since a failure crosses its grace
+    /// period with no event of its own (shared/spec/failure-alerts.md).
+    private func judge() {
+        judging = nil
+        guard isRunning else { return }
+        let reading = battery.reading
+        let health = MonitoringHealth(
+            cameras: monitors.map { id, monitor in
+                CameraMonitorState(
+                    cameraId: id, name: names[id] ?? id, level: monitor.level, phase: phases[id] ?? .armed,
+                    connection: monitor.connection)
+            }.sorted { $0.cameraId < $1.cameraId },
+            networkOnline: online,
+            battery: reading.level.map {
+                BatteryStatus(percent: Int(($0 * 100).rounded()), plugged: reading.isPluggedIn)
+            },
+            notificationsAllowed: notificationsAllowed,
+            screenWakeAllowed: alerts.delivery.access.alarms == .authorized,
+            audioSessionLost: speakerLost)
+        let wallNowMs = Int64(wallClock().timeIntervalSince1970 * 1_000)
+        let update = ledger.evaluate(
+            health, graceMs: Int64(settings.failureGraceMs), nowMs: scheduler.nowMs, wallNowMs: wallNowMs)
+        if failures != update.active { failures = update.active }
+        if let note = update.recoveryNote(monitoredCameraIds: Set(monitors.keys)) { recovered = note }
+        if update.unplugged, let percent = health.battery?.percent { alerts.unplugged(percent: percent) }
+        let action = announcer.judge(update, alertsEnabled: settings.alertsEnabled)
+        alerts.apply(action, wording: wording, settings: settings)
+        if case .none = action { alerts.follow(update.active, wording: wording, settings: settings) }
+        offerStatus(health.cameras, wallNowMs: wallNowMs)
+
+        let access = alerts.delivery.access
+        Task { [weak self] in
+            let grant = await access.notifications()
+            self?.notificationsAllowed = grant.canPost
+        }
+        judging = scheduler.schedule(after: Self.judgeIntervalMs) { [weak self] in self?.judge() }
+    }
+
+    /// The speaker refused, or gone for good after an interruption: with the
+    /// screen locked nothing keeps the app listening.
+    private var speakerLost: Bool {
+        switch speaker.status {
+        case .failed(.refused), .failed(.resumeFailed): true
+        default: false
+        }
+    }
+
+    private func offerStatus(_ states: [CameraMonitorState], wallNowMs: Int64) {
+        let enabled = cameras.count
+        let paused = cameras.filter { pausedIds.contains($0.id) }.count
+        let line = MonitoringStatus.of(
+            anyMonitors: !monitors.isEmpty, states: states, enabledCount: enabled - paused, pausedCount: paused,
+            aloudCameraIds: listeningCameraIds, alertsEnabled: settings.alertsEnabled, failures: failures,
+            recovered: recovered, wording: wording)
+        if let display = statusHeartbeat.offer(
+            line.text, level: line.level, wallMs: wallNowMs, monotonicMs: scheduler.nowMs)
+        {
+            status = display
+        }
+    }
+
+    /// Pushes the dead-man back; it rings only if these stop.
+    private func heartbeat() {
+        beating = nil
+        guard isRunning else { return }
+        alerts.heartbeat(alertsEnabled: settings.alertsEnabled)
+        beating = scheduler.schedule(after: Self.heartbeatIntervalMs) { [weak self] in self?.heartbeat() }
     }
 
     // MARK: - The speaker

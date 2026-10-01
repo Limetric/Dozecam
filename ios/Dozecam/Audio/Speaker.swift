@@ -132,6 +132,7 @@ final class Speaker {
         setStatus(.stopped)
         wantedAloud = []
         applyAloud()
+        mix.alarm.stop()
         hardware.stopEngine()
         hardware.deactivate()
     }
@@ -182,6 +183,36 @@ final class Speaker {
         mix.setAloud(aloud)
         if aloudCameraIds != aloud { aloudCameraIds = aloud }
     }
+
+    // MARK: - The alarm
+
+    /// Starts a burst of `tone` over the mix at `gain` (0 to 1 of full scale,
+    /// under the media volume): the fallback alarm when AlarmKit is not
+    /// authorised (#68). A stopped or failed speaker is started first, since
+    /// an alarm nobody hears is the one thing that must not happen. While
+    /// interrupted the burst waits in the mix and sounds if the speaker comes
+    /// back before it would have ended. True when it is sounding now.
+    @discardableResult
+    func playAlarm(_ tone: AlarmToneBuffer, gain: Float) -> Bool {
+        switch status {
+        case .stopped, .failed: start()
+        case .running, .interrupted: break
+        }
+        mix.alarm.play(tone, gain: gain)
+        return isGranted
+    }
+
+    /// The burst in flight follows the ramp.
+    func setAlarmGain(_ gain: Float) {
+        mix.alarm.setGain(gain)
+    }
+
+    func stopAlarm() {
+        mix.alarm.stop()
+    }
+
+    /// Whether a burst is sounding (or waiting out an interruption).
+    nonisolated var isAlarmPlaying: Bool { mix.alarm.isPlaying }
 
     // MARK: - Events
 

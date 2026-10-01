@@ -118,6 +118,7 @@ struct FullscreenCamera: View {
                 if let countdown = model.countdown {
                     InactivityNotice(countdown: countdown) { model.userInteracted() }
                 }
+                FailureNotices(model: model)
                 AnnouncementView(model: model)
             }
             .padding(OverlayChrome.margin)

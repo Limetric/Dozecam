@@ -130,6 +130,9 @@ final class SpeakerMix: Sendable {
 
     private let sinks = Mutex(Sinks())
 
+    /// The fallback alarm's tone, mixed over the rooms (`AlarmVoice`).
+    let alarm = AlarmVoice()
+
     /// The sink for `cameraId`, made on first ask. The same sink for as long
     /// as the camera has one, so a player reconnecting keeps writing where the
     /// mix reads.
@@ -158,9 +161,9 @@ final class SpeakerMix: Sendable {
     }
 
     /// The render thread's work: `frames` mono samples of every aloud room
-    /// added together, clipped to full scale. Silence when nothing is aloud,
-    /// which is what keeps the engine (and so the app) running with the
-    /// sound off.
+    /// added together, and the alarm's burst over them, clipped to full
+    /// scale. Silence when nothing is aloud, which is what keeps the engine
+    /// (and so the app) running with the sound off.
     func render(into output: UnsafeMutablePointer<Float>, frames: Int) {
         output.update(repeating: 0, count: frames)
         let current = sinks.withLock { $0.all }
@@ -173,7 +176,8 @@ final class SpeakerMix: Sendable {
                 sink.discardAll()
             }
         }
-        // One room cannot exceed full scale; two loud ones summed can.
+        if alarm.mix(into: output, frames: frames) { mixed += 1 }
+        // One source cannot exceed full scale; two loud ones summed can.
         guard mixed > 1 else { return }
         for index in 0..<frames { output[index] = min(max(output[index], -1), 1) }
     }
