@@ -10,7 +10,7 @@ composeBom = "2026.09.00"
 # MaterialShapes) is internal. Pinned ahead of the BOM until 1.5.0 is stable.
 material3 = "1.5.0-alpha29"
 datastore = "1.2.1"
-libvlc = "3.7.6"
+libvlc = "3.7.7"
 media3 = "1.11.1"
 fragment = "1.9.1"
 serializationJson = "1.11.0"
