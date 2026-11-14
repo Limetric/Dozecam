@@ -33,6 +33,14 @@ Versions are never edited by hand. `buildSrc`'s `AppVersioning` reads `APP_VERSI
 
 Releasing is publishing a SemVer GitHub release: `android-release.yml` then builds the signed bundle, attaches the APK and AAB to the release, lifts the approved Play copy out of the release body (`tools/release/extract_play_store_notes.py`, which reads the `play-store-release-notes` markers) into `android/distribution/whatsnew/`, and uploads the bundle to Google Play's **internal testing** track. Promotion to any wider track is a manual step in the Play Console. The `create-github-release` and `play-store-changelog` skills in `.claude/skills/` write the release body and the Play "What's new" copy.
 
+## Emulators and disk space
+
+An AVD's disk images only grow on the host: deleting files or uninstalling apps inside the emulator frees nothing, and every Quick Boot save keeps a snapshot that holds on to the data written since. Every debug install adds hundreds of MB, so keep the number of AVDs down and let them boot cold. `tools/android/avd/avd.ts` (run with Bun) does the cleanup, and skips any AVD that is running:
+
+- Use an emulator that is already running (`adb devices`), the `Pixel_8a` AVD the `test-app-changes` skill boots, or an existing `Dozecam_*` AVD. Create an AVD only when the task needs an API level or device none of them has. Name it `dz-tmp-<purpose>`, for example `dz-tmp-api31`, set `disk.dataPartition.size=6G` in its `config.ini`, make it boot cold (`bun tools/android/avd/avd.ts configure <name>`), and delete it with `$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager delete avd -n <name>` once the task is done. `bun tools/android/avd/avd.ts prune` deletes the ones left behind after three idle days.
+- `bun tools/android/avd/avd.ts status` shows each AVD's disk use, state and boot mode. `compact <AVD>` drops a stopped AVD's Quick Boot snapshots and the space they held, and keeps its data. `wipe <AVD>` resets it to factory data and caps `/data` at 6 GB, the smallest that recent system images accept. Only compact or wipe an AVD the user asked you to: stop it first with `adb -s <serial> emu kill`, and only when no other session is using it. AVDs are shared with other projects on the machine, such as `Pixel_8a`.
+- `bun tools/android/avd/avd.ts schedule install Pixel_8a` runs `auto` every Monday on macOS: it prunes, sets cold boot on `Dozecam_*`, `dz-tmp-*` and the AVDs named, and compacts the stopped ones. Install it again after the script changes, since the schedule runs its own copy. CloudMount has its own copy of this tool and schedule; the two lock each AVD against each other and run an hour apart.
+
 ## Architecture
 
 Kotlin + Jetpack Compose, minSdk 31 / targetSdk 37, all under `android/app/src/main/java/app/dozecam/`. Three activities (`MainActivity` for the monitor, `OnboardingActivity`, `SettingsActivity`), each with a ViewModel in `ui/`.
