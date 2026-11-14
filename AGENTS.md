@@ -15,7 +15,7 @@ A monorepo with one native app per platform:
 - `android/` — the Android app (Kotlin, Jetpack Compose, Gradle). Guidance: `android/AGENTS.md`.
 - `ios/` — the iPhone and iPad app (Swift, SwiftUI, XcodeGen). Guidance: `ios/AGENTS.md`.
 - `shared/` — `spec/`, the platform-neutral product spec, and `fixtures/`, the golden test vectors both apps' tests read.
-- `tools/` — shared tooling: `testbed.sh` (synthetic RTSP cameras for testing without a Protect console), `release/` (Play copy extraction), and the talk-back spike.
+- `tools/` — shared tooling: `testbed.sh` (synthetic RTSP cameras for testing without a Protect console), `release/` (Play copy extraction), `android/avd/` (the emulator disk tool, see `android/AGENTS.md`), and the talk-back spike.
 - `spikes/` — throwaway iOS spikes whose findings are on #58 and #59; not product code.
 - `store-listing/<platform>/` — store copy.
 
@@ -32,6 +32,6 @@ These hold on every platform. Where a platform cannot do what another does, it i
 
 ## CI and releases
 
-Each platform has its own workflows, prefixed with its name (`.github/workflows/android-*.yml`, `ios-*.yml`), and path-filtered so a change to one platform does not run the other's suite. Changes under `shared/` run every platform.
+Each platform has its own workflows, prefixed with its name (`.github/workflows/android-*.yml`, `ios-*.yml`), and path-filtered so a change to one platform does not run the other's suite. Changes under `shared/` run every platform. `android-avd-tooling.yml` runs the emulator disk tool's tests (`bun test` in `tools/android/avd/`) when it changes.
 
 Releases are Android-only for now: see "Build variants" in `android/AGENTS.md`. Per-platform release tags arrive with iOS releases (#63).

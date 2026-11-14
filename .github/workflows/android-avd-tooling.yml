@@ -1,0 +1,45 @@
+# Tests for the AVD disk tool (tools/android/avd/avd.ts), which deletes
+# emulator data on developers' machines, so a regression that misses a running
+# emulator or reaches past an AVD loses work. The tests need only Bun, and run
+# against fake AVDs with stand-ins for qemu-img and ps.
+name: Android AVD tooling
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - tools/android/avd/**
+      - .github/workflows/android-avd-tooling.yml
+  pull_request:
+    paths:
+      - tools/android/avd/**
+      - .github/workflows/android-avd-tooling.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-avd-tooling-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: bun test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+        working-directory: tools/android/avd
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+
+      - name: Test
+        run: bun test
