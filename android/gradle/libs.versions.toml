@@ -1,24 +1,24 @@
 [versions]
-agp = "9.4.1"
-kotlin = "2.4.20"
+agp = "9.5.2"
+kotlin = "2.4.21"
 coreKtx = "1.19.1"
 lifecycle = "2.11.0"
 activityCompose = "1.13.0"
-composeBom = "2026.09.00"
+composeBom = "2026.11.01"
 # The BOM still pins material3 1.4.0, where the Material 3 Expressive surface
 # (MaterialExpressiveTheme, ButtonGroup, ToggleButton, LoadingIndicator,
 # MaterialShapes) is internal. Pinned ahead of the BOM until 1.5.0 is stable.
-material3 = "1.5.0-alpha29"
-datastore = "1.2.1"
-libvlc = "3.7.6"
+material3 = "1.6.0-alpha01"
+datastore = "1.3.0"
+libvlc = "3.7.7"
 media3 = "1.11.1"
 fragment = "1.9.1"
-serializationJson = "1.11.0"
-okhttp = "5.5.0"
+serializationJson = "1.13.0"
+okhttp = "5.5.1"
 securityCrypto = "1.1.0"
 coroutinesTest = "1.11.0"
 junit = "4.13.2"
-robolectric = "4.17"
+robolectric = "4.18.1"
 androidxTestRunner = "1.7.0"
 androidxTestExtJunit = "1.3.0"
 
